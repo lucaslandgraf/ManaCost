@@ -20,13 +20,21 @@ def scrape_muffato_deals() -> list[dict]:
 
     # Cesta básica de itens de alto consumo em supermercado
     search_queries = [
-        # Mercearia básica
-        "arroz", "feijao", "leite", "oleo", "cafe", "acucar", "farinha", "macarrao",
-        # Proteínas e feira
-        "frango", "carne", "ovo", "banana", "tomate", "batata",
-        # Limpeza e higiene
-        "detergente", "sabao em po", "amaciante", "papel higienico", "creme dental", "sabonete"
-    ]
+    # Cesta Básica / Mercearia Seca
+    "arroz", "feijao", "oleo de soja", "cafe", "acucar", "macarrao", 
+    "farinha de trigo", "leite integral", "molho de tomate", "sal refinado",
+    
+    # Proteínas e Frios
+    "frango", "peito de frango", "carne moida", "acem", "contra file", 
+    "ovos", "queijo mucarela", "presunto",
+    
+    # Hortifrúti Essencial
+    "batata", "tomate", "cebola", "banana", "maca",
+    
+    # Higiene e Limpeza Doméstica
+    "detergente", "sabao em po", "amaciante", "desinfetante", "agua sanitaria",
+    "papel higienico", "creme dental", "sabonete", "shampoo"
+]
 
     print(f"[Muffato] Processando {len(search_queries)} categorias essenciais...")
 

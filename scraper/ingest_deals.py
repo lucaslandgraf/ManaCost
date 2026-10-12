@@ -4,6 +4,7 @@ from datetime import date, timedelta
 from dotenv import load_dotenv
 from supabase import create_client, Client
 from extractors.muffato import scrape_muffato_deals
+from extractors.almeida import scrape_almeida_deals
 
 load_dotenv()
 
@@ -17,28 +18,41 @@ if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 def run_ingestion():
-    print("Iniciando ingestão de ofertas em tempo real...")
+    print("Iniciando ingestao de ofertas de Londrina (Super Muffato + Rede Almeida)...")
 
-    # 1. Coleta das redes
-    all_deals = scrape_muffato_deals()
+    all_deals = []
+
+    # 1. Super Muffato (API VTEX Londrina)
+    try:
+        muffato_deals = scrape_muffato_deals()
+        all_deals.extend(muffato_deals)
+    except Exception as e:
+        print(f"Falha no Super Muffato: {e}")
+
+    # 2. Rede Almeida (Parsing de Encarte / Londrina)
+    try:
+        almeida_deals = scrape_almeida_deals()
+        all_deals.extend(almeida_deals)
+    except Exception as e:
+        print(f"Falha no Almeida: {e}")
 
     if not all_deals:
         print("Nenhuma oferta capturada. Abortando execução.")
         return
 
-    # 2. Define validade para 7 dias à frente
+    # Validade padrão de 7 dias
     valid_until_date = (date.today() + timedelta(days=7)).isoformat()
     for deal in all_deals:
         deal["valid_until"] = valid_until_date
 
-    # 3. Upsert no Supabase baseado na constraint (store_name, product_name)
-    print(f"Persistindo {len(all_deals)} ofertas via upsert...")
+    # Upsert no Supabase
+    print(f"Persistindo {len(all_deals)} ofertas no Supabase via upsert...")
     supabase.table("flyer_deals").upsert(
         all_deals,
         on_conflict="store_name,product_name"
     ).execute()
 
-    print("Pipeline de ingestão finalizado com sucesso!")
+    print("Pipeline de ingestão finalizado com sucesso para todos os mercados!")
 
 if __name__ == "__main__":
     run_ingestion()
