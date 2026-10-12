@@ -7,6 +7,7 @@ import {
   SafeAreaView,
   FlatList,
   RefreshControl,
+  Alert,
 } from 'react-native';
 import { supabase } from '../../config/supabase';
 import { useAuth } from '../../context/AuthContext';
@@ -34,6 +35,9 @@ export const DashboardScreen = () => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // Controlo de Mês de Competência
+  const [currentDate, setCurrentDate] = useState(new Date());
+
   // Totais financeiros
   const [totalIncome, setTotalIncome] = useState(0);
   const [totalExpense, setTotalExpense] = useState(0);
@@ -43,16 +47,45 @@ export const DashboardScreen = () => {
   const [spentWants, setSpentWants] = useState(0);
   const [spentSavings, setSpentSavings] = useState(0);
 
+  const getMonthDateRange = (date: Date) => {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const startDate = new Date(year, month, 1).toISOString().split('T')[0];
+    const endDate = new Date(year, month + 1, 0).toISOString().split('T')[0];
+    return { startDate, endDate };
+  };
+
+  const changeMonth = (delta: number) => {
+    const newDate = new Date(currentDate);
+    newDate.setMonth(newDate.getMonth() + delta);
+    setCurrentDate(newDate);
+  };
+
+  const formatMonthTitle = (date: Date) => {
+    const months = [
+      'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+      'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
+    ];
+    return `${months[date.getMonth()]} ${date.getFullYear()}`;
+  };
+
   const fetchTransactions = async () => {
     setLoading(true);
+    const { startDate, endDate } = getMonthDateRange(currentDate);
+
     const { data } = await supabase
       .from('transactions')
       .select('id, description, amount, type, date, is_settled, categories(name, rule_group)')
+      .gte('date', startDate)
+      .lte('date', endDate)
       .order('date', { ascending: false });
 
     if (data) {
       setTransactions(data as unknown as Transaction[]);
       calculateMetrics(data as unknown as Transaction[]);
+    } else {
+      setTransactions([]);
+      calculateMetrics([]);
     }
     setLoading(false);
   };
@@ -70,11 +103,11 @@ export const DashboardScreen = () => {
         income += val;
       } else {
         expense += val;
+        const rule = item.categories?.rule_group;
+        if (rule === 'needs_50') needs += val;
+        else if (rule === 'wants_30') wants += val;
+        else if (rule === 'savings_20') savings += val;
       }
-      const rule = item.categories?.rule_group;
-      if (rule === 'needs_50') needs += val;
-      else if (rule === 'wants_30') wants += val;
-      else if (rule === 'savings_20') savings += val;
     });
 
     setTotalIncome(income);
@@ -84,9 +117,61 @@ export const DashboardScreen = () => {
     setSpentSavings(savings);
   };
 
+  // Alterna o estado de liquidação (Pendente <-> Liquidado)
+  const toggleSettled = async (item: Transaction) => {
+    try {
+      const updatedStatus = !item.is_settled;
+      const { error } = await supabase
+        .from('transactions')
+        .update({ is_settled: updatedStatus })
+        .eq('id', item.id);
+
+      if (error) throw error;
+
+      setTransactions((prev) =>
+        prev.map((tx) => (tx.id === item.id ? { ...tx, is_settled: updatedStatus } : tx))
+      );
+    } catch (err) {
+      console.error('Erro ao alternar estado de liquidação:', err);
+      Alert.alert('Erro', 'Não foi possível atualizar o estado do lançamento.');
+    }
+  };
+
+  // Apaga a transação com confirmação
+  const deleteTransaction = (item: Transaction) => {
+    Alert.alert(
+      'Apagar Lançamento',
+      `Tem a certeza de que deseja remover "${item.description}"?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Apagar',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const { error } = await supabase
+                .from('transactions')
+                .delete()
+                .eq('id', item.id);
+
+              if (error) throw error;
+
+              const remaining = transactions.filter((tx) => tx.id !== item.id);
+              setTransactions(remaining);
+              calculateMetrics(remaining);
+            } catch (err) {
+              console.error('Erro ao apagar lançamento:', err);
+              Alert.alert('Erro', 'Não foi possível remover o lançamento.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   useEffect(() => {
     fetchTransactions();
-  }, []);
+  }, [currentDate]);
 
   const budgetNeeds = totalIncome * 0.5;
   const budgetWants = totalIncome * 0.3;
@@ -110,6 +195,17 @@ export const DashboardScreen = () => {
         </View>
         <TouchableOpacity style={styles.logoutBtn} onPress={signOut}>
           <Text style={styles.logoutText}>Sair</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Seletor de Mês de Competência */}
+      <View style={styles.monthSelector}>
+        <TouchableOpacity style={styles.arrowBtn} onPress={() => changeMonth(-1)}>
+          <Text style={styles.arrowText}>‹</Text>
+        </TouchableOpacity>
+        <Text style={styles.monthTitle}>{formatMonthTitle(currentDate)}</Text>
+        <TouchableOpacity style={styles.arrowBtn} onPress={() => changeMonth(1)}>
+          <Text style={styles.arrowText}>›</Text>
         </TouchableOpacity>
       </View>
 
@@ -197,26 +293,48 @@ export const DashboardScreen = () => {
           <TouchableOpacity 
             style={styles.txItem} 
             onPress={() => setSelectedTx(item)}
+            onLongPress={() => deleteTransaction(item)}
+            delayLongPress={500}
           >
-            <View>
+            <View style={{ flex: 1, paddingRight: 8 }}>
               <Text style={styles.txDesc}>{item.description}</Text>
               <Text style={styles.txSub}>
                 {item.categories?.name ?? 'Geral'} • {item.date}
-                {!item.is_settled && ' • (Pendente)'}
               </Text>
             </View>
-            <Text
-              style={[
-                styles.txAmount,
-                { color: item.type === 'income' ? '#10B981' : '#EF4444' },
-              ]}
-            >
-              {item.type === 'income' ? '+' : '-'} R$ {Number(item.amount).toFixed(2)}
-            </Text>
+
+            <View style={styles.rightActions}>
+              <Text
+                style={[
+                  styles.txAmount,
+                  { color: item.type === 'income' ? '#10B981' : '#EF4444' },
+                ]}
+              >
+                {item.type === 'income' ? '+' : '-'} R$ {Number(item.amount).toFixed(2)}
+              </Text>
+
+              {/* Botão de alternância de Liquidação */}
+              <TouchableOpacity
+                style={[
+                  styles.statusBadge,
+                  item.is_settled ? styles.badgeSettled : styles.badgePending,
+                ]}
+                onPress={() => toggleSettled(item)}
+              >
+                <Text
+                  style={[
+                    styles.statusBadgeText,
+                    item.is_settled ? styles.textSettled : styles.textPending,
+                  ]}
+                >
+                  {item.is_settled ? 'Efetivado' : 'Pendente'}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </TouchableOpacity>
         )}
         ListEmptyComponent={
-          <Text style={styles.emptyText}>Nenhuma transação registada ainda.</Text>
+          <Text style={styles.emptyText}>Nenhuma transação neste período.</Text>
         }
       />
 
@@ -256,17 +374,41 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingTop: 16,
-    paddingBottom: 8,
+    paddingBottom: 4,
   },
   welcomeText: { fontSize: 22, fontWeight: 'bold', color: '#F8FAFC' },
   subText: { fontSize: 12, color: '#94A3B8' },
   logoutBtn: { padding: 8 },
   logoutText: { color: '#EF4444', fontSize: 13, fontWeight: 'bold' },
+  monthSelector: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginVertical: 6,
+    paddingHorizontal: 20,
+  },
+  arrowBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 4,
+  },
+  arrowText: {
+    color: '#38BDF8',
+    fontSize: 26,
+    fontWeight: 'bold',
+    lineHeight: 28,
+  },
+  monthTitle: {
+    color: '#F8FAFC',
+    fontSize: 16,
+    fontWeight: '700',
+    minWidth: 160,
+    textAlign: 'center',
+  },
   summaryCard: {
     flexDirection: 'row',
     backgroundColor: '#1E293B',
     marginHorizontal: 20,
-    marginTop: 12,
+    marginTop: 6,
     borderRadius: 12,
     padding: 16,
   },
@@ -277,7 +419,7 @@ const styles = StyleSheet.create({
   budgetCard: {
     backgroundColor: '#1E293B',
     marginHorizontal: 20,
-    marginTop: 12,
+    marginTop: 10,
     borderRadius: 12,
     padding: 16,
   },
@@ -293,7 +435,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    marginTop: 20,
+    marginTop: 16,
     marginBottom: 8,
   },
   sectionTitle: { color: '#F8FAFC', fontSize: 16, fontWeight: 'bold' },
@@ -325,6 +467,33 @@ const styles = StyleSheet.create({
   },
   txDesc: { color: '#F8FAFC', fontSize: 15, fontWeight: '500' },
   txSub: { color: '#64748B', fontSize: 12, marginTop: 2 },
+  rightActions: {
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+  },
   txAmount: { fontSize: 15, fontWeight: 'bold' },
+  statusBadge: {
+    marginTop: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  badgeSettled: {
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+  },
+  badgePending: {
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+  },
+  statusBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  textSettled: {
+    color: '#34D399',
+  },
+  textPending: {
+    color: '#FBBF24',
+  },
   emptyText: { textAlign: 'center', color: '#64748B', marginTop: 24, fontSize: 14 },
 });
