@@ -12,6 +12,8 @@ import { supabase } from '../../config/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { NewTransactionModal } from './NewTransactionModal';
 import { ScannerScreen } from './ScannerScreen';
+import { DealsScreen } from './DealsScreen';
+import { PurchaseDetailsModal } from './PurchaseDetailsModal';
 
 interface Transaction {
   id: string;
@@ -24,6 +26,8 @@ interface Transaction {
 }
 
 export const DashboardScreen = () => {
+  const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
+  const [showDeals, setShowDeals] = useState(false);
   const [scannerVisible, setScannerVisible] = useState(false);
   const { user, signOut } = useAuth();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -84,7 +88,11 @@ export const DashboardScreen = () => {
     fetchTransactions();
   }, []);
 
-  // Tetos calculados com base na receita total registrada
+  // Alterna para o ecrã de Ofertas & Encartes
+  if (showDeals) {
+    return <DealsScreen onBack={() => setShowDeals(false)} />;
+  }
+
   const budgetNeeds = totalIncome * 0.5;
   const budgetWants = totalIncome * 0.3;
   const budgetSavings = totalIncome * 0.2;
@@ -156,24 +164,30 @@ export const DashboardScreen = () => {
         </View>
       </View>
 
-      {/* Lista de Transações */}
+      {/* Lista de Transações e Ações */}
       <View style={styles.listHeader}>
-  <Text style={styles.sectionTitle}>Últimos Lançamentos</Text>
-  <View style={{ flexDirection: 'row', gap: 8 }}>
-    <TouchableOpacity
-      style={[styles.addBtn, { backgroundColor: '#38BDF8' }]}
-      onPress={() => setScannerVisible(true)}
-    >
-      <Text style={styles.addBtnText}>📷 Ler NFC-e</Text>
-    </TouchableOpacity>
-    <TouchableOpacity
-      style={styles.addBtn}
-      onPress={() => setModalVisible(true)}
-    >
-      <Text style={styles.addBtnText}>+ Lançar</Text>
-    </TouchableOpacity>
-  </View>
-</View>
+        <Text style={styles.sectionTitle}>Lançamentos</Text>
+        <View style={{ flexDirection: 'row', gap: 6 }}>
+          <TouchableOpacity
+            style={[styles.addBtn, { backgroundColor: '#059669' }]}
+            onPress={() => setShowDeals(true)}
+          >
+            <Text style={styles.addBtnText}>🏷️ Ofertas</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.addBtn, { backgroundColor: '#38BDF8' }]}
+            onPress={() => setScannerVisible(true)}
+          >
+            <Text style={styles.addBtnText}>📷 NFC-e</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.addBtn}
+            onPress={() => setModalVisible(true)}
+          >
+            <Text style={styles.addBtnText}>+ Lançar</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
 
       <FlatList
         data={transactions}
@@ -183,24 +197,27 @@ export const DashboardScreen = () => {
         }
         contentContainerStyle={styles.listContent}
         renderItem={({ item }) => (
-          <View style={styles.txItem}>
-            <View>
-              <Text style={styles.txDesc}>{item.description}</Text>
-              <Text style={styles.txSub}>
+  <TouchableOpacity 
+    style={styles.txItem} 
+    onPress={() => setSelectedTx(item)}
+  >
+    <View>
+      <Text style={styles.txDesc}>{item.description}</Text>
+      <Text style={styles.txSub}>
   {item.categories?.name ?? 'Geral'} • {item.date}
   {!item.is_settled && ' • (Pendente)'}
 </Text>
-            </View>
-            <Text
-              style={[
-                styles.txAmount,
-                { color: item.type === 'income' ? '#10B981' : '#EF4444' },
-              ]}
-            >
-              {item.type === 'income' ? '+' : '-'} R$ {Number(item.amount).toFixed(2)}
-            </Text>
-          </View>
-        )}
+    </View>
+    <Text
+      style={[
+        styles.txAmount,
+        { color: item.type === 'income' ? '#10B981' : '#EF4444' },
+      ]}
+    >
+      {item.type === 'income' ? '+' : '-'} R$ {Number(item.amount).toFixed(2)}
+    </Text>
+  </TouchableOpacity>
+)}
         ListEmptyComponent={
           <Text style={styles.emptyText}>Nenhuma transação registrada ainda.</Text>
         }
@@ -217,6 +234,13 @@ export const DashboardScreen = () => {
         onClose={() => setScannerVisible(false)}
         onSuccess={fetchTransactions}
       />
+      <PurchaseDetailsModal
+     visible={!!selectedTx}
+     onClose={() => setSelectedTx(null)}
+     description={selectedTx?.description ?? ''}
+     date={selectedTx?.date ?? ''}
+     amount={selectedTx?.amount ?? 0}
+   />
     </SafeAreaView>
   );
 };
@@ -272,11 +296,11 @@ const styles = StyleSheet.create({
   sectionTitle: { color: '#F8FAFC', fontSize: 16, fontWeight: 'bold' },
   addBtn: {
     backgroundColor: '#10B981',
-    paddingHorizontal: 14,
+    paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 20,
   },
-  addBtnText: { color: '#F8FAFC', fontWeight: 'bold', fontSize: 13 },
+  addBtnText: { color: '#F8FAFC', fontWeight: 'bold', fontSize: 12 },
   listContent: { paddingHorizontal: 20, paddingBottom: 24 },
   txItem: {
     flexDirection: 'row',

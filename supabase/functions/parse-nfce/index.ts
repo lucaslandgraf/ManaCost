@@ -6,6 +6,13 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+interface ParsedItem {
+  name: string;
+  quantity: number;
+  unit_price: number;
+  total_price: number;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -21,89 +28,138 @@ serve(async (req) => {
       );
     }
 
-    // 1. Extrair a chave de 44 dígitos (do URL da SEFAZ ou do input numérico direto)
+    // 1. Extrair chave de 44 dígitos ou a URL completa
     let accessKey = "";
     const keyMatch = raw_data.match(/[0-9]{44}/);
     if (keyMatch) {
       accessKey = keyMatch[0];
     } else {
       const pMatch = raw_data.match(/[?&]p=([0-9]{44})/i);
-      if (pMatch) {
-        accessKey = pMatch[1];
-      }
+      if (pMatch) accessKey = pMatch[1];
     }
+
+    console.log("Processando leitura. Chave detectada:", accessKey);
+    console.log("Raw data recebido:", raw_data);
 
     if (!accessKey || accessKey.length !== 44) {
       return new Response(
-        JSON.stringify({ error: "Chave de acesso de 44 dígitos não identificada no QR Code." }),
+        JSON.stringify({ error: "Chave de acesso de 44 dígitos não identificada." }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // 2. Conectar com a Service Role do Supabase para ignorar barreiras de leitura entre famílias
     const supabaseAdmin = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
     );
 
-    // 3. Regra de Negócio: Trava de Duplicidade
+    // 2. Trava de duplicidade
     const { data: existingPurchase } = await supabaseAdmin
       .from("purchases")
-      .select("id, purchase_date, profiles(full_name)")
+      .select("id, purchase_date")
       .eq("access_key", accessKey)
       .maybeSingle();
 
     if (existingPurchase) {
-      const regUser = (existingPurchase as any).profiles?.full_name || "outro familiar";
       return new Response(
         JSON.stringify({
           already_registered: true,
-          registered_by: regUser,
-          registered_date: existingPurchase.purchase_date,
+          message: "Esta nota fiscal já foi registrada anteriormente.",
         }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // 4. Buscar os dados da Nota Fiscal
-    // Faz a consulta na URL pública da SEFAZ PR ou fallback estruturado
-    let storeName = "Supermercado / Estabelecimento";
-    let totalAmount = 0;
-    const items: Array<{ name: string; quantity: number; unit_price: number; total_price: number }> = [];
-
-    // Tenta obter o HTML do cupom
-    const url = raw_data.startsWith("http")
+    // 3. Fazer requisição para a SEFAZ
+    const targetUrl = raw_data.startsWith("http")
       ? raw_data
       : `http://www.fazenda.pr.gov.br/nfce/qrcode?p=${accessKey}`;
 
+    console.log("Buscando URL da SEFAZ:", targetUrl);
+
+    let storeName = "Supermercado / Estabelecimento";
+    let totalAmount = 0;
+    const items: ParsedItem[] = [];
+
     try {
-      const response = await fetch(url, {
-        headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" },
+      const resp = await fetch(targetUrl, {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+        },
+        redirect: "follow",
       });
-      const html = await response.text();
 
-      // Parser regex simples dos campos padrão SEFAZ-PR
-      const storeMatch = html.match(/<div class="txtTopo">([^<]+)<\/div>/i) ||
-                         html.match(/<span class="txtTit">([^<]+)<\/span>/i);
-      if (storeMatch) storeName = storeMatch[1].trim();
+      const html = await resp.text();
+      console.log("Tamanho do HTML retornado:", html.length);
+      console.log("Amostra do HTML (primeiros 500 chars):", html.substring(0, 500));
 
-      const totalMatch = html.match(/class="totalNumb txtMax">([^<]+)<\/span>/i) ||
-                          html.match(/Total.*?R\$\s*([\d,.]+)/i);
-      if (totalMatch) {
-        totalAmount = parseFloat(totalMatch[1].replace(".", "").replace(",", "."));
+      // Extração do Nome do Estabelecimento
+      // Extração do Nome do Estabelecimento
+      const storeMatch =
+        html.match(/<div[^>]*class="[^"]*txtTopo[^"]*"[^>]*>([^<]+)<\/div>/i) ||
+        html.match(/<span[^>]*class="[^"]*txtTit[^"]*"[^>]*>([^<]+)<\/span>/i) ||
+        html.match(/<div[^>]*id="u20"[^>]*>([^<]+)<\/div>/i);
+
+      if (storeMatch) {
+        storeName = storeMatch[1].trim();
       }
-    } catch {
-      // Se a SEFAZ bloquear por CAPTCHA ou estiver fora, registra compra provisória
-      storeName = "Compra Nota Paraná";
-      totalAmount = 0;
+
+      // Extração do Valor Total Real (procura especificamente 'Valor a pagar' ou 'txtMax')
+      // Na SEFAZ PR o total a pagar fica em: <span class="totalNumb txtMax">379,97</span>
+      const totalMatch =
+        html.match(/Valor\s*a\s*pagar[^<]*<\/span>[^<]*<span[^>]*class="[^"]*totalNumb[^"]*"[^>]*>([\d,.]+)/i) ||
+        html.match(/<span[^>]*class="[^"]*totalNumb\s+txtMax[^"]*"[^>]*>([\d,.]+)<\/span>/i) ||
+        html.match(/<span[^>]*class="[^"]*txtMax[^"]*"[^>]*>([\d,.]+)<\/span>/i) ||
+        html.match(/Valor\s*Total[^<]*<span[^>]*class="[^"]*totalNumb[^"]*"[^>]*>([\d,.]+)/i);
+
+      if (totalMatch) {
+        totalAmount = parseFloat(totalMatch[1].replace(/\./g, "").replace(",", ".").trim());
+      }
+
+      // Extração de Itens - Busca por blocos de linha da tabela
+      // Padrão SEFAZ PR: <tr id="Item + N"> ou tabelas com classe 'tabResult'
+      const rows = html.match(/<tr[^>]*id="Item \+ \d+"[\s\S]*?<\/tr>/gi) ||
+                   html.match(/<tr[^>]*class="[^"]*linhaItem[^"]*"[\s\S]*?<\/tr>/gi);
+
+      if (rows && rows.length > 0) {
+        console.log(`Encontradas ${rows.length} linhas de itens no HTML.`);
+        for (const row of rows) {
+          const nameMatch = row.match(/<span[^>]*class="[^"]*txtTit2[^"]*"[^>]*>([^<]+)<\/span>/i);
+          const qtyMatch = row.match(/Qtde\.:?<\/strong>\s*([\d,.]+)/i) || row.match(/(\d+[,\.]\d+)\s*UN/i);
+          const unitMatch = row.match(/Vl\.\s*Unit\.:?<\/strong>\s*([\d,.]+)/i);
+          const totMatch = row.match(/<span[^>]*class="[^"]*valor[^"]*"[^>]*>([\d,.]+)<\/span>/i);
+
+          if (nameMatch) {
+            const qty = qtyMatch ? parseFloat(qtyMatch[1].replace(",", ".")) : 1;
+            const unit = unitMatch ? parseFloat(unitMatch[1].replace(",", ".")) : 0;
+            const tot = totMatch ? parseFloat(totMatch[1].replace(/\./g, "").replace(",", ".")) : qty * unit;
+
+            items.push({
+              name: nameMatch[1].trim(),
+              quantity: isNaN(qty) ? 1 : qty,
+              unit_price: isNaN(unit) ? 0 : unit,
+              total_price: isNaN(tot) ? 0 : tot,
+            });
+          }
+        }
+      } else {
+        console.log("Nenhuma linha no formato padrão de tabela foi encontrada.");
+      }
+    } catch (fetchErr: any) {
+      console.error("Erro no fetch/parse do HTML da SEFAZ:", fetchErr.message);
     }
 
-    // Se o total não pôde ser extraído via HTML, define valor padrão
+    console.log(`Resumo: Loja="${storeName}", Total=${totalAmount}, Qtd Itens=${items.length}`);
+
+    // Se o total não veio da nota, garante valor padrão para não quebrar a transação
     if (isNaN(totalAmount) || totalAmount <= 0) {
-      totalAmount = 50.0; 
+      totalAmount = 50.0;
     }
 
-    // 5. Salvar na tabela purchases
+    // 4. Salvar na tabela purchases
     const { data: newPurchase, error: purchaseError } = await supabaseAdmin
       .from("purchases")
       .insert({
@@ -117,14 +173,32 @@ serve(async (req) => {
       .single();
 
     if (purchaseError) {
+      console.error("Erro ao salvar purchase:", purchaseError.message);
       return new Response(JSON.stringify({ error: purchaseError.message }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // 6. Criar automaticamente a transação de despesa no extrato financeiro
-    // Busca uma conta padrão do usuário
+   // 5. Inserir itens individuais se existirem
+    if (items.length > 0 && newPurchase?.id) {
+      const itemsPayload = items.map((it) => ({
+        purchase_id: newPurchase.id,
+        user_id: user_id, // <-- ADICIONADO AQUI!
+        name: it.name,
+        quantity: it.quantity,
+        unit_price: it.unit_price,
+        total_price: it.total_price,
+      }));
+      const { error: itemsError } = await supabaseAdmin.from("purchase_items").insert(itemsPayload);
+      if (itemsError) {
+        console.error("Erro ao salvar purchase_items:", itemsError.message);
+      } else {
+        console.log(`Salvos com sucesso ${items.length} itens.`);
+      }
+    }
+
+    // 6. Criar transação financeira
     const { data: account } = await supabaseAdmin
       .from("accounts")
       .select("id")
@@ -132,7 +206,6 @@ serve(async (req) => {
       .limit(1)
       .single();
 
-    // Busca categoria Supermercado (Necessidades)
     const { data: category } = await supabaseAdmin
       .from("categories")
       .select("id")
@@ -156,11 +229,13 @@ serve(async (req) => {
         success: true,
         store_name: storeName,
         total_amount: totalAmount.toFixed(2),
+        items_count: items.length,
         access_key: accessKey,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err: any) {
+    console.error("Erro geral na Edge Function:", err.message);
     return new Response(JSON.stringify({ error: err.message }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

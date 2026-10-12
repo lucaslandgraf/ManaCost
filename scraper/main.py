@@ -97,16 +97,19 @@ def scrape_supermarket_offers():
 
 
 def sync_deals_to_supabase(deals):
-    """Envia as ofertas para a tabela flyer_deals do Supabase."""
+    """Envia ou atualiza as ofertas na tabela flyer_deals do Supabase."""
     print(f"Sincronizando {len(deals)} ofertas com o Supabase...")
     
     for deal in deals:
         try:
-            # Upsert ou insert simples
-            supabase.table("flyer_deals").insert(deal).execute()
-            print(f"✓ Inserido: [{deal['store_name']}] {deal['product_name']} - R$ {deal['price']}")
+            # upsert atualiza o preço e validade se o produto já existir na loja
+            supabase.table("flyer_deals").upsert(
+                deal, 
+                on_conflict="store_name,product_name"
+            ).execute()
+            print(f"✓ Sincronizado: [{deal['store_name']}] {deal['product_name']} - R$ {deal['price']}")
         except Exception as e:
-            print(f"✗ Erro ao inserir {deal['product_name']}: {e}")
+            print(f"✗ Erro ao sincronizar {deal['product_name']}: {e}")
 
 
 if __name__ == "__main__":
