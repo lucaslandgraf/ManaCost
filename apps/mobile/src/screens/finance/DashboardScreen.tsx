@@ -12,8 +12,8 @@ import { supabase } from '../../config/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { NewTransactionModal } from './NewTransactionModal';
 import { ScannerScreen } from './ScannerScreen';
-import { DealsScreen } from './DealsScreen';
 import { PurchaseDetailsModal } from './PurchaseDetailsModal';
+import { DealsModal } from './DealsModal';
 
 interface Transaction {
   id: string;
@@ -27,12 +27,12 @@ interface Transaction {
 
 export const DashboardScreen = () => {
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
-  const [showDeals, setShowDeals] = useState(false);
   const [scannerVisible, setScannerVisible] = useState(false);
+  const [dealsModalVisible, setDealsModalVisible] = useState(false);
+  const [modalVisible, setModalVisible] = useState(false);
   const { user, signOut } = useAuth();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(false);
-  const [modalVisible, setModalVisible] = useState(false);
 
   // Totais financeiros
   const [totalIncome, setTotalIncome] = useState(0);
@@ -70,11 +70,11 @@ export const DashboardScreen = () => {
         income += val;
       } else {
         expense += val;
-        const rule = item.categories?.rule_group;
-        if (rule === 'needs_50') needs += val;
-        else if (rule === 'wants_30') wants += val;
-        else if (rule === 'savings_20') savings += val;
       }
+      const rule = item.categories?.rule_group;
+      if (rule === 'needs_50') needs += val;
+      else if (rule === 'wants_30') wants += val;
+      else if (rule === 'savings_20') savings += val;
     });
 
     setTotalIncome(income);
@@ -87,11 +87,6 @@ export const DashboardScreen = () => {
   useEffect(() => {
     fetchTransactions();
   }, []);
-
-  // Alterna para o ecrã de Ofertas & Encartes
-  if (showDeals) {
-    return <DealsScreen onBack={() => setShowDeals(false)} />;
-  }
 
   const budgetNeeds = totalIncome * 0.5;
   const budgetWants = totalIncome * 0.3;
@@ -118,7 +113,7 @@ export const DashboardScreen = () => {
         </TouchableOpacity>
       </View>
 
-      {/* Card de Resumo Financeiro */}
+      {/* Resumo Financeiro */}
       <View style={styles.summaryCard}>
         <View style={styles.summaryCol}>
           <Text style={styles.summaryLabel}>Receitas</Text>
@@ -164,22 +159,24 @@ export const DashboardScreen = () => {
         </View>
       </View>
 
-      {/* Lista de Transações e Ações */}
+      {/* Ações e Lançamentos */}
       <View style={styles.listHeader}>
         <Text style={styles.sectionTitle}>Lançamentos</Text>
         <View style={{ flexDirection: 'row', gap: 6 }}>
-          <TouchableOpacity
-            style={[styles.addBtn, { backgroundColor: '#059669' }]}
-            onPress={() => setShowDeals(true)}
+          <TouchableOpacity 
+            style={styles.dealsButton} 
+            onPress={() => setDealsModalVisible(true)}
           >
-            <Text style={styles.addBtnText}>🏷️ Ofertas</Text>
+            <Text style={styles.dealsButtonText}>🏷️ Ofertas</Text>
           </TouchableOpacity>
+
           <TouchableOpacity
             style={[styles.addBtn, { backgroundColor: '#38BDF8' }]}
             onPress={() => setScannerVisible(true)}
           >
             <Text style={styles.addBtnText}>📷 NFC-e</Text>
           </TouchableOpacity>
+
           <TouchableOpacity
             style={styles.addBtn}
             onPress={() => setModalVisible(true)}
@@ -197,29 +194,29 @@ export const DashboardScreen = () => {
         }
         contentContainerStyle={styles.listContent}
         renderItem={({ item }) => (
-  <TouchableOpacity 
-    style={styles.txItem} 
-    onPress={() => setSelectedTx(item)}
-  >
-    <View>
-      <Text style={styles.txDesc}>{item.description}</Text>
-      <Text style={styles.txSub}>
-  {item.categories?.name ?? 'Geral'} • {item.date}
-  {!item.is_settled && ' • (Pendente)'}
-</Text>
-    </View>
-    <Text
-      style={[
-        styles.txAmount,
-        { color: item.type === 'income' ? '#10B981' : '#EF4444' },
-      ]}
-    >
-      {item.type === 'income' ? '+' : '-'} R$ {Number(item.amount).toFixed(2)}
-    </Text>
-  </TouchableOpacity>
-)}
+          <TouchableOpacity 
+            style={styles.txItem} 
+            onPress={() => setSelectedTx(item)}
+          >
+            <View>
+              <Text style={styles.txDesc}>{item.description}</Text>
+              <Text style={styles.txSub}>
+                {item.categories?.name ?? 'Geral'} • {item.date}
+                {!item.is_settled && ' • (Pendente)'}
+              </Text>
+            </View>
+            <Text
+              style={[
+                styles.txAmount,
+                { color: item.type === 'income' ? '#10B981' : '#EF4444' },
+              ]}
+            >
+              {item.type === 'income' ? '+' : '-'} R$ {Number(item.amount).toFixed(2)}
+            </Text>
+          </TouchableOpacity>
+        )}
         ListEmptyComponent={
-          <Text style={styles.emptyText}>Nenhuma transação registrada ainda.</Text>
+          <Text style={styles.emptyText}>Nenhuma transação registada ainda.</Text>
         }
       />
 
@@ -234,13 +231,19 @@ export const DashboardScreen = () => {
         onClose={() => setScannerVisible(false)}
         onSuccess={fetchTransactions}
       />
+
       <PurchaseDetailsModal
-     visible={!!selectedTx}
-     onClose={() => setSelectedTx(null)}
-     description={selectedTx?.description ?? ''}
-     date={selectedTx?.date ?? ''}
-     amount={selectedTx?.amount ?? 0}
-   />
+        visible={!!selectedTx}
+        onClose={() => setSelectedTx(null)}
+        description={selectedTx?.description ?? ''}
+        date={selectedTx?.date ?? ''}
+        amount={selectedTx?.amount ?? 0}
+      />
+
+      <DealsModal
+        visible={dealsModalVisible}
+        onClose={() => setDealsModalVisible(false)}
+      />
     </SafeAreaView>
   );
 };
@@ -294,6 +297,15 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   sectionTitle: { color: '#F8FAFC', fontSize: 16, fontWeight: 'bold' },
+  dealsButton: {
+    backgroundColor: 'rgba(16, 185, 129, 0.2)',
+    borderColor: '#10B981',
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  dealsButtonText: { color: '#34D399', fontWeight: 'bold', fontSize: 12 },
   addBtn: {
     backgroundColor: '#10B981',
     paddingHorizontal: 10,

@@ -10,12 +10,18 @@ import {
 } from 'react-native';
 import { supabase } from '../../config/supabase';
 
-interface PurchaseItem {
+interface DealAlert {
+  store_name: string;
+  deal_price: number;
+}
+
+interface PurchaseItemWithDeal {
   id: string;
   name: string;
   quantity: number;
   unit_price: number;
   total_price: number;
+  cheaperDeal?: DealAlert | null;
 }
 
 interface Props {
@@ -33,7 +39,7 @@ export const PurchaseDetailsModal = ({
   date,
   amount,
 }: Props) => {
-  const [items, setItems] = useState<PurchaseItem[]>([]);
+  const [items, setItems] = useState<PurchaseItemWithDeal[]>([]);
   const [loading, setLoading] = useState(false);
   const [storeName, setStoreName] = useState('');
 
@@ -53,8 +59,7 @@ export const PurchaseDetailsModal = ({
       const parsedStore = description.replace('NFC-e:', '').trim();
       setStoreName(parsedStore);
 
-      // Busca a compra correspondente pela data e loja aproximada
-      const { data: purchaseData, error: purchaseError } = await supabase
+      const { data: purchaseData } = await supabase
         .from('purchases')
         .select('id, store_name')
         .eq('purchase_date', date)
@@ -63,24 +68,78 @@ export const PurchaseDetailsModal = ({
         .limit(1)
         .maybeSingle();
 
-      if (purchaseError || !purchaseData) {
+      if (!purchaseData) {
         setItems([]);
         setLoading(false);
         return;
       }
 
-      // Busca os itens vinculados a essa compra
-      const { data: itemsData, error: itemsError } = await supabase
+      // 1. Busca os itens da nota
+      const { data: itemsData } = await supabase
         .from('purchase_items')
         .select('*')
         .eq('purchase_id', purchaseData.id)
         .order('total_price', { ascending: false });
 
-      if (!itemsError && itemsData) {
-        setItems(itemsData);
+      if (!itemsData || itemsData.length === 0) {
+        setItems([]);
+        setLoading(false);
+        return;
       }
+
+      // 2. Filtra elegibilidade: apenas supermercados, atacados e farmácias
+      const storeUpper = parsedStore.toUpperCase();
+      const isEligibleForDeals =
+        storeUpper.includes('MERCADO') ||
+        storeUpper.includes('SUPER') ||
+        storeUpper.includes('ATACAD') ||
+        storeUpper.includes('HIPER') ||
+        storeUpper.includes('DROGA') ||
+        storeUpper.includes('FARMA');
+
+      let activeDeals: any[] = [];
+      if (isEligibleForDeals) {
+        const { data: deals } = await supabase
+          .from('flyer_deals')
+          .select('store_name, product_name, deal_price');
+        activeDeals = deals || [];
+      }
+
+      // 3. Cruza os itens da nota com ofertas apenas se o local for elegível
+      const processedItems: PurchaseItemWithDeal[] = itemsData.map((item) => {
+        let cheaperDeal: DealAlert | null = null;
+
+        if (activeDeals.length > 0) {
+          const itemKeywords = item.name
+            .toUpperCase()
+            .split(/[:\s]+/)
+            .filter((w: string) => w.length > 3);
+
+          const match = activeDeals.find((deal) => {
+            const dealName = deal.product_name.toUpperCase();
+            const matchesKeyword = itemKeywords.some((kw: string) =>
+              dealName.includes(kw)
+            );
+            return matchesKeyword && Number(deal.deal_price) < Number(item.unit_price);
+          });
+
+          if (match) {
+            cheaperDeal = {
+              store_name: match.store_name,
+              deal_price: Number(match.deal_price),
+            };
+          }
+        }
+
+        return {
+          ...item,
+          cheaperDeal,
+        };
+      });
+
+      setItems(processedItems);
     } catch (err) {
-      console.error('Erro ao buscar itens:', err);
+      console.error('Erro ao buscar itens e ofertas:', err);
     } finally {
       setLoading(false);
     }
@@ -90,7 +149,6 @@ export const PurchaseDetailsModal = ({
     <Modal visible={visible} animationType="slide" transparent>
       <View style={styles.overlay}>
         <View style={styles.container}>
-          {/* Cabeçalho */}
           <View style={styles.header}>
             <View>
               <Text style={styles.title}>
@@ -103,29 +161,23 @@ export const PurchaseDetailsModal = ({
             </TouchableOpacity>
           </View>
 
-          {/* Valor Total */}
           <View style={styles.totalBox}>
             <Text style={styles.totalLabel}>Total da Nota</Text>
             <Text style={styles.totalVal}>R$ {Number(amount).toFixed(2)}</Text>
           </View>
 
-          {/* Conteúdo */}
           {!isNfce ? (
             <View style={styles.centerInfo}>
-              <Text style={styles.emptyText}>
-                Lançamento manual simples (sem lista de itens fiscais).
-              </Text>
+              <Text style={styles.emptyText}>Lançamento manual simples.</Text>
             </View>
           ) : loading ? (
             <View style={styles.centerInfo}>
               <ActivityIndicator size="large" color="#10B981" />
-              <Text style={styles.loadingText}>Carregando itens da nota...</Text>
+              <Text style={styles.loadingText}>Carregando dados da compra...</Text>
             </View>
           ) : items.length === 0 ? (
             <View style={styles.centerInfo}>
-              <Text style={styles.emptyText}>
-                Nenhum item individual encontrado para esta nota.
-              </Text>
+              <Text style={styles.emptyText}>Nenhum item encontrado para esta nota.</Text>
             </View>
           ) : (
             <FlatList
@@ -133,19 +185,30 @@ export const PurchaseDetailsModal = ({
               keyExtractor={(item) => item.id}
               contentContainerStyle={styles.list}
               renderItem={({ item }) => (
-                <View style={styles.itemRow}>
-                  <View style={{ flex: 1, paddingRight: 8 }}>
-                    <Text style={styles.itemName} numberOfLines={2}>
-                      {item.name}
-                    </Text>
-                    <Text style={styles.itemDetail}>
-                      {Number(item.quantity).toFixed(2)} x R${' '}
-                      {Number(item.unit_price).toFixed(2)}
+                <View style={styles.itemRowWrapper}>
+                  <View style={styles.itemRow}>
+                    <View style={{ flex: 1, paddingRight: 8 }}>
+                      <Text style={styles.itemName} numberOfLines={2}>
+                        {item.name}
+                      </Text>
+                      <Text style={styles.itemDetail}>
+                        {Number(item.quantity).toFixed(2)} x R${' '}
+                        {Number(item.unit_price).toFixed(2)}
+                      </Text>
+                    </View>
+                    <Text style={styles.itemTotal}>
+                      R$ {Number(item.total_price).toFixed(2)}
                     </Text>
                   </View>
-                  <Text style={styles.itemTotal}>
-                    R$ {Number(item.total_price).toFixed(2)}
-                  </Text>
+
+                  {item.cheaperDeal && (
+                    <View style={styles.dealBadge}>
+                      <Text style={styles.dealBadgeText}>
+                        💡 Mais barato no {item.cheaperDeal.store_name}: R${' '}
+                        {item.cheaperDeal.deal_price.toFixed(2)}
+                      </Text>
+                    </View>
+                  )}
                 </View>
               )}
             />
@@ -171,7 +234,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     padding: 20,
-    maxHeight: '80%',
+    maxHeight: '85%',
   },
   header: {
     flexDirection: 'row',
@@ -217,13 +280,15 @@ const styles = StyleSheet.create({
   list: {
     paddingBottom: 16,
   },
+  itemRowWrapper: {
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#334155',
+  },
   itemRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#334155',
   },
   itemName: {
     color: '#F8FAFC',
@@ -239,6 +304,21 @@ const styles = StyleSheet.create({
     color: '#F8FAFC',
     fontSize: 14,
     fontWeight: 'bold',
+  },
+  dealBadge: {
+    marginTop: 6,
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    borderColor: '#10B981',
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    alignSelf: 'flex-start',
+  },
+  dealBadgeText: {
+    color: '#34D399',
+    fontSize: 11,
+    fontWeight: '600',
   },
   centerInfo: {
     paddingVertical: 32,
