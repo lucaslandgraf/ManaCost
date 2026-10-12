@@ -1,34 +1,33 @@
-name: Supermarket Flyer Scraper
+name: Supermarket Deals Scraper
 
 on:
   schedule:
-    # 06:00 UTC corresponde às 03:00 da manhã no horário de Brasília (UTC-3)
-    - cron: '0 6 * * *'
-  # Permite acionar manualmente a qualquer momento pela aba Actions no GitHub
-  workflow_dispatch:
+    # 09:00 UTC = 06:00 no fuso horário de Brasília (UTC-3)
+    # Segundas-feiras (1) e Quintas-feiras (4)
+    - cron: '0 9 * * 1,4'
+  workflow_dispatch: # Permite execução manual pelo painel do GitHub Actions
 
 jobs:
-  run-scraper:
+  scrape:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout do código
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Configurar o Python 3.11
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
 
-      - name: Instalar dependências
+      - name: Install dependencies
         run: |
-          cd scraper
-          pip install -r requirements.txt
+          pip install --upgrade pip
+          pip install -r scraper/requirements.txt
 
-      - name: Executar o Scraper
+      - name: Execute Ingestion
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          cd scraper
-          python main.py
+          python scraper/ingest_deals.py
