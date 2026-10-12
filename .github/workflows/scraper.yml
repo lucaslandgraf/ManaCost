@@ -1,0 +1,34 @@
+name: Supermarket Flyer Scraper
+
+on:
+  schedule:
+    # 06:00 UTC corresponde às 03:00 da manhã no horário de Brasília (UTC-3)
+    - cron: '0 6 * * *'
+  # Permite acionar manualmente a qualquer momento pela aba Actions no GitHub
+  workflow_dispatch:
+
+jobs:
+  run-scraper:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Configurar o Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar dependências
+        run: |
+          cd scraper
+          pip install -r requirements.txt
+
+      - name: Executar o Scraper
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          cd scraper
+          python main.py
