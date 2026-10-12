@@ -97,7 +97,6 @@ serve(async (req) => {
       console.log("Amostra do HTML (primeiros 500 chars):", html.substring(0, 500));
 
       // Extração do Nome do Estabelecimento
-      // Extração do Nome do Estabelecimento
       const storeMatch =
         html.match(/<div[^>]*class="[^"]*txtTopo[^"]*"[^>]*>([^<]+)<\/div>/i) ||
         html.match(/<span[^>]*class="[^"]*txtTit[^"]*"[^>]*>([^<]+)<\/span>/i) ||
@@ -107,8 +106,7 @@ serve(async (req) => {
         storeName = storeMatch[1].trim();
       }
 
-      // Extração do Valor Total Real (procura especificamente 'Valor a pagar' ou 'txtMax')
-      // Na SEFAZ PR o total a pagar fica em: <span class="totalNumb txtMax">379,97</span>
+      // Extração do Valor Total Real
       const totalMatch =
         html.match(/Valor\s*a\s*pagar[^<]*<\/span>[^<]*<span[^>]*class="[^"]*totalNumb[^"]*"[^>]*>([\d,.]+)/i) ||
         html.match(/<span[^>]*class="[^"]*totalNumb\s+txtMax[^"]*"[^>]*>([\d,.]+)<\/span>/i) ||
@@ -119,8 +117,7 @@ serve(async (req) => {
         totalAmount = parseFloat(totalMatch[1].replace(/\./g, "").replace(",", ".").trim());
       }
 
-      // Extração de Itens - Busca por blocos de linha da tabela
-      // Padrão SEFAZ PR: <tr id="Item + N"> ou tabelas com classe 'tabResult'
+      // Extração de Itens
       const rows = html.match(/<tr[^>]*id="Item \+ \d+"[\s\S]*?<\/tr>/gi) ||
                    html.match(/<tr[^>]*class="[^"]*linhaItem[^"]*"[\s\S]*?<\/tr>/gi);
 
@@ -154,7 +151,6 @@ serve(async (req) => {
 
     console.log(`Resumo: Loja="${storeName}", Total=${totalAmount}, Qtd Itens=${items.length}`);
 
-    // Se o total não veio da nota, garante valor padrão para não quebrar a transação
     if (isNaN(totalAmount) || totalAmount <= 0) {
       totalAmount = 50.0;
     }
@@ -180,11 +176,11 @@ serve(async (req) => {
       });
     }
 
-   // 5. Inserir itens individuais se existirem
+    // 5. Inserir itens individuais
     if (items.length > 0 && newPurchase?.id) {
       const itemsPayload = items.map((it) => ({
         purchase_id: newPurchase.id,
-        user_id: user_id, // <-- ADICIONADO AQUI!
+        user_id: user_id,
         name: it.name,
         quantity: it.quantity,
         unit_price: it.unit_price,
@@ -198,7 +194,7 @@ serve(async (req) => {
       }
     }
 
-    // 6. Criar transação financeira
+    // 6. Conta bancária do usuário
     const { data: account } = await supabaseAdmin
       .from("accounts")
       .select("id")
@@ -206,13 +202,54 @@ serve(async (req) => {
       .limit(1)
       .single();
 
-    const { data: category } = await supabaseAdmin
+    // 7. Categorização inteligente
+    const storeUpper = storeName.toUpperCase();
+    let targetCategory = "Supermercado";
+
+    if (
+      storeUpper.includes("MODA") ||
+      storeUpper.includes("C&A") ||
+      storeUpper.includes("CA ") ||
+      storeUpper.includes("RENNER") ||
+      storeUpper.includes("RIACHUELO") ||
+      storeUpper.includes("ZARA")
+    ) {
+      targetCategory = "Vestuário & Moda";
+    } else if (
+      storeUpper.includes("DROGA") ||
+      storeUpper.includes("FARMACIA") ||
+      storeUpper.includes("RAIA") ||
+      storeUpper.includes("PANVEL") ||
+      storeUpper.includes("NISSEI")
+    ) {
+      targetCategory = "Saúde & Farmácia";
+    } else if (
+      storeUpper.includes("RESTAURANTE") ||
+      storeUpper.includes("PIZZARIA") ||
+      storeUpper.includes("BURGER") ||
+      storeUpper.includes("BAR")
+    ) {
+      targetCategory = "Lazer & Restaurantes";
+    }
+
+    let { data: category } = await supabaseAdmin
       .from("categories")
       .select("id")
       .eq("user_id", user_id)
-      .eq("name", "Supermercado")
+      .ilike("name", `%${targetCategory}%`)
       .maybeSingle();
 
+    if (!category) {
+      const { data: defaultCat } = await supabaseAdmin
+        .from("categories")
+        .select("id")
+        .eq("user_id", user_id)
+        .eq("name", "Supermercado")
+        .maybeSingle();
+      category = defaultCat;
+    }
+
+    // 8. Criar transação financeira
     await supabaseAdmin.from("transactions").insert({
       user_id,
       account_id: account?.id,
