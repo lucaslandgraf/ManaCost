@@ -3,6 +3,7 @@ import { ActivityIndicator, View, StyleSheet } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
+import { BasketProvider } from './src/context/BasketContext';
 import { AuthScreen } from './src/screens/auth/AuthScreen';
 import { DashboardScreen } from './src/screens/finance/DashboardScreen';
 
@@ -35,7 +36,9 @@ const NavigationRoutes = () => {
 export default function App() {
   return (
     <AuthProvider>
-      <NavigationRoutes />
+      <BasketProvider>
+        <NavigationRoutes />
+      </BasketProvider>
     </AuthProvider>
   );
 }

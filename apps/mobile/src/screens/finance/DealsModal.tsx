@@ -18,8 +18,8 @@ interface Deal {
   id: string;
   store_name: string;
   product_name: string;
-  deal_price: number;
-  valid_until: string;
+  deal_price: number | string;
+  valid_until?: string;
 }
 
 interface Flyer {
@@ -73,40 +73,51 @@ export const DealsModal: React.FC<DealsModalProps> = ({ visible, onClose }) => {
 
   const fetchDeals = async () => {
     setLoadingDeals(true);
-    const { data } = await supabase
-      .from('flyer_deals')
-      .select('*')
-      .order('deal_price', { ascending: true });
+    try {
+      const { data, error } = await supabase
+        .from('flyer_deals')
+        .select('id, store_name, product_name, deal_price, valid_until')
+        .order('deal_price', { ascending: true })
+        .limit(100);
 
-    if (data) {
-      setDeals(data as Deal[]);
+      if (!error && data) {
+        setDeals(data as Deal[]);
+      }
+    } catch (e) {
+      console.warn('Erro ao carregar ofertas:', e);
+    } finally {
+      setLoadingDeals(false);
     }
-    setLoadingDeals(false);
   };
 
   const fetchFlyers = async () => {
     setLoadingFlyers(true);
-    const { data } = await supabase
-      .from('weekly_flyers')
-      .select('*')
-      .order('store_name', { ascending: true });
+    try {
+      const { data } = await supabase
+        .from('weekly_flyers')
+        .select('*')
+        .order('store_name', { ascending: true });
 
-    if (data && data.length > 0) {
-      setFlyers(data as Flyer[]);
-    } else {
-      setFlyers([
-        { id: '1', store_name: 'Super Muffato', flyer_url: FALLBACK_FLYER_URLS['Super Muffato'], category: 'encarte', badge_color: '#10B981' },
-        { id: '2', store_name: 'Max Atacadista', flyer_url: FALLBACK_FLYER_URLS['Max Atacadista'], category: 'encarte', badge_color: '#F59E0B' },
-        { id: '3', store_name: 'Hiper Condor', flyer_url: FALLBACK_FLYER_URLS['Hiper Condor'], category: 'encarte', badge_color: '#38BDF8' },
-        { id: '4', store_name: 'Santarém Supermercado', flyer_url: FALLBACK_FLYER_URLS['Santarém Supermercado'], category: 'instagram', badge_color: '#EC4899' },
-        { id: '5', store_name: 'Almeida Mercados', flyer_url: FALLBACK_FLYER_URLS['Almeida Mercados'], category: 'tabloide', badge_color: '#8B5CF6' },
-        { id: '6', store_name: 'Viscardi', flyer_url: FALLBACK_FLYER_URLS['Viscardi'], category: 'instagram', badge_color: '#EC4899' },
-        { id: '7', store_name: 'Atacadão Tiradentes', flyer_url: FALLBACK_FLYER_URLS['Atacadão Tiradentes'], category: 'encarte', badge_color: '#F97316' },
-        { id: '8', store_name: 'Tonhão Maxi', flyer_url: FALLBACK_FLYER_URLS['Tonhão Maxi'], category: 'encarte', badge_color: '#14B8A6' },
-        { id: '9', store_name: 'Super Golff', flyer_url: FALLBACK_FLYER_URLS['Super Golff'], category: 'encarte', badge_color: '#6366F1' },
-      ]);
+      if (data && data.length > 0) {
+        setFlyers(data as Flyer[]);
+      } else {
+        setFlyers([
+          { id: '1', store_name: 'Super Muffato', flyer_url: FALLBACK_FLYER_URLS['Super Muffato'], category: 'encarte', badge_color: '#10B981' },
+          { id: '2', store_name: 'Max Atacadista', flyer_url: FALLBACK_FLYER_URLS['Max Atacadista'], category: 'encarte', badge_color: '#F59E0B' },
+          { id: '3', store_name: 'Hiper Condor', flyer_url: FALLBACK_FLYER_URLS['Hiper Condor'], category: 'encarte', badge_color: '#38BDF8' },
+          { id: '4', store_name: 'Santarém Supermercado', flyer_url: FALLBACK_FLYER_URLS['Santarém Supermercado'], category: 'instagram', badge_color: '#EC4899' },
+          { id: '5', store_name: 'Almeida Mercados', flyer_url: FALLBACK_FLYER_URLS['Almeida Mercados'], category: 'tabloide', badge_color: '#8B5CF6' },
+          { id: '6', store_name: 'Viscardi', flyer_url: FALLBACK_FLYER_URLS['Viscardi'], category: 'instagram', badge_color: '#EC4899' },
+          { id: '7', store_name: 'Atacadão Tiradentes', flyer_url: FALLBACK_FLYER_URLS['Atacadão Tiradentes'], category: 'encarte', badge_color: '#F97316' },
+          { id: '8', store_name: 'Tonhão Maxi', flyer_url: FALLBACK_FLYER_URLS['Tonhão Maxi'], category: 'encarte', badge_color: '#14B8A6' },
+          { id: '9', store_name: 'Super Golff', flyer_url: FALLBACK_FLYER_URLS['Super Golff'], category: 'encarte', badge_color: '#6366F1' },
+        ]);
+      }
+    } catch (e) {
+      console.warn('Erro ao carregar encartes:', e);
+    } finally {
+      setLoadingFlyers(false);
     }
-    setLoadingFlyers(false);
   };
 
   const handleOpenFlyer = async (flyer?: any) => {
@@ -121,7 +132,6 @@ export const DealsModal: React.FC<DealsModalProps> = ({ visible, onClose }) => {
 
     if (!targetUrl) return;
 
-    // Se for Instagram, o app oficial dá uma experiência melhor; caso contrário, abre no WebView interno
     if (flyer.category === 'instagram' || targetUrl.includes('instagram.com')) {
       const username = storeName.toLowerCase().includes('santarem')
         ? 'supermercados_santarem'
@@ -135,7 +145,6 @@ export const DealsModal: React.FC<DealsModalProps> = ({ visible, onClose }) => {
       }
     }
 
-    // Abre na visualização integrada interna
     setLoadingWeb(true);
     setPreviewFlyer({ name: storeName, url: targetUrl });
   };
@@ -162,7 +171,6 @@ export const DealsModal: React.FC<DealsModalProps> = ({ visible, onClose }) => {
     <Modal visible={visible} animationType="slide" transparent>
       <View style={styles.modalOverlay}>
         <SafeAreaView style={styles.container}>
-          {/* Se um encarte estiver aberto em pré-visualização interna */}
           {previewFlyer ? (
             <View style={{ flex: 1 }}>
               <View style={styles.previewHeader}>
@@ -199,23 +207,16 @@ export const DealsModal: React.FC<DealsModalProps> = ({ visible, onClose }) => {
                 originWhitelist={['*']}
                 userAgent="Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
                 onShouldStartLoadWithRequest={(request) => {
-                  // Se for um link de app de terceiro (como whatsapp/intent), despacha
                   if (request.url.startsWith('whatsapp:') || request.url.startsWith('intent:')) {
                     Linking.openURL(request.url);
                     return false;
                   }
-                  // Mantém qualquer URL http/https navegando exclusivamente DENTRO do WebView
                   return true;
                 }}
-                onError={(syntheticEvent) => {
-                  const { nativeEvent } = syntheticEvent;
-                  console.warn('Erro no WebView: ', nativeEvent);
-                  setLoadingWeb(false);
-                }}
+                onError={() => setLoadingWeb(false)}
               />
             </View>
           ) : (
-            // Lista Padrão de Abas
             <>
               {/* Cabeçalho */}
               <View style={styles.header}>
@@ -367,23 +368,29 @@ export const DealsModal: React.FC<DealsModalProps> = ({ visible, onClose }) => {
                       data={filteredDeals}
                       keyExtractor={(item) => item.id}
                       contentContainerStyle={styles.listContent}
-                      renderItem={({ item }) => (
-                        <View style={styles.dealCard}>
-                          <View style={styles.dealInfo}>
-                            <Text style={styles.storeBadge}>{item.store_name.toUpperCase()}</Text>
-                            <Text style={styles.productName}>{item.product_name}</Text>
-                            <Text style={styles.validUntil}>
-                              Válido até: {item.valid_until}
-                            </Text>
+                      renderItem={({ item }) => {
+                        const safePrice = Number(item.deal_price || 0);
+
+                        return (
+                          <View style={styles.dealCard}>
+                            <View style={styles.dealInfo}>
+                              <Text style={styles.storeBadge}>{item.store_name?.toUpperCase()}</Text>
+                              <Text style={styles.productName}>{item.product_name}</Text>
+                              {item.valid_until && (
+                                <Text style={styles.validUntil}>
+                                  Válido até: {item.valid_until}
+                                </Text>
+                              )}
+                            </View>
+                            <View style={styles.priceContainer}>
+                              <Text style={styles.priceLabel}>Por apenas</Text>
+                              <Text style={styles.dealPrice}>
+                                R$ {safePrice.toFixed(2).replace('.', ',')}
+                              </Text>
+                            </View>
                           </View>
-                          <View style={styles.priceContainer}>
-                            <Text style={styles.priceLabel}>Por apenas</Text>
-                            <Text style={styles.dealPrice}>
-                              R$ {item.deal_price.toFixed(2)}
-                            </Text>
-                          </View>
-                        </View>
-                      )}
+                        );
+                      }}
                     />
                   )}
                 </View>
@@ -450,7 +457,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#0F172A',
   },
   webLoadingOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
     backgroundColor: '#0F172A',
     justifyContent: 'center',
     alignItems: 'center',

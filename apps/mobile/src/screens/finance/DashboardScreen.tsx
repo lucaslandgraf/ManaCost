@@ -8,13 +8,14 @@ import {
   FlatList,
   RefreshControl,
   Alert,
+  Modal,
 } from 'react-native';
 import { supabase } from '../../config/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { NewTransactionModal } from './NewTransactionModal';
 import { ScannerScreen } from './ScannerScreen';
 import { PurchaseDetailsModal } from './PurchaseDetailsModal';
-import { DealsModal } from './DealsModal';
+import { DealsScreen } from './DealsScreen';
 
 interface Transaction {
   id: string;
@@ -358,10 +359,14 @@ export const DashboardScreen = () => {
         amount={selectedTx?.amount ?? 0}
       />
 
-      <DealsModal
+      {/* Modal que abre a tela completa com comparação, busca e cesta */}
+      <Modal
         visible={dealsModalVisible}
-        onClose={() => setDealsModalVisible(false)}
-      />
+        animationType="slide"
+        onRequestClose={() => setDealsModalVisible(false)}
+      >
+        <DealsScreen onBack={() => setDealsModalVisible(false)} />
+      </Modal>
     </SafeAreaView>
   );
 };
