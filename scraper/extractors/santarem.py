@@ -1,4 +1,5 @@
 import time
+import random
 import urllib.parse
 from datetime import datetime, timedelta
 import requests
@@ -9,25 +10,56 @@ except ImportError:
     def standardize_units(text: str) -> str:
         return text
 
+try:
+    from .terms import SHORT_SEARCH_TERMS
+except ImportError:
+    from terms import SHORT_SEARCH_TERMS
 
-def scrape_santarem_deals() -> list[dict]:
-    """
-    Coleta produtos essenciais no Santarém Supermercados via VIPCommerce API.
-    """
-    deals = []
-    valid_until = (datetime.now() + timedelta(days=5)).strftime("%Y-%m-%d")
 
-    token = (
+def _get_santarem_token(session: requests.Session) -> str:
+    """Obtém ou renova token público anônimo da VIPCommerce."""
+    try:
+        url = "https://services.vipcommerce.com.br/api-admin/v1/oauth/token/cliente/anonimo"
+        headers = {
+            "accept": "application/json",
+            "domainkey": "santaremsupermercado.com.br",
+            "organizationid": "288",
+            "user-agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+        }
+        resp = session.post(url, headers=headers, json={"organizationId": "288"}, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            return data.get("data", {}).get("token") or data.get("token") or ""
+    except Exception as e:
+        print(f"[Santarém] Aviso ao renovar token dinâmico: {e}")
+
+    # Fallback para o token estático caso a rota anônima mude
+    return (
         "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9."
         "eyJpc3MiOiJ2aXBjb21tZXJjZSIsImF1ZCI6ImFwaS1hZG1pbiIsInN1YiI6IjZiYzQ4NjdlLWRjYTktMTFlOS04NzQyLTAyMGQ3OTM1OWNhMCIsInZpcGNvbW1lcmNlQ2xpZW50ZUlkIjpudWxsLCJpYXQiOjE3OTE4MjkzOTMsInZlciI6MSwiY2xpZW50IjpudWxsLCJvcGVyYXRvciI6bnVsbCwib3JnIjoiMjg4In0."
         "L187pnYl-0ETo_jRdXGGYTbol2VCHsXfwh79vZWxcpleqC6CBJrLH6HiCTC_h3h84Q1sS_dVhUezX8oY6KGh1w"
     )
+
+
+def scrape_santarem_deals() -> list[dict]:
+    """Coleta produtos essenciais no Santarém Supermercados via VIPCommerce API."""
+    deals = []
+    valid_until = (datetime.now() + timedelta(days=5)).strftime("%Y-%m-%d")
+
+    session = requests.Session()
+    token = _get_santarem_token(session)
 
     headers = {
         "accept": "application/json",
         "authorization": f"Bearer {token}",
         "domainkey": "santaremsupermercado.com.br",
         "organizationid": "288",
+        "referer": "https://santaremsupermercado.com.br/",
+        "origin": "https://santaremsupermercado.com.br",
         "user-agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -35,14 +67,7 @@ def scrape_santarem_deals() -> list[dict]:
         ),
     }
 
-    search_queries = [
-        "arroz", "feijao", "oleo", "cafe", "acucar", "macarrao",
-        "farinha", "leite", "molho", "sal", "frango", "carne",
-        "ovos", "queijo", "presunto", "batata", "tomate", "cebola",
-        "banana", "detergente", "sabao", "amaciante", "desinfetante",
-        "agua sanitaria", "papel higienico", "creme dental", "sabonete"
-    ]
-
+    search_queries = SHORT_SEARCH_TERMS
     print(f"[Santarém] Processando {len(search_queries)} termos via VIPCommerce...")
 
     for query in search_queries:
@@ -53,7 +78,7 @@ def scrape_santarem_deals() -> list[dict]:
         )
 
         try:
-            resp = requests.get(url, headers=headers, timeout=12)
+            resp = session.get(url, headers=headers, timeout=12)
 
             if resp.status_code == 200:
                 payload = resp.json()
@@ -101,7 +126,7 @@ def scrape_santarem_deals() -> list[dict]:
         except Exception as e:
             print(f"[Santarém] Erro ao consultar '{query}': {e}")
 
-        time.sleep(0.3)
+        time.sleep(random.uniform(0.7, 1.2))
 
     unique_deals = {}
     for deal in deals:

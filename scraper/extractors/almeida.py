@@ -3,12 +3,19 @@ import time
 import urllib.parse
 from datetime import datetime, timedelta
 import requests
+import random
+import time
 
 try:
     from normalizer import standardize_units
 except ImportError:
     def standardize_units(text: str) -> str:
         return text
+
+try:
+    from .terms import SHORT_SEARCH_TERMS
+except ImportError:
+    from terms import SHORT_SEARCH_TERMS
 
 
 def _clean_price(value) -> float:
@@ -45,13 +52,7 @@ def scrape_almeida_deals() -> list[dict]:
         "Referer": "https://www.almeidamercados.com/",
     }
 
-    search_queries = [
-        "arroz", "feijao", "oleo", "cafe", "acucar", "macarrao",
-        "farinha", "leite", "molho", "sal", "frango", "carne",
-        "ovos", "queijo", "presunto", "batata", "tomate", "cebola",
-        "banana", "detergente", "sabao", "amaciante", "desinfetante",
-        "agua sanitaria", "papel higienico", "creme dental", "sabonete"
-    ]
+    search_queries = SHORT_SEARCH_TERMS
 
     print(f"[Almeida] Processando {len(search_queries)} termos via Live Search...")
 
@@ -101,7 +102,7 @@ def scrape_almeida_deals() -> list[dict]:
         except Exception as e:
             print(f"[Almeida] Erro ao consultar '{query}': {e}")
 
-        time.sleep(0.3)
+        time.sleep(0.8)
 
     unique_deals = {}
     for deal in deals:

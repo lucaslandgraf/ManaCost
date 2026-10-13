@@ -2,12 +2,19 @@ import time
 import urllib.parse
 from datetime import datetime, timedelta
 import requests
+import random
+import time
 
 try:
     from normalizer import standardize_units
 except ImportError:
     def standardize_units(text: str) -> str:
         return text
+
+try:
+    from .terms import EXPANDED_SEARCH_TERMS
+except ImportError:
+    from terms import EXPANDED_SEARCH_TERMS
 
 
 def scrape_atacadao_deals() -> list[dict]:
@@ -25,17 +32,7 @@ def scrape_atacadao_deals() -> list[dict]:
         "Accept-Language": "pt-BR,pt;q=0.9",
     }
 
-    search_queries = [
-        "arroz 5kg", "feijao carioca", "feijao preto", "oleo de soja", 
-        "cafe torrado", "acucar refinado", "macarrao espaguete", 
-        "farinha de trigo", "leite integral", "molho de tomate", "sal refinado",
-        "peito de frango", "carne moida", "contra file", 
-        "ovos brancos", "queijo mucarela fatiado", "presunto cozido",
-        "batata lavada", "tomate", "cebola", "banana prata",
-        "detergente liquido", "sabao em po", "amaciante concentrado", 
-        "desinfetante", "agua sanitaria", "papel higienico folha dupla", 
-        "creme dental", "sabonete em barra"
-    ]
+    search_queries = EXPANDED_SEARCH_TERMS
 
     print(f"[Atacadão] Processando {len(search_queries)} termos via catálogo VTEX...")
 
@@ -89,7 +86,7 @@ def scrape_atacadao_deals() -> list[dict]:
         except Exception as e:
             print(f"[Atacadão] Erro ao consultar '{query}': {e}")
 
-        time.sleep(0.3)
+        time.sleep(0.8)
 
     unique_deals = {}
     for deal in deals:

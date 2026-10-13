@@ -1,6 +1,21 @@
 import logging
+import time
+from datetime import datetime, timedelta
 from typing import Any, Dict, List
 import requests
+import random
+import time
+
+try:
+    from normalizer import standardize_units
+except ImportError:
+    def standardize_units(text: str) -> str:
+        return text
+
+try:
+    from .terms import EXPANDED_SEARCH_TERMS
+except ImportError:
+    from terms import EXPANDED_SEARCH_TERMS
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +37,7 @@ class CondorScraper:
             "Accept": "application/json, text/plain, */*",
         })
 
-    def search(self, query: str, max_items: int = 100) -> List[Dict[str, Any]]:
+    def search(self, query: str, max_items: int = 10) -> List[Dict[str, Any]]:
         """Pesquisa produtos no catálogo do Condor com suporte a paginação."""
         url = self.BASE_URL.format(store_id=self.store_id)
         products: List[Dict[str, Any]] = []
@@ -38,7 +53,7 @@ class CondorScraper:
                 response.raise_for_status()
                 data = response.json()
             except requests.RequestException as e:
-                logger.error("Erro ao consultar a API do Condor: %s", e)
+                logger.error("Erro ao consultar a API do Condor para '%s': %s", query, e)
                 break
 
             hits = data.get("hits", [])
@@ -52,23 +67,18 @@ class CondorScraper:
                 pricing = item.get("pricing", {})
                 stock_info = item.get("quantity", {})
 
+                # Prioriza preço promocional se existir, senão pega o preço normal
+                promo_p = pricing.get("promotionalPrice")
+                normal_p = pricing.get("price")
+                final_price = promo_p if promo_p and promo_p > 0 else normal_p
+
                 product = {
                     "id": item.get("id"),
                     "name": item.get("name"),
                     "brand": item.get("brandName"),
-                    "price": pricing.get("price"),
-                    "promotional_price": pricing.get("promotionalPrice"),
-                    "is_promotion": pricing.get("promotion", False),
+                    "price": final_price,
                     "in_stock": stock_info.get("inStock", 0) > 0,
-                    "stock_quantity": stock_info.get("inStock", 0),
                     "image_url": item.get("image"),
-                    "product_url": (
-                        f"https://www.condor.com.br/produto/{item.get('slug')}"
-                        if item.get("slug")
-                        else None
-                    ),
-                    "supermarket": "Condor",
-                    "store_id": self.store_id,
                 }
                 products.append(product)
 
@@ -80,12 +90,52 @@ class CondorScraper:
         return products
 
 
-if __name__ == "__main__":
+def scrape_condor_deals() -> list[dict]:
+    """
+    Função principal consumida pelo pipeline (main.py).
+    Itera por todos os termos expandidos e consolida as ofertas do Condor Londrina.
+    """
     scraper = CondorScraper()
-    items = scraper.search("arroz", max_items=20)
-    print(f"Total de itens coletados: {len(items)}\n")
-    for prod in items:
-        status_promo = " (PROMO)" if prod["is_promotion"] else ""
-        print(f"[{prod['brand']}] {prod['name']}")
-        print(f"  Preço: R$ {prod['promotional_price']}{status_promo} (Normal: R$ {prod['price']})")
-        print(f"  Estoque: {prod['stock_quantity']} un | Link: {prod['product_url']}\n")
+    deals = []
+    valid_until = (datetime.now() + timedelta(days=5)).strftime("%Y-%m-%d")
+
+    print(f"[Condor] Processando {len(EXPANDED_SEARCH_TERMS)} termos via API Sense...")
+
+    for query in EXPANDED_SEARCH_TERMS:
+        try:
+            items = scraper.search(query, max_items=6)
+            added_count = 0
+            for item in items:
+                raw_name = item.get("name")
+                price = item.get("price")
+                in_stock = item.get("in_stock", True)
+
+                if raw_name and price and float(price) > 0 and in_stock:
+                    deals.append({
+                        "store_name": "Hiper Condor",
+                        "product_name": standardize_units(raw_name),
+                        "deal_price": float(price),
+                        "category": query.split()[0].capitalize(),
+                        "valid_until": valid_until,
+                        "image_url": item.get("image_url"),
+                    })
+                    added_count += 1
+            print(f"  -> '{query}': {added_count} produtos adicionados")
+        except Exception as e:
+            print(f"[Condor] Erro no termo '{query}': {e}")
+
+        time.sleep(0.8)
+
+    # Deduplicação por nome do produto
+    unique_deals = {}
+    for deal in deals:
+        unique_deals[deal["product_name"]] = deal
+
+    final_list = list(unique_deals.values())
+    print(f"[Condor] Extração concluída: {len(final_list)} produtos únicos coletados.")
+    return final_list
+
+
+if __name__ == "__main__":
+    results = scrape_condor_deals()
+    print(f"Total coletado: {len(results)}")

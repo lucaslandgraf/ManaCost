@@ -3,7 +3,7 @@ import sys
 from supabase import create_client, Client
 from dotenv import load_dotenv
 
-from extractors.condor import CondorScraper
+from extractors.condor import scrape_condor_deals
 from extractors.muffato import scrape_muffato_deals
 from extractors.atacadao import scrape_atacadao_deals
 from extractors.viscardi import scrape_viscardi_deals
@@ -19,32 +19,6 @@ if not SUPABASE_URL or not SUPABASE_KEY:
     raise ValueError("Configurações do Supabase ausentes no .env.")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-
-def scrape_condor_deals() -> list:
-    """Coleta produtos do Condor adaptados para a tabela flyer_deals."""
-    from datetime import datetime, timedelta
-    scraper = CondorScraper()
-    valid_until = (datetime.now() + timedelta(days=5)).strftime("%Y-%m-%d")
-
-    search_terms = ["arroz", "feijao", "leite", "cafe", "oleo", "acucar"]
-    deals = []
-
-    print("[Condor] Coletando itens da API...")
-    for term in search_terms:
-        products = scraper.search(term, max_items=10)
-        for prod in products:
-            final_price = prod["promotional_price"] or prod["price"]
-            deals.append({
-                "store_name": "Condor",
-                "product_name": prod["name"],
-                "deal_price": float(final_price),
-                "category": term.capitalize(),
-                "valid_until": valid_until,
-                "image_url": prod["image_url"],
-            })
-    print(f"[Condor] Total coletado: {len(deals)} produtos.")
-    return deals
 
 
 def sync_deals_to_supabase(deals: list):

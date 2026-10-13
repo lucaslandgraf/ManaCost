@@ -1,4 +1,5 @@
 import time
+import random
 import urllib.parse
 from datetime import datetime, timedelta
 import requests
@@ -9,26 +10,56 @@ except ImportError:
     def standardize_units(text: str) -> str:
         return text
 
+try:
+    from .terms import SHORT_SEARCH_TERMS
+except ImportError:
+    from terms import SHORT_SEARCH_TERMS
 
-def scrape_viscardi_deals() -> list[dict]:
-    """
-    Coleta produtos essenciais no Viscardi Delivery via VIPCommerce API.
-    """
-    deals = []
-    valid_until = (datetime.now() + timedelta(days=5)).strftime("%Y-%m-%d")
 
-    # Credenciais públicas de leitura extraídas da sessão do e-commerce
-    token = (
+def _get_viscardi_token(session: requests.Session) -> str:
+    """Obtém ou renova token público anônimo da VIPCommerce."""
+    try:
+        url = "https://services.vipcommerce.com.br/api-admin/v1/oauth/token/cliente/anonimo"
+        headers = {
+            "accept": "application/json",
+            "domainkey": "viscardidelivery.com.br",
+            "organizationid": "327",
+            "user-agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+        }
+        resp = session.post(url, headers=headers, json={"organizationId": "327"}, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            return data.get("data", {}).get("token") or data.get("token") or ""
+    except Exception as e:
+        print(f"[Viscardi] Aviso ao renovar token dinâmico: {e}")
+
+    # Fallback para o token estático
+    return (
         "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9."
         "eyJpc3MiOiJ2aXBjb21tZXJjZSIsImF1ZCI6ImFwaS1hZG1pbiIsInN1YiI6IjZiYzQ4NjdlLWRjYTktMTFlOS04NzQyLTAyMGQ3OTM1OWNhMCIsInZpcGNvbW1lcmNlQ2xpZW50ZUlkIjpudWxsLCJpYXQiOjE3OTE4Mjk4NzAsInZlciI6MSwiY2xpZW50IjpudWxsLCJvcGVyYXRvciI6bnVsbCwib3JnIjoiMzI3In0."
         "El4tWokJ4ys0iyabAtHR4yc9-myWfXeB2RP_eamy_CPFsDwCC-lhx1p_2_MaTWjFGvsNG3Rg5O0tKeCI3CvGIA"
     )
+
+
+def scrape_viscardi_deals() -> list[dict]:
+    """Coleta produtos essenciais no Viscardi Delivery via VIPCommerce API."""
+    deals = []
+    valid_until = (datetime.now() + timedelta(days=5)).strftime("%Y-%m-%d")
+
+    session = requests.Session()
+    token = _get_viscardi_token(session)
 
     headers = {
         "accept": "application/json",
         "authorization": f"Bearer {token}",
         "domainkey": "viscardidelivery.com.br",
         "organizationid": "327",
+        "referer": "https://viscardidelivery.com.br/",
+        "origin": "https://viscardidelivery.com.br",
         "user-agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -36,15 +67,7 @@ def scrape_viscardi_deals() -> list[dict]:
         ),
     }
 
-    # Termos básicos alinhados aos demais extratores
-    search_queries = [
-        "arroz", "feijao", "oleo", "cafe", "acucar", "macarrao",
-        "farinha", "leite", "molho", "sal", "frango", "carne",
-        "ovos", "queijo", "presunto", "batata", "tomate", "cebola",
-        "banana", "detergente", "sabao", "amaciante", "desinfetante",
-        "agua sanitaria", "papel higienico", "creme dental", "sabonete"
-    ]
-
+    search_queries = SHORT_SEARCH_TERMS
     print(f"[Viscardi] Processando {len(search_queries)} termos via VIPCommerce...")
 
     for query in search_queries:
@@ -55,13 +78,12 @@ def scrape_viscardi_deals() -> list[dict]:
         )
 
         try:
-            resp = requests.get(url, headers=headers, timeout=12)
+            resp = session.get(url, headers=headers, timeout=12)
 
             if resp.status_code == 200:
                 payload = resp.json()
                 data_block = payload.get("data", {})
-                
-                # O payload pode vir como dict contendo a lista 'produtos' ou lista direta
+
                 if isinstance(data_block, dict):
                     products = data_block.get("produtos", [])
                 elif isinstance(data_block, list):
@@ -80,7 +102,6 @@ def scrape_viscardi_deals() -> list[dict]:
                     except (ValueError, TypeError):
                         price = 0.0
 
-                    # Montagem da imagem a partir do identificador retornado
                     img_name = item.get("imagem")
                     image_url = (
                         f"https://static.vipcommerce.com.br/multilojas/produtos/327/{img_name}"
@@ -105,9 +126,8 @@ def scrape_viscardi_deals() -> list[dict]:
         except Exception as e:
             print(f"[Viscardi] Erro ao consultar '{query}': {e}")
 
-        time.sleep(0.3)
+        time.sleep(random.uniform(0.7, 1.2))
 
-    # Desduplica por nome do produto
     unique_deals = {}
     for deal in deals:
         unique_deals[deal["product_name"]] = deal
