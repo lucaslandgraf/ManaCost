@@ -2,8 +2,9 @@ name: Scheduled Price Scraper & Matcher
 
 on:
   schedule:
-    # Roda às 11:00 UTC (08:00 horário de Brasília) às terças (2) e quintas (4)
-    - cron: '0 11 * * 2,4'
+    # Roda às 11:15 UTC (08:15 BRT) às terças (2) e quintas (4)
+    # Minuto quebrado evita o gargalo global das 11:00 cravadas
+    - cron: '15 11 * * 2,4'
   workflow_dispatch: # Permite disparo manual via painel do GitHub
 
 jobs:
