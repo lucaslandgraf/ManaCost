@@ -1,37 +1,35 @@
 """
-Termos de pesquisa centralizados e otimizados para os extratores do ManaCost.
-Otimizado para balancear recall (encontrar os itens) e precisão de preços em Londrina:
-Condor, Super Muffato, Atacadão, Viscardi, Santarém e Almeida.
+Termos de pesquisa centralizados para os extratores do ManaCost Londrina.
+Estruturado com termos-raiz e marcas isoladas para maximizar o retorno das APIs.
 """
 
-# Lista detalhada de alta aderência (usada por Condor, Muffato e Atacadão)
 EXPANDED_SEARCH_TERMS = [
-    # --- Grãos e Básicos (com e sem marcas líderes) ---
+    # --- Básicos e Grãos ---
+    "arroz",
     "arroz 5kg",
-    "arroz tio joao",
-    "arroz prato fino",
-    "arroz integral",
+    "tio joao",
+    "prato fino",
+    "feijao",
     "feijao carioca",
     "feijao preto",
-    "oleo de soja",
-    "oleo soya",
-    "oleo liza",
-    "azeite extra virgem",
-    "cafe torrado",
+    "oleo",
+    "soya",
+    "liza",
+    "azeite",
+    "cafe",
     "cafe soluvel",
-    "acucar refinado",
-    "acucar cristal",
+    "acucar",
     "adocante",
-    "macarrao espaguete",
-    "macarrao parafuso",
+    "macarrao",
+    "espaguete",
+    "parafuso",
+    "farinha",
     "farinha de trigo",
-    "farinha de mandioca",
     "fuba",
     "aveia",
-    "molho de tomate",
+    "molho tomate",
     "extrato de tomate",
-    "sal refinado",
-    "sal grosso",
+    "sal",
     "maionese",
     "ketchup",
     "mostarda",
@@ -40,154 +38,49 @@ EXPANDED_SEARCH_TERMS = [
     "ervilha",
     "sardinha",
     "atum",
-    "biscoito cream cracker",
-    "biscoito recheado",
-
-    # --- Achocolatados, Leites & Matinais ---
-    "achocolatado",
-    "nescau",
-    "toddy",
-    "cacau em po",
-    "leite integral",
-    "leite zero lactose",
-    "leite semidesnatado",
-    "leite desnatado",
-    "leite em po",
-    "leite condensado",
-    "creme de leite",
-
-    # --- Laticínios e Frios (sem qualificadores excessivos) ---
-    "manteiga",
-    "margarina",
-    "requeijao",
-    "iogurte natural",
-    "queijo mucarela",
-    "queijo prato",
-    "queijo parmesao",
-    "presunto cozido",
-    "mortadela",
-    "bacon fatiado",
-
-    # --- Carnes e Proteínas ---
-    "peito de frango",
-    "coxa e sobrecoxa",
-    "frango inteiro",
-    "carne moida",
-    "contra file",
-    "acem",
-    "alcatra",
-    "patinho",
-    "costela bovina",
-    "bisteca suina",
-    "linguica toscana",
-    "salsicha",
-    "ovos brancos",
-    "ovos vermelhos",
-
-    # --- Hortifrúti (FLV) ---
-    "batata",
-    "tomate",
-    "cebola",
-    "alho",
-    "cenoura",
-    "abobrinha",
-    "chuchu",
-    "banana prata",
-    "maca gala",
-    "laranja pera",
-    "limao tahiti",
-    "alface",
-
-    # --- Limpeza e Cuidados com a Casa ---
-    "detergente ype",
-    "detergente liquido",
-    "sabao em po",
-    "sabao omo",
-    "sabao liquido",
-    "amaciante comfort",
-    "amaciante downy",
-    "amaciante",
-    "desinfetante",
-    "agua sanitaria",
-    "cloro ativo",
-    "limpador multiuso",
-    "alcool 70",
-    "esponja de aco",
-    "esponja dupla face",
-    "saco de lixo 50l",
-    "papel higienico",
-    "papel toalha",
-
-    # --- Higiene Pessoal ---
-    "creme dental",
-    "escova dental",
-    "sabonete em barra",
-    "sabonete liquido",
-    "shampoo",
-    "condicionador",
-    "desodorante aerosol",
-    "absorvente",
-
-    # --- Bebidas (nomes comerciais reais) ---
-    "refrigerante coca cola",
-    "refrigerante guarana antarctica",
-    "suco de uva integral",
-    "cerveja pilsen",
-    "agua mineral sem gas"
-]
-
-# Lista simplificada por termos-raiz únicos (usada por Almeida, Viscardi e Santarém)
-# Sem sobreposições (ex: 'carne' já cobre moida/acem; 'papel higienico' aparece 1x só)
-SHORT_SEARCH_TERMS = [
-    # Grãos e Mercearia Básica
-    "arroz",
-    "feijao",
-    "oleo",
-    "azeite",
-    "cafe",
-    "acucar",
-    "adocante",
-    "macarrao",
-    "farinha",
-    "fuba",
-    "aveia",
-    "molho tomate",
-    "sal",
-    "maionese",
-    "ketchup",
-    "vinagre",
-    "milho",
-    "ervilha",
-    "sardinha",
-    "atum",
     "biscoito",
 
-    # Matinais e Laticínios
-    "achocolatado",
-    "nescau",
-    "toddy",
-    "leite",
-    "zero lactose",
-    "leite condensado",
-    "creme leite",
-    "manteiga",
+    # --- Margarinas, Laticínios e Matinais ---
     "margarina",
+    "qualy",
+    "claybom",
+    "doriana",
+    "manteiga",
     "requeijao",
     "iogurte",
     "queijo",
+    "mussarela",
     "presunto",
     "mortadela",
     "bacon",
 
-    # Carnes e Ovos
+    # --- Achocolatados, Leites & Dietas ---
+    "achocolatado",
+    "nescau",
+    "toddy",
+    "leite",
+    "semidesnatado",
+    "desnatado",
+    "zero lactose",
+    "leite condensado",
+    "creme de leite",
+
+    # --- Carnes e Proteínas ---
     "frango",
-    "carne",
+    "peito frango",
+    "coxa e sobrecoxa",
+    "carne moida",
+    "alcatra",
+    "contra file",
+    "acem",
+    "patinho",
+    "costela",
     "bisteca",
     "linguica",
     "salsicha",
     "ovos",
 
-    # Hortifrúti
+    # --- Hortifrúti (FLV) ---
     "batata",
     "tomate",
     "cebola",
@@ -199,34 +92,85 @@ SHORT_SEARCH_TERMS = [
     "maca",
     "laranja",
     "limao",
-    "alface",
 
-    # Limpeza
+    # --- Limpeza e Cuidados com a Casa ---
     "detergente",
+    "ype",
     "sabao",
+    "omo",
     "amaciante",
+    "comfort",
+    "downy",
     "desinfetante",
     "agua sanitaria",
     "cloro",
     "multiuso",
     "alcool",
     "esponja",
+    "bombril",
     "saco lixo",
-
-    # Higiene
     "papel higienico",
     "papel toalha",
+
+    # --- Higiene Pessoal ---
     "creme dental",
+    "colgate",
     "sabonete",
     "shampoo",
     "condicionador",
     "desodorante",
     "absorvente",
 
-    # Bebidas
+    # --- Bebidas e Refrigerantes ---
     "coca cola",
+    "pepsi",
     "guarana",
-    "suco uva",
+    "sukita",
+    "fanta",
+    "refriko",
+    "suco",
     "cerveja",
+    "heineken",
+    "amstel",
+    "brahma",
+    "skol",
+    "chopp",
+    "brasser",
     "agua mineral"
+]
+
+SHORT_SEARCH_TERMS = [
+    # Mercearia
+    "arroz", "feijao", "oleo", "soya", "azeite", "cafe", "acucar", "adocante",
+    "macarrao", "espaguete", "farinha", "fuba", "aveia", "molho", "sal",
+    "maionese", "ketchup", "vinagre", "milho", "ervilha", "sardinha",
+    "atum", "biscoito",
+
+    # Matinais e Laticínios
+    "margarina", "qualy", "manteiga", "requeijao", "iogurte", "queijo",
+    "mussarela", "presunto", "mortadela", "bacon",
+
+    # Achocolatados e Leites
+    "achocolatado", "nescau", "toddy", "leite", "semidesnatado",
+    "zero lactose", "leite condensado", "creme de leite",
+
+    # Carnes e Proteínas
+    "frango", "carne", "alcatra", "contra file", "acem", "patinho",
+    "costela", "bisteca", "linguica", "salsicha", "ovos",
+
+    # Hortifrúti
+    "batata", "tomate", "cebola", "alho", "cenoura", "abobrinha",
+    "chuchu", "banana", "maca", "laranja", "limao",
+
+    # Limpeza
+    "detergente", "ype", "sabao", "omo", "amaciante", "desinfetante",
+    "agua sanitaria", "cloro", "multiuso", "alcool", "esponja",
+    "saco lixo", "papel higienico", "papel toalha",
+
+    # Higiene
+    "creme dental", "sabonete", "shampoo", "condicionador", "desodorante", "pasta de dente",
+
+    # Bebidas
+    "coca cola", "pepsi", "guarana", "sukita", "refriko", "suco",
+    "cerveja", "chopp", "brasser", "agua mineral"
 ]

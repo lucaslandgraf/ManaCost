@@ -10,11 +10,12 @@ import {
 } from 'react-native';
 import { supabase } from '../../config/supabase';
 
-interface DealTip {
+interface PurchasedItem {
   id: string;
-  store_name: string;
-  product_name: string;
-  deal_price: number;
+  name: string;
+  quantity: number;
+  unit_price: number;
+  total_price: number;
 }
 
 interface PurchaseDetailsModalProps {
@@ -32,46 +33,54 @@ export const PurchaseDetailsModal: React.FC<PurchaseDetailsModalProps> = ({
   date,
   amount,
 }) => {
-  const [tips, setTips] = useState<DealTip[]>([]);
-  const [loadingTips, setLoadingTips] = useState(false);
+  const [items, setItems] = useState<PurchasedItem[]>([]);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (visible && description) {
-      searchRelatedDeals(description);
+    if (visible) {
+      loadReceiptItems();
     } else {
-      setTips([]);
+      setItems([]);
     }
-  }, [visible, description]);
+  }, [visible, description, date]);
 
-  const searchRelatedDeals = async (text: string) => {
-    setLoadingTips(true);
+  const loadReceiptItems = async () => {
+    setLoading(true);
+    try {
+      // 1. Limpa o prefixo "NFC-e: " para buscar o estabelecimento
+      const storeName = description.replace(/^NFC-e:\s*/i, '').trim();
 
-    // Palavras-chave genéricas comuns para buscar sugestões de feira/mercado
-    const keywords = ['arroz', 'feijao', 'leite', 'oleo', 'cafe', 'detergente', 'sabao'];
-    const matched = keywords.filter((k) =>
-      text.toLowerCase().includes(k)
-    );
+      // 2. Busca a compra registrada na tabela purchases pelo nome da loja e data
+      const { data: purchaseData, error: purchaseError } = await supabase
+        .from('purchases')
+        .select('id')
+        .ilike('store_name', `%${storeName}%`)
+        .eq('purchase_date', date)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-    let query = supabase.from('flyer_deals').select('id, store_name, product_name, deal_price');
+      if (purchaseError) throw purchaseError;
 
-    if (matched.length > 0) {
-      query = query.ilike('product_name', `%${matched[0]}%`);
-    } else if (text.toLowerCase().includes('mercado') || text.toLowerCase().includes('nfc-e')) {
-      // Se for compra de mercado genérica, pega até 2 ofertas de destaque da cidade
-      query = query.limit(2);
-    } else {
-      setTips([]);
-      setLoadingTips(false);
-      return;
+      if (purchaseData?.id) {
+        // 3. Busca todos os itens discriminados da nota fiscal
+        const { data: itemsData, error: itemsError } = await supabase
+          .from('purchase_items')
+          .select('id, name, quantity, unit_price, total_price')
+          .eq('purchase_id', purchaseData.id)
+          .order('total_price', { ascending: false });
+
+        if (itemsError) throw itemsError;
+        setItems(itemsData || []);
+      } else {
+        setItems([]);
+      }
+    } catch (err) {
+      console.error('Erro ao buscar itens da nota:', err);
+      setItems([]);
+    } finally {
+      setLoading(false);
     }
-
-    const { data } = await query.limit(3);
-    if (data && data.length > 0) {
-      setTips(data as DealTip[]);
-    } else {
-      setTips([]);
-    }
-    setLoadingTips(false);
   };
 
   return (
@@ -80,54 +89,66 @@ export const PurchaseDetailsModal: React.FC<PurchaseDetailsModalProps> = ({
         <View style={styles.container}>
           {/* Cabeçalho */}
           <View style={styles.header}>
-            <Text style={styles.title}>Detalhe do Lançamento</Text>
+            <Text style={styles.title}>Detalhe do Cupom Fiscal</Text>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
               <Text style={styles.closeBtnText}>✕</Text>
             </TouchableOpacity>
           </View>
 
-          {/* Dados Principais */}
+          {/* Dados Gerais da Compra */}
           <View style={styles.content}>
             <Text style={styles.descText}>{description}</Text>
-            <Text style={styles.dateText}>Data do registro: {date}</Text>
+            <Text style={styles.dateText}>Data da Compra: {date}</Text>
 
             <View style={styles.amountBox}>
-              <Text style={styles.amountLabel}>Valor Total</Text>
-              <Text style={styles.amountValue}>R$ {Number(amount).toFixed(2)}</Text>
+              <Text style={styles.amountLabel}>Valor Total Pago</Text>
+              <Text style={styles.amountValue}>
+                R$ {Number(amount).toFixed(2).replace('.', ',')}
+              </Text>
             </View>
           </View>
 
-          {/* Dicas Construtivas para Próximas Compras */}
-          {loadingTips ? (
-            <View style={styles.tipsLoading}>
-              <ActivityIndicator size="small" color="#38BDF8" />
-              <Text style={styles.tipsLoadingText}>Consultando encartes locais...</Text>
-            </View>
-          ) : tips.length > 0 ? (
-            <View style={styles.tipsContainer}>
-              <View style={styles.tipsHeader}>
-                <Text style={styles.tipsIcon}>💡</Text>
-                <Text style={styles.tipsTitle}>Dica para a próxima feira:</Text>
-              </View>
-              <Text style={styles.tipsSub}>
-                Ofertas ativas encontradas nos mercados de Londrina:
-              </Text>
+          {/* Itens Comprados (Descritivo da Nota) */}
+          <View style={styles.itemsSection}>
+            <Text style={styles.sectionSubtitle}>Itens Discriminados na Nota:</Text>
 
-              {tips.map((item) => (
-                <View key={item.id} style={styles.tipItem}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.tipStore}>{item.store_name.toUpperCase()}</Text>
-                    <Text style={styles.tipProduct} numberOfLines={1}>
-                      {item.product_name}
+            {loading ? (
+              <View style={styles.centerLoading}>
+                <ActivityIndicator size="small" color="#10B981" />
+                <Text style={styles.loadingText}>Buscando produtos da nota...</Text>
+              </View>
+            ) : items.length > 0 ? (
+              <FlatList
+                data={items}
+                keyExtractor={(item) => item.id}
+                style={styles.itemsList}
+                showsVerticalScrollIndicator={true}
+                renderItem={({ item }) => (
+                  <View style={styles.receiptItemRow}>
+                    <View style={{ flex: 1, paddingRight: 8 }}>
+                      <Text style={styles.receiptItemName} numberOfLines={2}>
+                        {item.name}
+                      </Text>
+                      <Text style={styles.receiptItemQty}>
+                        {item.quantity} un x R$ {Number(item.unit_price).toFixed(2).replace('.', ',')}
+                      </Text>
+                    </View>
+                    <Text style={styles.receiptItemTotal}>
+                      R$ {Number(item.total_price).toFixed(2).replace('.', ',')}
                     </Text>
                   </View>
-                  <Text style={styles.tipPrice}>R$ {item.deal_price.toFixed(2)}</Text>
-                </View>
-              ))}
-            </View>
-          ) : null}
+                )}
+              />
+            ) : (
+              <View style={styles.emptyItemsBox}>
+                <Text style={styles.noItemsText}>
+                  Nenhum item discriminado foi encontrado no portal da SEFAZ para este comprovante.
+                </Text>
+              </View>
+            )}
+          </View>
 
-          {/* Rodapé */}
+          {/* Botão de Fechar */}
           <TouchableOpacity style={styles.actionBtn} onPress={onClose}>
             <Text style={styles.actionBtnText}>Fechar</Text>
           </TouchableOpacity>
@@ -147,6 +168,7 @@ const styles = StyleSheet.create({
   },
   container: {
     width: '100%',
+    maxHeight: '85%',
     backgroundColor: '#1E293B',
     borderRadius: 16,
     padding: 20,
@@ -157,7 +179,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   title: {
     fontSize: 18,
@@ -173,7 +195,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   content: {
-    marginBottom: 16,
+    marginBottom: 12,
   },
   descText: {
     fontSize: 16,
@@ -188,87 +210,90 @@ const styles = StyleSheet.create({
   amountBox: {
     backgroundColor: '#0F172A',
     borderRadius: 10,
-    padding: 14,
-    marginTop: 12,
+    padding: 12,
+    marginTop: 10,
     alignItems: 'center',
   },
   amountLabel: {
     color: '#94A3B8',
-    fontSize: 12,
-    marginBottom: 4,
+    fontSize: 11,
+    marginBottom: 2,
   },
   amountValue: {
     fontSize: 22,
     fontWeight: 'bold',
-    color: '#F8FAFC',
+    color: '#10B981',
   },
-  tipsLoading: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
-    gap: 8,
+  itemsSection: {
+    marginVertical: 10,
+    flexShrink: 1,
   },
-  tipsLoadingText: {
-    color: '#94A3B8',
+  sectionSubtitle: {
     fontSize: 12,
-  },
-  tipsContainer: {
-    backgroundColor: 'rgba(56, 189, 248, 0.08)',
-    borderColor: 'rgba(56, 189, 248, 0.3)',
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 16,
-  },
-  tipsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  tipsIcon: {
-    fontSize: 14,
-  },
-  tipsTitle: {
-    color: '#38BDF8',
-    fontSize: 13,
-    fontWeight: 'bold',
-  },
-  tipsSub: {
+    fontWeight: '700',
     color: '#94A3B8',
-    fontSize: 11,
-    marginTop: 2,
+    textTransform: 'uppercase',
     marginBottom: 8,
   },
-  tipItem: {
+  itemsList: {
+    maxHeight: 220,
+    borderWidth: 1,
+    borderColor: '#334155',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    backgroundColor: '#0F172A',
+  },
+  receiptItemRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#0F172A',
-    padding: 8,
-    borderRadius: 8,
-    marginTop: 6,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1E293B',
   },
-  tipStore: {
-    color: '#34D399',
-    fontSize: 10,
-    fontWeight: 'bold',
-  },
-  tipProduct: {
+  receiptItemName: {
     color: '#F8FAFC',
-    fontSize: 12,
-  },
-  tipPrice: {
-    color: '#38BDF8',
-    fontWeight: 'bold',
     fontSize: 13,
-    marginLeft: 8,
+    fontWeight: '500',
+  },
+  receiptItemQty: {
+    color: '#94A3B8',
+    fontSize: 11,
+    marginTop: 2,
+  },
+  receiptItemTotal: {
+    color: '#38BDF8',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  emptyItemsBox: {
+    backgroundColor: '#0F172A',
+    padding: 14,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  noItemsText: {
+    color: '#64748B',
+    fontSize: 12,
+    fontStyle: 'italic',
+    textAlign: 'center',
+  },
+  centerLoading: {
+    alignItems: 'center',
+    paddingVertical: 16,
+  },
+  loadingText: {
+    color: '#94A3B8',
+    fontSize: 12,
+    marginTop: 6,
   },
   actionBtn: {
     backgroundColor: '#334155',
     paddingVertical: 12,
     borderRadius: 10,
     alignItems: 'center',
+    marginTop: 12,
   },
   actionBtnText: {
     color: '#F8FAFC',

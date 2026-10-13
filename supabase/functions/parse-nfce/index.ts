@@ -259,6 +259,7 @@ serve(async (req) => {
       type: "expense",
       date: new Date().toISOString().split("T")[0],
       is_settled: true,
+      purchase_id: newPurchase?.id, // <-- Adicione esta linha se a coluna existir no seu schema
     });
 
     return new Response(

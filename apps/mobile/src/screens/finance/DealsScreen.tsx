@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -34,7 +34,17 @@ interface ProductMatch {
   cheapest_store: string;
   priciest_store: string;
   image_url: string | null;
+  updated_at?: string;
   product_match_items: MatchItem[];
+}
+
+interface FlyerDeal {
+  id: string;
+  store_name: string;
+  product_name: string;
+  deal_price: number;
+  image_url: string | null;
+  category: string | null;
 }
 
 interface Flyer {
@@ -44,6 +54,21 @@ interface Flyer {
   category: 'encarte' | 'instagram' | 'tabloide';
   badge_color: string;
 }
+
+const CATALOG_PAGE_SIZE = 100;
+
+const STORES_LIST = [
+  'Todas',
+  'Super Muffato',
+  'Max Atacadista',
+  'Hiper Condor',
+  'Atacadão',
+  'Santarém',
+  'Viscardi',
+  'Almeida Mercados',
+  'Tonhão Maxi',
+  'Super Golff',
+];
 
 const FALLBACK_FLYER_URLS: Record<string, string> = {
   'Super Muffato': 'https://www.supermuffato.com.br/lojas-fisicas?tab=encartes&loja=26',
@@ -58,28 +83,62 @@ const FALLBACK_FLYER_URLS: Record<string, string> = {
 };
 
 export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
-  const [activeTab, setActiveTab] = useState<'products' | 'flyers'>('products');
+  const [activeTab, setActiveTab] = useState<'matches' | 'catalog' | 'flyers'>('matches');
 
-  // Estados dos Produtos Comparados
+  // Estados dos Produtos Comparados (Aba 1)
   const [matches, setMatches] = useState<ProductMatch[]>([]);
+  const [lastUpdated, setLastUpdated] = useState<string>('');
   const [loadingMatches, setLoadingMatches] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [search, setSearch] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  // Estados dos Encartes e Visualização Interna
+  // Estados do Catálogo Geral / Menor Preço (Aba 2)
+  const [catalogDeals, setCatalogDeals] = useState<FlyerDeal[]>([]);
+  const [loadingCatalog, setLoadingCatalog] = useState(false);
+  const [loadingMoreCatalog, setLoadingMoreCatalog] = useState(false);
+  const [hasMoreCatalog, setHasMoreCatalog] = useState(true);
+  const catalogRequestId = useRef(0);
+  const loadingMoreCatalogRef = useRef(false);
+
+  // Filtros Globais
+  const [search, setSearch] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
+  const [selectedStore, setSelectedStore] = useState<string>('Todas');
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Estados dos Encartes (Aba 3)
   const [flyers, setFlyers] = useState<Flyer[]>([]);
   const [loadingFlyers, setLoadingFlyers] = useState(false);
   const [previewFlyer, setPreviewFlyer] = useState<{ name: string; url: string } | null>(null);
   const [loadingWeb, setLoadingWeb] = useState(true);
 
-  // Carrinho / Cesta Inteligente
+  // Cesta Inteligente
   const { items, addItem, removeItem, isInBasket } = useBasket();
   const [basketVisible, setBasketVisible] = useState(false);
 
+  const formatUpdateDate = (dateString?: string) => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    if (Number.isNaN(date.getTime())) return '';
+
+    const now = new Date();
+    const isToday =
+      date.getDate() === now.getDate() &&
+      date.getMonth() === now.getMonth() &&
+      date.getFullYear() === now.getFullYear();
+    const timeStr = date.toLocaleTimeString('pt-BR', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
+    return isToday
+      ? `Hoje às ${timeStr}`
+      : `${date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} às ${timeStr}`;
+  };
+
+  // 1. Busca produtos comparados (clusters com spread)
   const fetchMatches = async () => {
     try {
+      setLoadingMatches(true);
       const { data, error } = await supabase
         .from('product_matches')
         .select(`
@@ -93,6 +152,7 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
           cheapest_store,
           priciest_store,
           image_url,
+          updated_at,
           product_match_items (
             id,
             store_name,
@@ -103,16 +163,91 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
         .order('spread', { ascending: false });
 
       if (error) throw error;
-      setMatches((data as unknown as ProductMatch[]) || []);
+      const list = (data as unknown as ProductMatch[]) || [];
+      setMatches(list);
+
+      const latestTimestamp = list.reduce((latest, item) => {
+        const timestamp = Date.parse(item.updated_at || '');
+        return Number.isFinite(timestamp) && timestamp > latest ? timestamp : latest;
+      }, Number.NEGATIVE_INFINITY);
+      setLastUpdated(
+        Number.isFinite(latestTimestamp)
+          ? formatUpdateDate(new Date(latestTimestamp).toISOString())
+          : ''
+      );
     } catch (err) {
-      console.error('Erro ao buscar comparativo de ofertas:', err);
+      console.error('Erro ao buscar comparativo:', err);
       setMatches([]);
+      setLastUpdated('');
     } finally {
       setLoadingMatches(false);
       setRefreshing(false);
     }
   };
 
+  // 2. Busca catálogo geral (menor preço puro na flyer_deals)
+  const fetchCatalog = async (loadMore = false) => {
+    if (
+      loadMore &&
+      (!hasMoreCatalog || loadingCatalog || loadingMoreCatalogRef.current)
+    ) {
+      return;
+    }
+
+    const requestId = ++catalogRequestId.current;
+    const offset = loadMore ? catalogDeals.length : 0;
+    if (loadMore) {
+      loadingMoreCatalogRef.current = true;
+      setLoadingMoreCatalog(true);
+    } else {
+      loadingMoreCatalogRef.current = false;
+      setLoadingMoreCatalog(false);
+      setLoadingCatalog(true);
+    }
+
+    try {
+      let query = supabase
+        .from('flyer_deals')
+        .select('id, store_name, product_name, deal_price, image_url, category')
+        .order('deal_price', { ascending: true })
+        .order('id', { ascending: true })
+        .range(offset, offset + CATALOG_PAGE_SIZE - 1);
+
+      if (search.trim()) {
+        query = query.ilike('product_name', `%${search.trim()}%`);
+      }
+
+      if (selectedCategory !== 'Todos') {
+        query = query.eq('category', selectedCategory);
+      }
+
+      if (selectedStore !== 'Todas') {
+        query = query.ilike('store_name', `%${selectedStore}%`);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      if (requestId !== catalogRequestId.current) return;
+
+      const page = (data as unknown as FlyerDeal[]) || [];
+      setCatalogDeals((current) => (loadMore ? [...current, ...page] : page));
+      setHasMoreCatalog(page.length === CATALOG_PAGE_SIZE);
+    } catch (err) {
+      if (requestId !== catalogRequestId.current) return;
+      console.error('Erro ao buscar catálogo geral:', err);
+      if (!loadMore) setCatalogDeals([]);
+      setHasMoreCatalog(false);
+    } finally {
+      if (requestId === catalogRequestId.current) {
+        setLoadingCatalog(false);
+        loadingMoreCatalogRef.current = false;
+        setLoadingMoreCatalog(false);
+        setRefreshing(false);
+      }
+    }
+  };
+
+  // 3. Busca encartes
   const fetchFlyers = async () => {
     setLoadingFlyers(true);
     try {
@@ -150,13 +285,26 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
     fetchFlyers();
   }, []);
 
+  useEffect(() => {
+    if (activeTab === 'catalog') {
+      const delaySearch = setTimeout(() => {
+        setCatalogDeals([]);
+        setHasMoreCatalog(true);
+        fetchCatalog(false);
+      }, 300);
+      return () => {
+        clearTimeout(delaySearch);
+        catalogRequestId.current += 1;
+        loadingMoreCatalogRef.current = false;
+      };
+    }
+  }, [activeTab, search, selectedCategory, selectedStore]);
+
   const onRefresh = () => {
     setRefreshing(true);
-    if (activeTab === 'products') {
-      fetchMatches();
-    } else {
-      fetchFlyers();
-    }
+    if (activeTab === 'matches') fetchMatches();
+    else if (activeTab === 'catalog') fetchCatalog();
+    else fetchFlyers();
   };
 
   const handleOpenFlyer = async (flyer?: any) => {
@@ -168,21 +316,19 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
 
     if (!targetUrl) return;
 
-    if (storeName.toLowerCase().includes('santarem') || storeName.toLowerCase().includes('viscardi')) {
-      const username = storeName.toLowerCase().includes('santarem')
-        ? 'supermercados_santarem'
-        : 'viscardioficial';
+    const isInstagram =
+      flyer.category === 'instagram' ||
+      targetUrl.includes('instagram.com') ||
+      storeName.toLowerCase().includes('santarem') ||
+      storeName.toLowerCase().includes('viscardi');
 
-      const appUrl = `instagram://user?username=${username}`;
+    if (isInstagram) {
       try {
-        const canOpen = await Linking.canOpenURL(appUrl);
-        if (canOpen) {
-          await Linking.openURL(appUrl);
-          return;
-        }
-      } catch {
-        // Falls back to the browser below if the Instagram app is unavailable.
+        await Linking.openURL(targetUrl);
+      } catch (err) {
+        console.warn('Não foi possível abrir o link externamente:', err);
       }
+      return;
     }
 
     setLoadingWeb(true);
@@ -212,7 +358,6 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
     setExpandedId((prev) => (prev === id ? null : id));
   };
 
-  // Se o utilizador abriu um encarte para pré-visualização interna
   if (previewFlyer) {
     return (
       <View style={styles.container}>
@@ -223,10 +368,7 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
             </Text>
             <Text style={styles.previewSubtitle}>Folheto oficial da semana</Text>
           </View>
-          <TouchableOpacity
-            onPress={() => setPreviewFlyer(null)}
-            style={styles.closePreviewBtn}
-          >
+          <TouchableOpacity onPress={() => setPreviewFlyer(null)} style={styles.closePreviewBtn}>
             <Text style={styles.closePreviewText}>✕ Fechar</Text>
           </TouchableOpacity>
         </View>
@@ -250,10 +392,22 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
           originWhitelist={['*']}
           userAgent="Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
           onShouldStartLoadWithRequest={(request) => {
-            if (request.url.startsWith('whatsapp:') || request.url.startsWith('intent:')) {
-              Linking.openURL(request.url);
+            const url = request.url;
+
+            if (url.startsWith('whatsapp:') || url.startsWith('tel:') || url.startsWith('mailto:')) {
+              Linking.openURL(url).catch(() => {});
               return false;
             }
+
+            if (url.startsWith('intent://')) {
+              const fallbackMatch = url.match(/scheme=https;.*?browser_fallback_url=([^;]+)/);
+              if (fallbackMatch && fallbackMatch[1]) {
+                const fallbackUrl = decodeURIComponent(fallbackMatch[1]);
+                Linking.openURL(fallbackUrl).catch(() => {});
+              }
+              return false;
+            }
+
             return true;
           }}
           onError={() => setLoadingWeb(false)}
@@ -272,8 +426,11 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
         <View style={{ flex: 1 }}>
           <Text style={styles.title}>ManaCost Londrina</Text>
           <Text style={styles.subtitle}>Encartes e Comparador de Supermercados</Text>
+          {lastUpdated ? (
+            <Text style={styles.lastUpdatedText}>🕒 Atualizado {lastUpdated}</Text>
+          ) : null}
         </View>
-        {items.length > 0 && activeTab === 'products' && (
+        {items.length > 0 && activeTab !== 'flyers' && (
           <TouchableOpacity
             style={styles.headerCartBadge}
             onPress={() => setBasketVisible(true)}
@@ -283,14 +440,23 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
         )}
       </View>
 
-      {/* Seletor de Abas */}
+      {/* Seletor de Três Abas */}
       <View style={styles.tabBar}>
         <TouchableOpacity
-          style={[styles.tabButton, activeTab === 'products' && styles.tabButtonActive]}
-          onPress={() => setActiveTab('products')}
+          style={[styles.tabButton, activeTab === 'matches' && styles.tabButtonActive]}
+          onPress={() => setActiveTab('matches')}
         >
-          <Text style={[styles.tabText, activeTab === 'products' && styles.tabTextActive]}>
-            🔍 Produtos & Preços
+          <Text style={[styles.tabText, activeTab === 'matches' && styles.tabTextActive]}>
+            🔍 Comparativo
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.tabButton, activeTab === 'catalog' && styles.tabButtonActive]}
+          onPress={() => setActiveTab('catalog')}
+        >
+          <Text style={[styles.tabText, activeTab === 'catalog' && styles.tabTextActive]}>
+            🏷️ Menor Preço
           </Text>
         </TouchableOpacity>
 
@@ -299,26 +465,29 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
           onPress={() => setActiveTab('flyers')}
         >
           <Text style={[styles.tabText, activeTab === 'flyers' && styles.tabTextActive]}>
-            📰 Encartes & Folhetos
+            📰 Encartes
           </Text>
         </TouchableOpacity>
       </View>
 
-      {/* ABA 1: PRODUTOS & COMPARADOR */}
-      {activeTab === 'products' && (
+      {/* Barra de Pesquisa e Filtros */}
+      {activeTab !== 'flyers' && (
         <>
-          {/* Barra de Pesquisa */}
           <View style={styles.searchContainer}>
             <TextInput
               style={styles.searchInput}
-              placeholder="Buscar arroz, café, leite, carne..."
+              placeholder={
+                activeTab === 'catalog'
+                  ? 'Buscar em todas as 6.000 ofertas (ex: coyote, refriko)...'
+                  : 'Buscar arroz, café, leite, carne...'
+              }
               placeholderTextColor="#64748B"
               value={search}
               onChangeText={setSearch}
             />
           </View>
 
-          {/* Filtro por Categoria */}
+          {/* Filtro de Categorias */}
           <View style={styles.filtersContainer}>
             <FlatList
               horizontal
@@ -346,7 +515,41 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
             />
           </View>
 
-          {/* Lista de Produtos Comparados */}
+          {/* Filtro por Supermercado (Exclusivo na aba Menor Preço) */}
+          {activeTab === 'catalog' && (
+            <View style={styles.storesFilterContainer}>
+              <FlatList
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                data={STORES_LIST}
+                keyExtractor={(item) => item}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={[
+                      styles.storeChip,
+                      selectedStore === item && styles.storeChipActive,
+                    ]}
+                    onPress={() => setSelectedStore(item)}
+                  >
+                    <Text
+                      style={[
+                        styles.storeChipText,
+                        selectedStore === item && styles.storeChipTextActive,
+                      ]}
+                    >
+                      {item === 'Todas' ? '🏬 Todas as Lojas' : item}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              />
+            </View>
+          )}
+        </>
+      )}
+
+      {/* ABA 1: PRODUTOS COMPARADOS */}
+      {activeTab === 'matches' && (
+        <>
           {loadingMatches ? (
             <View style={styles.center}>
               <ActivityIndicator size="large" color="#10B981" />
@@ -369,14 +572,23 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
               renderItem={({ item }) => {
                 const isExpanded = expandedId === item.id;
                 const inBasket = isInBasket(item.id);
-                const sortedItems = [...(item.product_match_items || [])].sort(
-                  (a, b) => a.price - b.price
+
+                const bestByStoreMap = new Map<string, MatchItem>();
+                (item.product_match_items || []).forEach((deal) => {
+                  const existing = bestByStoreMap.get(deal.store_name);
+                  if (!existing || Number(deal.price) < Number(existing.price)) {
+                    bestByStoreMap.set(deal.store_name, deal);
+                  }
+                });
+
+                const sortedItems = Array.from(bestByStoreMap.values()).sort(
+                  (a, b) => Number(a.price) - Number(b.price)
                 );
 
                 return (
                   <View style={styles.card}>
                     <TouchableOpacity
-                      activeOpacity={0.8}
+                      activeOpacity={0.9}
                       onPress={() => toggleExpand(item.id)}
                       style={styles.cardHeaderArea}
                     >
@@ -388,58 +600,49 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
                         />
                       ) : (
                         <View style={[styles.cardImage, styles.placeholderImage]}>
-                          <Text style={styles.placeholderText}>🛒</Text>
+                          <Text style={styles.placeholderText}>🏷️</Text>
                         </View>
                       )}
 
                       <View style={styles.cardBody}>
                         <View style={styles.badgeRow}>
-                          <View style={styles.storesBadge}>
-                            <Text style={styles.storesBadgeText}>
-                              {item.stores_count} redes
-                            </Text>
+                          <View style={[styles.storesBadge, { backgroundColor: '#059669' }]}>
+                            <Text style={styles.storesBadgeText}>{item.cheapest_store}</Text>
                           </View>
                           {item.category && (
                             <Text style={styles.categoryBadge}>{item.category}</Text>
                           )}
                         </View>
 
-                        <Text style={styles.productName} numberOfLines={2}>
+                        <Text style={styles.productName} numberOfLines={isExpanded ? undefined : 2}>
                           {item.display_name}
                         </Text>
 
                         <View style={styles.priceHighlightRow}>
                           <View>
-                            <Text style={styles.cheapestLabel}>
-                              Mais barato no {item.cheapest_store}
-                            </Text>
+                            <Text style={styles.cheapestLabel}>Melhor preço</Text>
                             <Text style={styles.cheapestPrice}>
                               R$ {Number(item.min_price).toFixed(2).replace('.', ',')}
                             </Text>
                           </View>
 
-                          {Number(item.spread) > 0 && (
-                            <View style={styles.spreadBox}>
-                              <Text style={styles.spreadLabel}>Economia até</Text>
-                              <Text style={styles.spreadValue}>
-                                R$ {Number(item.spread).toFixed(2).replace('.', ',')}
-                              </Text>
-                            </View>
-                          )}
+                          <View style={styles.spreadBox}>
+                            <Text style={styles.spreadLabel}>Spread</Text>
+                            <Text style={styles.spreadValue}>
+                              R$ {Number(item.spread).toFixed(2).replace('.', ',')}
+                            </Text>
+                          </View>
                         </View>
 
                         <View style={styles.cardFooterActions}>
                           <Text style={styles.expandHint}>
-                            {isExpanded ? '▲ Ocultar preços' : '▼ Ver comparação completa'}
+                            {isExpanded ? 'Ocultar lojas' : 'Ver lojas'}
                           </Text>
 
                           <TouchableOpacity
-                            style={[
-                              styles.basketBtn,
-                              inBasket && styles.basketBtnActive,
-                            ]}
-                            onPress={(e) => {
-                              e.stopPropagation();
+                            style={[styles.basketBtn, inBasket && styles.basketBtnActive]}
+                            onPress={(event) => {
+                              event.stopPropagation();
                               if (inBasket) {
                                 removeItem(item.id);
                               } else {
@@ -505,31 +708,133 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
               }}
             />
           )}
-
-          {/* Barra Flutuante da Cesta */}
-          {items.length > 0 && (
-            <TouchableOpacity
-              style={styles.floatingBar}
-              activeOpacity={0.9}
-              onPress={() => setBasketVisible(true)}
-            >
-              <View style={styles.floatingBarContent}>
-                <Text style={styles.floatingBarText}>
-                  🛒 {items.length} {items.length === 1 ? 'item na Cesta' : 'itens na Cesta'}
-                </Text>
-                <Text style={styles.floatingBarAction}>Comparar Lojas →</Text>
-              </View>
-            </TouchableOpacity>
-          )}
-
-          <BasketModal
-            visible={basketVisible}
-            onClose={() => setBasketVisible(false)}
-          />
         </>
       )}
 
-      {/* ABA 2: ENCARTES & FOLHETOS */}
+      {/* ABA 2: MENOR PREÇO GERAL / ACHADOS */}
+      {activeTab === 'catalog' && (
+        <>
+          {loadingCatalog ? (
+            <View style={styles.center}>
+              <ActivityIndicator size="large" color="#38BDF8" />
+              <Text style={styles.loadingText}>Buscando as melhores ofertas...</Text>
+            </View>
+          ) : (
+            <FlatList
+              data={catalogDeals}
+              keyExtractor={(item) => item.id}
+              onEndReached={() => fetchCatalog(true)}
+              onEndReachedThreshold={0.5}
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={onRefresh}
+                  tintColor="#38BDF8"
+                />
+              }
+              contentContainerStyle={[
+                styles.listContent,
+                items.length > 0 && { paddingBottom: 85 },
+              ]}
+              renderItem={({ item }) => {
+                const inBasket = isInBasket(item.id);
+
+                return (
+                  <View style={styles.card}>
+                    <View style={styles.cardHeaderArea}>
+                      {item.image_url ? (
+                        <Image
+                          source={{ uri: item.image_url }}
+                          style={styles.cardImage}
+                          resizeMode="cover"
+                        />
+                      ) : (
+                        <View style={[styles.cardImage, styles.placeholderImage]}>
+                          <Text style={styles.placeholderText}>🏷️</Text>
+                        </View>
+                      )}
+
+                      <View style={styles.cardBody}>
+                        <View style={styles.badgeRow}>
+                          <View
+                            style={[
+                              styles.storesBadge,
+                              { backgroundColor: '#059669' },
+                            ]}
+                          >
+                            <Text style={styles.storesBadgeText}>
+                              {item.store_name}
+                            </Text>
+                          </View>
+                          {item.category && (
+                            <Text style={styles.categoryBadge}>{item.category}</Text>
+                          )}
+                        </View>
+
+                        {/* numberOfLines={4} para acomodar nomes longos sem cortar especificações */}
+                        <Text style={styles.productName} numberOfLines={4}>
+                          {item.product_name}
+                        </Text>
+
+                        <View style={styles.priceHighlightRow}>
+                          <View>
+                            <Text style={styles.cheapestLabel}>Preço no Encarte</Text>
+                            <Text style={styles.cheapestPrice}>
+                              R$ {Number(item.deal_price).toFixed(2).replace('.', ',')}
+                            </Text>
+                          </View>
+
+                          <TouchableOpacity
+                            style={[
+                              styles.basketBtn,
+                              inBasket && styles.basketBtnActive,
+                            ]}
+                            onPress={() => {
+                              if (inBasket) {
+                                removeItem(item.id);
+                              } else {
+                                addItem({
+                                  id: item.id,
+                                  display_name: item.product_name,
+                                  min_price: item.deal_price,
+                                  image_url: item.image_url,
+                                  cheapest_store: item.store_name,
+                                });
+                              }
+                            }}
+                          >
+                            <Text
+                              style={[
+                                styles.basketBtnText,
+                                inBasket && styles.basketBtnTextActive,
+                              ]}
+                            >
+                              {inBasket ? '✓ Na Cesta' : '+ Cesta'}
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    </View>
+                  </View>
+                );
+              }}
+              ListEmptyComponent={
+                <Text style={styles.emptyText}>Nenhuma oferta encontrada para essa busca.</Text>
+              }
+              ListFooterComponent={
+                loadingMoreCatalog ? (
+                  <ActivityIndicator
+                    style={styles.catalogLoadingMore}
+                    color="#38BDF8"
+                  />
+                ) : null
+              }
+            />
+          )}
+        </>
+      )}
+
+      {/* ABA 3: ENCARTES & FOLHETOS */}
       {activeTab === 'flyers' && (
         <View style={{ flex: 1 }}>
           {loadingFlyers ? (
@@ -582,6 +887,24 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
           )}
         </View>
       )}
+
+      {/* Barra Flutuante da Cesta */}
+      {items.length > 0 && activeTab !== 'flyers' && (
+        <TouchableOpacity
+          style={styles.floatingBar}
+          activeOpacity={0.9}
+          onPress={() => setBasketVisible(true)}
+        >
+          <View style={styles.floatingBarContent}>
+            <Text style={styles.floatingBarText}>
+              🛒 {items.length} {items.length === 1 ? 'item na Cesta' : 'itens na Cesta'}
+            </Text>
+            <Text style={styles.floatingBarAction}>Comparar Lojas →</Text>
+          </View>
+        </TouchableOpacity>
+      )}
+
+      <BasketModal visible={basketVisible} onClose={() => setBasketVisible(false)} />
     </View>
   );
 };
@@ -615,6 +938,12 @@ const styles = StyleSheet.create({
     color: '#94A3B8',
     fontSize: 12,
   },
+  lastUpdatedText: {
+    color: '#34D399',
+    fontSize: 11,
+    fontWeight: '600',
+    marginTop: 2,
+  },
   headerCartBadge: {
     backgroundColor: '#10B981',
     paddingHorizontal: 10,
@@ -644,7 +973,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#0F172A',
   },
   tabText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
     color: '#64748B',
   },
@@ -668,6 +997,10 @@ const styles = StyleSheet.create({
   },
   filtersContainer: {
     paddingHorizontal: 16,
+    marginBottom: 8,
+  },
+  storesFilterContainer: {
+    paddingHorizontal: 16,
     marginBottom: 10,
   },
   chip: {
@@ -689,6 +1022,28 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   chipTextActive: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+  },
+  storeChip: {
+    backgroundColor: '#1E293B',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 16,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  storeChipActive: {
+    backgroundColor: '#0284C7',
+    borderColor: '#38BDF8',
+  },
+  storeChipText: {
+    color: '#94A3B8',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  storeChipTextActive: {
     color: '#FFFFFF',
     fontWeight: 'bold',
   },
@@ -744,6 +1099,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
+    backgroundColor: 'rgba(56, 189, 248, 0.1)',
   },
   categoryBadgeText: {
     fontSize: 10,
@@ -972,5 +1328,14 @@ const styles = StyleSheet.create({
     color: '#94A3B8',
     marginTop: 8,
     fontSize: 12,
+  },
+  catalogLoadingMore: {
+    marginVertical: 16,
+  },
+  emptyText: {
+    textAlign: 'center',
+    color: '#64748B',
+    marginTop: 40,
+    fontSize: 14,
   },
 });

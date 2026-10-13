@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useMemo } from 'react';
 import {
   Modal,
   View,
@@ -6,18 +6,14 @@ import {
   FlatList,
   TouchableOpacity,
   StyleSheet,
-  ActivityIndicator,
   SafeAreaView,
 } from 'react-native';
 import { useBasket } from '../../context/BasketContext';
-import { supabase } from '../../config/supabase';
 
-interface ComparisonResult {
+interface StoreGroup {
   store_name: string;
   total_price: number;
-  items_available: number;
-  missing_items: number;
-  is_cheapest: boolean;
+  items_count: number;
 }
 
 interface BasketModalProps {
@@ -27,36 +23,37 @@ interface BasketModalProps {
 
 export const BasketModal: React.FC<BasketModalProps> = ({ visible, onClose }) => {
   const { items, removeItem, clearBasket } = useBasket();
-  const [results, setResults] = useState<ComparisonResult[]>([]);
-  const [loading, setLoading] = useState(false);
 
-  const calculateComparison = async () => {
-    if (items.length === 0) {
-      setResults([]);
-      return;
-    }
+  // 1. Soma global da cesta (Menor Preço Total)
+  const totalBasketPrice = useMemo(() => {
+    return items.reduce((acc, item) => acc + (Number(item.min_price) || 0), 0);
+  }, [items]);
 
-    setLoading(true);
-    try {
-      const matchIds = items.map((i) => i.id);
-      const { data, error } = await supabase.rpc('calculate_basket_comparison', {
-        selected_match_ids: matchIds,
-      });
+  // 2. Agrupamento e ranking por supermercado
+  const storeRanking = useMemo(() => {
+    if (items.length === 0) return [];
 
-      if (error) throw error;
-      setResults((data as ComparisonResult[]) || []);
-    } catch (err) {
-      console.error('Erro ao calcular comparativo de cesta:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+    const map: Record<string, { total: number; count: number }> = {};
 
-  useEffect(() => {
-    if (visible && items.length > 0) {
-      calculateComparison();
-    }
-  }, [visible, items.length]);
+    items.forEach((item) => {
+      const store = item.cheapest_store || 'Outros';
+      const price = Number(item.min_price) || 0;
+
+      if (!map[store]) {
+        map[store] = { total: 0, count: 0 };
+      }
+      map[store].total += price;
+      map[store].count += 1;
+    });
+
+    return Object.entries(map)
+      .map(([store_name, data]): StoreGroup => ({
+        store_name,
+        total_price: data.total,
+        items_count: data.count,
+      }))
+      .sort((a, b) => b.total_price - a.total_price); // Lojas com mais volume no topo
+  }, [items]);
 
   return (
     <Modal visible={visible} animationType="slide" transparent>
@@ -75,55 +72,51 @@ export const BasketModal: React.FC<BasketModalProps> = ({ visible, onClose }) =>
             </TouchableOpacity>
           </View>
 
-          {/* Comparativo de Redes */}
-          <View style={styles.resultsContainer}>
-            <Text style={styles.sectionTitle}>Ranking de Preço Total em Londrina:</Text>
-            {loading ? (
-              <View style={styles.centerBox}>
-                <ActivityIndicator size="small" color="#10B981" />
-                <Text style={styles.loadingText}>A calcular totais nas 6 redes...</Text>
+          {/* Resumo do Total Estimado */}
+          {items.length > 0 && (
+            <View style={styles.totalBox}>
+              <View>
+                <Text style={styles.totalBoxLabel}>VALOR TOTAL DA COMPRA</Text>
+                <Text style={styles.totalBoxSubtitle}>Considerando a melhor oferta de cada item</Text>
               </View>
-            ) : results.length === 0 ? (
+              <Text style={styles.totalBoxPrice}>
+                R$ {totalBasketPrice.toFixed(2).replace('.', ',')}
+              </Text>
+            </View>
+          )}
+
+          {/* Ranking / Gastos por Supermercado */}
+          <View style={styles.resultsContainer}>
+            <Text style={styles.sectionTitle}>Divisão por Supermercado em Londrina:</Text>
+            {items.length === 0 ? (
               <Text style={styles.emptyText}>Adicione produtos para simular o total.</Text>
             ) : (
               <FlatList
-                data={results}
+                data={storeRanking}
                 keyExtractor={(item) => item.store_name}
                 renderItem={({ item, index }) => (
                   <View
                     style={[
                       styles.resultCard,
-                      item.is_cheapest && styles.resultCardCheapest,
+                      index === 0 && styles.resultCardHighlight,
                     ]}
                   >
                     <View style={styles.resultLeft}>
-                      <Text
-                        style={[
-                          styles.storeRank,
-                          item.is_cheapest && styles.storeRankCheapest,
-                        ]}
-                      >
-                        #{index + 1} {item.store_name}
+                      <Text style={styles.storeRank}>
+                        {item.store_name}
                       </Text>
                       <Text style={styles.availabilityText}>
-                        {item.missing_items === 0
-                          ? '✓ Carrinho 100% completo'
-                          : `Faltam ${item.missing_items} itens nesta loja`}
+                        {item.items_count} {item.items_count === 1 ? 'produto nesta rede' : 'produtos nesta rede'}
                       </Text>
                     </View>
 
                     <View style={styles.resultRight}>
-                      <Text
-                        style={[
-                          styles.storeTotalPrice,
-                          item.is_cheapest && styles.storeTotalPriceCheapest,
-                        ]}
-                      >
-                        R$ {Number(item.total_price).toFixed(2).replace('.', ',')}
+                      <Text style={styles.storeTotalPrice}>
+                        R$ {item.total_price.toFixed(2).replace('.', ',')}
                       </Text>
-                      {item.is_cheapest && (
+                      {index === 0 && (
                         <View style={styles.winnerBadge}>
-                          <Text style={styles.winnerText}>MELHOR ESCOLHA</Text>
+                          <Text style={styles.winnerText}>MAIOR PARCELA</Text>
                         </View>
                       )}
                     </View>
@@ -133,7 +126,7 @@ export const BasketModal: React.FC<BasketModalProps> = ({ visible, onClose }) =>
             )}
           </View>
 
-          {/* Itens Escolhidos na Cesta */}
+          {/* Lista de Produtos Adicionados */}
           <View style={styles.itemsSection}>
             <View style={styles.itemsSectionHeader}>
               <Text style={styles.sectionTitle}>Produtos na Lista</Text>
@@ -147,15 +140,15 @@ export const BasketModal: React.FC<BasketModalProps> = ({ visible, onClose }) =>
             <FlatList
               data={items}
               keyExtractor={(item) => item.id}
-              contentContainerStyle={{ paddingBottom: 16 }}
+              contentContainerStyle={{ paddingBottom: 20 }}
               renderItem={({ item }) => (
                 <View style={styles.itemRow}>
                   <View style={{ flex: 1, marginRight: 8 }}>
-                    <Text style={styles.itemName} numberOfLines={1}>
+                    <Text style={styles.itemName} numberOfLines={2}>
                       {item.display_name}
                     </Text>
                     <Text style={styles.itemPriceHint}>
-                      A partir de R$ {Number(item.min_price).toFixed(2).replace('.', ',')} ({item.cheapest_store})
+                      R$ {Number(item.min_price).toFixed(2).replace('.', ',')} ({item.cheapest_store})
                     </Text>
                   </View>
                   <TouchableOpacity
@@ -200,12 +193,40 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: 13, color: '#94A3B8', marginTop: 2 },
   closeBtn: { padding: 6 },
   closeBtnText: { color: '#94A3B8', fontSize: 20, fontWeight: 'bold' },
+  totalBox: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+    borderWidth: 1,
+    borderColor: '#10B981',
+    borderRadius: 12,
+    padding: 14,
+    marginTop: 14,
+  },
+  totalBoxLabel: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#10B981',
+    letterSpacing: 0.5,
+  },
+  totalBoxSubtitle: {
+    fontSize: 11,
+    color: '#94A3B8',
+    marginTop: 2,
+  },
+  totalBoxPrice: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#10B981',
+  },
   resultsContainer: {
-    maxHeight: 260,
-    marginVertical: 14,
+    maxHeight: 220,
+    marginTop: 14,
+    marginBottom: 8,
   },
   sectionTitle: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
     color: '#94A3B8',
     marginBottom: 8,
@@ -222,30 +243,28 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#334155',
   },
-  resultCardCheapest: {
-    borderColor: '#10B981',
-    backgroundColor: 'rgba(16, 185, 129, 0.08)',
+  resultCardHighlight: {
+    borderColor: '#38BDF8',
   },
   resultLeft: { flex: 1 },
-  storeRank: { fontSize: 15, fontWeight: 'bold', color: '#F8FAFC' },
-  storeRankCheapest: { color: '#10B981' },
+  storeRank: { fontSize: 14, fontWeight: 'bold', color: '#F8FAFC' },
   availabilityText: { fontSize: 11, color: '#94A3B8', marginTop: 2 },
   resultRight: { alignItems: 'flex-end' },
-  storeTotalPrice: { fontSize: 16, fontWeight: 'bold', color: '#F8FAFC' },
-  storeTotalPriceCheapest: { fontSize: 18, color: '#10B981' },
+  storeTotalPrice: { fontSize: 15, fontWeight: 'bold', color: '#F8FAFC' },
   winnerBadge: {
-    backgroundColor: '#10B981',
+    backgroundColor: '#38BDF8',
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
-    marginTop: 4,
+    marginTop: 3,
   },
-  winnerText: { fontSize: 9, fontWeight: '900', color: '#FFFFFF' },
-  itemsSection: { flex: 1, marginTop: 8 },
+  winnerText: { fontSize: 8, fontWeight: '900', color: '#0F172A' },
+  itemsSection: { flex: 1, marginTop: 10 },
   itemsSectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 6,
   },
   clearText: { color: '#EF4444', fontSize: 12, fontWeight: 'bold' },
   itemRow: {
@@ -256,11 +275,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#1E293B',
   },
-  itemName: { fontSize: 14, fontWeight: '600', color: '#F8FAFC' },
+  itemName: { fontSize: 13, fontWeight: '600', color: '#F8FAFC' },
   itemPriceHint: { fontSize: 11, color: '#94A3B8', marginTop: 2 },
   removeBtn: { paddingVertical: 4, paddingHorizontal: 8 },
   removeBtnText: { color: '#F87171', fontSize: 12, fontWeight: 'bold' },
-  centerBox: { alignItems: 'center', paddingVertical: 20 },
-  loadingText: { color: '#94A3B8', fontSize: 12, marginTop: 8 },
   emptyText: { color: '#64748B', fontSize: 13, fontStyle: 'italic', paddingVertical: 8 },
 });

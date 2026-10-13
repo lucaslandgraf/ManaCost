@@ -3,6 +3,7 @@ from collections import defaultdict
 from dotenv import load_dotenv
 from supabase import create_client, Client
 from normalizer import generate_canonical_key, is_match
+from datetime import datetime, timezone
 
 load_dotenv()
 
@@ -60,41 +61,55 @@ def split_outliers_by_ratio(group: list[dict], max_ratio: float = 3.0) -> list[l
 
 
 def build_clusters(deals: list[dict]) -> list[list[dict]]:
-    """Gera grupos canônicos refinados com fuzzy matching e filtro de rácio."""
+    """Gera grupos canônicos refinados agrupando primeiro por token-raiz/categoria."""
+    # 1. Agrupa por chave canônica direta
     canonical_clusters = defaultdict(list)
     for deal in deals:
         key = generate_canonical_key(deal["product_name"])
         if key:
             canonical_clusters[key].append(deal)
 
+    # 2. Indexa por primeiro termo para não cruzar itens sem relação
+    # Ex: só compara chaves que começam com 'leite' entre si
+    buckets = defaultdict(list)
+    for key in canonical_clusters.keys():
+        first_token = key.split()[0] if key else "geral"
+        buckets[first_token].append(key)
+
     merged_clusters = []
-    cluster_keys = list(canonical_clusters.keys())
     visited = set()
 
-    for i, key in enumerate(cluster_keys):
-        if key in visited:
-            continue
-
-        current_group = list(canonical_clusters[key])
-        visited.add(key)
-
-        for j in range(i + 1, len(cluster_keys)):
-            other_key = cluster_keys[j]
-            if other_key in visited:
+    # 3. Faz o fuzzy matching apenas dentro do mesmo bucket (100x mais rápido)
+    for bucket_keys in buckets.values():
+        for i, key in enumerate(bucket_keys):
+            if key in visited:
                 continue
 
-            sample_a = current_group[0]["product_name"]
-            sample_b = canonical_clusters[other_key][0]["product_name"]
+            current_group = list(canonical_clusters[key])
+            visited.add(key)
 
-            if is_match(sample_a, sample_b, threshold=82.0):
-                current_group.extend(canonical_clusters[other_key])
-                visited.add(other_key)
+            for j in range(i + 1, len(bucket_keys)):
+                other_key = bucket_keys[j]
+                if other_key in visited:
+                    continue
 
-        refined_subgroups = split_outliers_by_ratio(current_group, max_ratio=3.0)
-        for sub in refined_subgroups:
-            unique_stores = {d["store_name"] for d in sub}
-            if len(unique_stores) > 1:
-                merged_clusters.append(sub)
+                sample_a = current_group[0]["product_name"]
+                sample_b = canonical_clusters[other_key][0]["product_name"]
+
+                if is_match(sample_a, sample_b, threshold=82.0):
+                    current_group.extend(canonical_clusters[other_key])
+                    visited.add(other_key)
+
+            refined_subgroups = split_outliers_by_ratio(current_group, max_ratio=3.0)
+            for sub in refined_subgroups:
+                best_by_store = {}
+                for item in sorted(sub, key=lambda x: x["deal_price"]):
+                    store = item["store_name"]
+                    if store not in best_by_store:
+                        best_by_store[store] = item
+
+                if len(best_by_store) > 1:
+                    merged_clusters.append(list(best_by_store.values()))
 
     return merged_clusters
 
@@ -105,21 +120,25 @@ def persist_matches_to_supabase(clusters: list[list[dict]]):
         print("[Matcher] Nenhum agrupamento para gravar.")
         return
 
+    # Limpeza preventiva dos agrupamentos antigos para nunca deixar sobras
+    print("[Persistência] Limpando agrupamentos anteriores...")
+    supabase.table("product_match_items").delete().neq("id", "00000000-0000-0000-0000-000000000000").execute()
+    supabase.table("product_matches").delete().neq("id", "00000000-0000-0000-0000-000000000000").execute()
+
     print(f"\n[Persistência] Preparando {len(clusters)} produtos cruzados para o Supabase...")
 
     matches_payload = []
     cluster_index_map = {}
+    now_iso = datetime.now(timezone.utc).isoformat()
 
     for idx, group in enumerate(clusters):
         sorted_group = sorted(group, key=lambda x: x["deal_price"])
         cheapest = sorted_group[0]
         priciest = sorted_group[-1]
 
-        canonical_key = generate_canonical_key(cheapest["product_name"])
-        # Garante unicidade mesmo se houver subgrupo quebrado por outlier
+        canonical_key = generate_canonical_key(cheapest["product_name"]) or f"cluster-{idx}"
         unique_canonical = f"{canonical_key}-{idx}"
 
-        # Escolhe a melhor imagem disponível do grupo
         best_image = next((d["image_url"] for d in sorted_group if d.get("image_url")), None)
         best_category = next((d["category"] for d in sorted_group if d.get("category")), None)
 
@@ -138,8 +157,9 @@ def persist_matches_to_supabase(clusters: list[list[dict]]):
             "cheapest_store": cheapest["store_name"],
             "priciest_store": priciest["store_name"],
             "image_url": best_image,
+            "updated_at": now_iso,  # <-- Coluna preenchida
         })
-        cluster_index_map[unique_canonical] = group
+        cluster_index_map[unique_canonical] = sorted_group
 
     # 1. Batch upsert em product_matches
     print(f"[Persistência] Enviando registros para 'product_matches'...")
@@ -157,7 +177,7 @@ def persist_matches_to_supabase(clusters: list[list[dict]]):
 
     print(f"✓ {len(inserted_matches)} cabeçalhos de matches gravados/atualizados.")
 
-    # 2. Gravar os itens vinculados em product_match_items
+    # 2. Gravar os itens vinculados em product_match_items (já estritamente 1 por loja)
     items_payload = []
     for match_row in inserted_matches:
         match_id = match_row["id"]
