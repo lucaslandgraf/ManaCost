@@ -40,7 +40,7 @@ def scrape_atacadao_deals() -> list[dict]:
         encoded_query = urllib.parse.quote(query)
         url = (
             f"https://www.atacadao.com.br/api/catalog_system/pub/products/search"
-            f"?ft={encoded_query}&_from=0&_to=5"
+            f"?ft={encoded_query}&_from=0&_to=11"
         )
 
         try:

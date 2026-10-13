@@ -1,71 +1,232 @@
 """
-Termos de busca consolidados para os scrapers do ManaCost (Londrina - PR)
+Termos de pesquisa centralizados e otimizados para os extratores do ManaCost.
+Otimizado para balancear recall (encontrar os itens) e precisão de preços em Londrina:
+Condor, Super Muffato, Atacadão, Viscardi, Santarém e Almeida.
 """
 
-# Termos otimizados para busca semântica/específica (ex: Muffato, Atacadão)
+# Lista detalhada de alta aderência (usada por Condor, Muffato e Atacadão)
 EXPANDED_SEARCH_TERMS = [
-    # Mercearia / Básicos
-    "arroz 5kg", "feijao carioca", "feijao preto", "oleo de soja",
-    "cafe torrado", "acucar refinado", "acucar cristal", "macarrao espaguete",
-    "macarrao parafuso", "farinha de trigo", "farinha de mandioca",
-    "molho de tomate", "sal refinado", "maionese", "ketchup",
-    "vinagre de alcool", "azeite de oliva", "milho verde lata", "sardinha em lata",
+    # --- Grãos e Básicos (com e sem marcas líderes) ---
+    "arroz 5kg",
+    "arroz tio joao",
+    "arroz prato fino",
+    "arroz integral",
+    "feijao carioca",
+    "feijao preto",
+    "oleo de soja",
+    "oleo soya",
+    "oleo liza",
+    "azeite extra virgem",
+    "cafe torrado",
+    "cafe soluvel",
+    "acucar refinado",
+    "acucar cristal",
+    "adocante",
+    "macarrao espaguete",
+    "macarrao parafuso",
+    "farinha de trigo",
+    "farinha de mandioca",
+    "fuba",
+    "aveia",
+    "molho de tomate",
+    "extrato de tomate",
+    "sal refinado",
+    "sal grosso",
+    "maionese",
+    "ketchup",
+    "mostarda",
+    "vinagre",
+    "milho verde",
+    "ervilha",
+    "sardinha",
+    "atum",
+    "biscoito cream cracker",
+    "biscoito recheado",
 
-    # Laticínios e Matinais
-    "leite integral", "leite desnatado", "leite condensado", "creme de leite",
-    "manteiga com sal", "margarina", "requeijao cremoso", "iogurte natural",
-    "achocolatado po", "biscoito cream cracker", "biscoito recheado", "pao de forma",
+    # --- Achocolatados, Leites & Matinais ---
+    "achocolatado",
+    "nescau",
+    "toddy",
+    "cacau em po",
+    "leite integral",
+    "leite zero lactose",
+    "leite semidesnatado",
+    "leite desnatado",
+    "leite em po",
+    "leite condensado",
+    "creme de leite",
 
-    # Açougue e Proteínas
-    "carne moida", "contra file", "alcatra", "coxao mole", "acem",
-    "costela bovina", "peito de frango", "coxa e sobrecoxa", "linguica toscana",
-    "bisteca suina", "lombo suino", "bacon", "salsicha hot dog",
-    "ovos brancos", "ovos vermelhos",
+    # --- Laticínios e Frios (sem qualificadores excessivos) ---
+    "manteiga",
+    "margarina",
+    "requeijao",
+    "iogurte natural",
+    "queijo mucarela",
+    "queijo prato",
+    "queijo parmesao",
+    "presunto cozido",
+    "mortadela",
+    "bacon fatiado",
 
-    # Fiambreria
-    "queijo mucarela fatiado", "presunto cozido", "queijo prato fatiado", "mortadela",
+    # --- Carnes e Proteínas ---
+    "peito de frango",
+    "coxa e sobrecoxa",
+    "frango inteiro",
+    "carne moida",
+    "contra file",
+    "acem",
+    "alcatra",
+    "patinho",
+    "costela bovina",
+    "bisteca suina",
+    "linguica toscana",
+    "salsicha",
+    "ovos brancos",
+    "ovos vermelhos",
 
-    # Hortifrúti (Feira)
-    "batata lavada", "cebola", "tomate", "alho", "cenoura", "beterraba",
-    "abobrinha", "banana prata", "banana nanica", "maca nacional",
-    "laranja pera", "limao taiti", "mamao formosa", "melancia",
+    # --- Hortifrúti (FLV) ---
+    "batata",
+    "tomate",
+    "cebola",
+    "alho",
+    "cenoura",
+    "abobrinha",
+    "chuchu",
+    "banana prata",
+    "maca gala",
+    "laranja pera",
+    "limao tahiti",
+    "alface",
 
-    # Limpeza e Cuidados com a Casa
-    "detergente liquido", "sabao em po", "sabao liquido lava roupas",
-    "amaciante concentrado", "desinfetante", "agua sanitaria",
-    "alcool 70", "esponja de aco", "esponja multiuso", "multiuso limpador",
-    "inseticida spray", "saco para lixo 50l", "amaciante tradicional",
+    # --- Limpeza e Cuidados com a Casa ---
+    "detergente ype",
+    "detergente liquido",
+    "sabao em po",
+    "sabao omo",
+    "sabao liquido",
+    "amaciante comfort",
+    "amaciante downy",
+    "amaciante",
+    "desinfetante",
+    "agua sanitaria",
+    "cloro ativo",
+    "limpador multiuso",
+    "alcool 70",
+    "esponja de aco",
+    "esponja dupla face",
+    "saco de lixo 50l",
+    "papel higienico",
+    "papel toalha",
 
-    # Higiene Pessoal e Perfumaria
-    "papel higienico folha dupla", "sabonete em barra", "sabonete liquido",
-    "creme dental", "escova de dente", "shampoo", "condicionador",
-    "desodorante aerosol", "absorvente", "fio dental", "algodao",
+    # --- Higiene Pessoal ---
+    "creme dental",
+    "escova dental",
+    "sabonete em barra",
+    "sabonete liquido",
+    "shampoo",
+    "condicionador",
+    "desodorante aerosol",
+    "absorvente",
 
-    # Bebidas
-    "refrigerante coca cola", "refrigerante guarana", "suco integral uva",
-    "cerveja pilsen lata", "agua mineral sem gas"
+    # --- Bebidas (nomes comerciais reais) ---
+    "refrigerante coca cola",
+    "refrigerante guarana antarctica",
+    "suco de uva integral",
+    "cerveja pilsen",
+    "agua mineral sem gas"
 ]
 
-# Termos curtos/genéricos para APIs que não suportam buscas compostas (ex: Viscardi, Santarém, Almeida)
+# Lista simplificada por termos-raiz únicos (usada por Almeida, Viscardi e Santarém)
+# Sem sobreposições (ex: 'carne' já cobre moida/acem; 'papel higienico' aparece 1x só)
 SHORT_SEARCH_TERMS = [
-    # Básicos
-    "arroz", "feijao", "oleo", "cafe", "acucar", "macarrao", "farinha",
-    "molho", "sal", "maionese", "ketchup", "azeite", "vinagre",
-    # Laticínios & Café da manhã
-    "leite", "manteiga", "margarina", "requeijao", "iogurte", "achocolatado",
-    "biscoito", "pao",
-    # Carnes & Proteínas
-    "carne", "frango", "linguica", "suino", "bacon", "salsicha", "ovos",
-    # Queijos & Frios
-    "queijo", "presunto", "mortadela",
+    # Grãos e Mercearia Básica
+    "arroz",
+    "feijao",
+    "oleo",
+    "azeite",
+    "cafe",
+    "acucar",
+    "adocante",
+    "macarrao",
+    "farinha",
+    "fuba",
+    "aveia",
+    "molho tomate",
+    "sal",
+    "maionese",
+    "ketchup",
+    "vinagre",
+    "milho",
+    "ervilha",
+    "sardinha",
+    "atum",
+    "biscoito",
+
+    # Matinais e Laticínios
+    "achocolatado",
+    "nescau",
+    "toddy",
+    "leite",
+    "zero lactose",
+    "leite condensado",
+    "creme leite",
+    "manteiga",
+    "margarina",
+    "requeijao",
+    "iogurte",
+    "queijo",
+    "presunto",
+    "mortadela",
+    "bacon",
+
+    # Carnes e Ovos
+    "frango",
+    "carne",
+    "bisteca",
+    "linguica",
+    "salsicha",
+    "ovos",
+
     # Hortifrúti
-    "batata", "cebola", "tomate", "alho", "cenoura", "banana", "maca", "laranja", "limao",
+    "batata",
+    "tomate",
+    "cebola",
+    "alho",
+    "cenoura",
+    "abobrinha",
+    "chuchu",
+    "banana",
+    "maca",
+    "laranja",
+    "limao",
+    "alface",
+
     # Limpeza
-    "detergente", "sabao", "amaciante", "desinfetante", "agua sanitaria",
-    "multiuso", "esponja", "lixo",
+    "detergente",
+    "sabao",
+    "amaciante",
+    "desinfetante",
+    "agua sanitaria",
+    "cloro",
+    "multiuso",
+    "alcool",
+    "esponja",
+    "saco lixo",
+
     # Higiene
-    "papel higienico", "sabonete", "creme dental", "shampoo", "condicionador",
-    "desodorante", "absorvente",
+    "papel higienico",
+    "papel toalha",
+    "creme dental",
+    "sabonete",
+    "shampoo",
+    "condicionador",
+    "desodorante",
+    "absorvente",
+
     # Bebidas
-    "refrigerante", "cerveja", "suco", "agua"
+    "coca cola",
+    "guarana",
+    "suco uva",
+    "cerveja",
+    "agua mineral"
 ]
