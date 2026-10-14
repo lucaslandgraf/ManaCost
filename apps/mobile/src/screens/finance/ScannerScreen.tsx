@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import { FunctionsHttpError } from '@supabase/supabase-js';
 import { supabase } from '../../config/supabase';
 import { useAuth } from '../../context/AuthContext';
 
@@ -26,12 +27,17 @@ export const ScannerScreen: React.FC<Props> = ({ visible, onClose, onSuccess }) 
   const [accessKey, setAccessKey] = useState('');
   const [loading, setLoading] = useState(false);
   const { user } = useAuth();
+  const permissionGranted = permission?.granted;
 
   useEffect(() => {
-    if (visible && !permission?.granted) {
+    if (visible && permissionGranted === false) {
       requestPermission();
     }
-  }, [visible, permission]);
+  }, [visible, permissionGranted, requestPermission]);
+
+  useEffect(() => {
+    if (visible) setScanned(false);
+  }, [visible]);
 
   if (!visible) return null;
 
@@ -43,12 +49,35 @@ export const ScannerScreen: React.FC<Props> = ({ visible, onClose, onSuccess }) 
       });
 
       if (error) {
-        Alert.alert('Erro ao processar nota', error.message);
+        let responseBody: { already_registered?: boolean; error?: string; message?: string } | null =
+          null;
+
+        if (error instanceof FunctionsHttpError) {
+          try {
+            responseBody = await error.context.json();
+          } catch {
+            responseBody = null;
+          }
+        }
+
+        if (responseBody?.already_registered) {
+          Alert.alert(
+            'Nota já registrada!',
+            responseBody.message || 'Esta nota fiscal já foi registrada no sistema.'
+          );
+        } else {
+          Alert.alert(
+            'Erro ao processar nota',
+            responseBody?.error || error.message
+          );
+        }
       } else if (data?.already_registered) {
         Alert.alert(
           'Nota já registrada!',
-          `Esta nota fiscal já foi registrada no sistema em ${data.registered_date} por ${data.registered_by}.`
+          data.message || 'Esta nota fiscal já foi registrada no sistema.'
         );
+      } else if (!data?.success) {
+        Alert.alert('Erro ao processar nota', data?.error || 'O servidor não confirmou a importação.');
       } else {
         Alert.alert(
           'Sucesso',
@@ -57,8 +86,9 @@ export const ScannerScreen: React.FC<Props> = ({ visible, onClose, onSuccess }) 
         onSuccess();
         onClose();
       }
-    } catch (err: any) {
-      Alert.alert('Falha na comunicação', err.message || 'Não foi possível conectar ao servidor.');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Não foi possível conectar ao servidor.';
+      Alert.alert('Falha na comunicação', message);
     } finally {
       setLoading(false);
       setScanned(false);
@@ -82,9 +112,19 @@ export const ScannerScreen: React.FC<Props> = ({ visible, onClose, onSuccess }) 
   };
 
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      onRequestClose={onClose}
+      statusBarTranslucent={true}
+    >
       <View style={styles.container}>
-        {!permission?.granted ? (
+        {permission === null ? (
+          <View style={styles.permissionContainer}>
+            <ActivityIndicator size="large" color="#10B981" />
+            <Text style={styles.permissionText}>Verificando acesso à câmera...</Text>
+          </View>
+        ) : !permission.granted ? (
           <View style={styles.permissionContainer}>
             <Text style={styles.permissionText}>
               Precisamos de acesso à câmera para ler a nota fiscal.
@@ -140,15 +180,15 @@ export const ScannerScreen: React.FC<Props> = ({ visible, onClose, onSuccess }) 
         )}
 
         {/* Modal de Contingência Manual */}
-        <Modal visible={manualKeyModal} transparent animationType="fade">
+        <Modal visible={manualKeyModal} transparent animationType="fade" statusBarTranslucent={true}>
           <View style={styles.modalBackdrop}>
             <View style={styles.manualCard}>
               <Text style={styles.modalTitle}>Digitar Chave de Acesso</Text>
               <TextInput
-                placeholder="0000 0000 0000 0000 0000 0000 0000 0000 0000 0000"
+                placeholder="0000 0000 0000 0000 0000 0000 0000 0000 0000"
                 placeholderTextColor="#64748B"
                 keyboardType="numeric"
-                maxLength={44}
+                maxLength={54}
                 value={accessKey}
                 onChangeText={setAccessKey}
                 style={styles.modalInput}
@@ -176,24 +216,36 @@ export const ScannerScreen: React.FC<Props> = ({ visible, onClose, onSuccess }) 
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000' },
-  camera: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+  container: {
+    flex: 1,
+    backgroundColor: '#000',
   },
-  overlay: { flex: 1, justifyContent: 'space-between', padding: 24 },
-  header: { alignItems: 'flex-end', marginTop: 24 },
+  camera: {
+    ...StyleSheet.absoluteFill,
+  },
+  overlay: {
+    flex: 1,
+    justifyContent: 'space-between',
+    paddingHorizontal: 24,
+    paddingTop: 48,
+    paddingBottom: 40,
+  },
+  header: {
+    alignItems: 'flex-end',
+  },
   closeBtn: {
     backgroundColor: 'rgba(0,0,0,0.6)',
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
   },
-  closeBtnText: { color: '#F8FAFC', fontWeight: 'bold' },
-  targetFrame: { alignItems: 'center' },
+  closeBtnText: {
+    color: '#F8FAFC',
+    fontWeight: 'bold',
+  },
+  targetFrame: {
+    alignItems: 'center',
+  },
   scanTarget: {
     width: 260,
     height: 260,
@@ -211,7 +263,9 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 8,
   },
-  footer: { alignItems: 'center', marginBottom: 24 },
+  footer: {
+    alignItems: 'center',
+  },
   manualBtn: {
     backgroundColor: 'rgba(30,41,59,0.95)',
     paddingVertical: 14,
@@ -220,7 +274,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#475569',
   },
-  manualBtnText: { color: '#38BDF8', fontWeight: 'bold', fontSize: 14 },
+  manualBtnText: {
+    color: '#38BDF8',
+    fontWeight: 'bold',
+    fontSize: 14,
+  },
   permissionContainer: {
     flex: 1,
     backgroundColor: '#0F172A',
@@ -228,30 +286,55 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 24,
   },
-  permissionText: { color: '#F8FAFC', textAlign: 'center', marginBottom: 20, fontSize: 16 },
-  permissionBtn: { backgroundColor: '#10B981', padding: 14, borderRadius: 8 },
-  btnText: { color: '#F8FAFC', fontWeight: 'bold' },
-  cancelTextBtn: { marginTop: 16 },
-  cancelLink: { color: '#94A3B8' },
+  permissionText: {
+    color: '#F8FAFC',
+    textAlign: 'center',
+    marginBottom: 20,
+    fontSize: 16,
+  },
+  permissionBtn: {
+    backgroundColor: '#10B981',
+    padding: 14,
+    borderRadius: 8,
+  },
+  btnText: {
+    color: '#F8FAFC',
+    fontWeight: 'bold',
+  },
+  cancelTextBtn: {
+    marginTop: 16,
+  },
+  cancelLink: {
+    color: '#94A3B8',
+  },
   loadingOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(15,23,42,0.85)',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  loadingText: { color: '#F8FAFC', marginTop: 12, fontWeight: 'bold' },
+  loadingText: {
+    color: '#F8FAFC',
+    marginTop: 12,
+    fontWeight: 'bold',
+  },
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.7)',
     justifyContent: 'center',
     padding: 20,
   },
-  manualCard: { backgroundColor: '#1E293B', padding: 20, borderRadius: 12 },
-  modalTitle: { color: '#F8FAFC', fontSize: 16, fontWeight: 'bold', marginBottom: 12 },
+  manualCard: {
+    backgroundColor: '#1E293B',
+    padding: 20,
+    borderRadius: 12,
+  },
+  modalTitle: {
+    color: '#F8FAFC',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 12,
+  },
   modalInput: {
     backgroundColor: '#0F172A',
     color: '#F8FAFC',
@@ -261,7 +344,10 @@ const styles = StyleSheet.create({
     borderColor: '#334155',
     marginBottom: 16,
   },
-  modalActions: { flexDirection: 'row', gap: 10 },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
   modalCancelBtn: {
     flex: 1,
     backgroundColor: '#334155',

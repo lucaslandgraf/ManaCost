@@ -9,6 +9,8 @@ import {
   RefreshControl,
   Alert,
   Modal,
+  Platform,
+  StatusBar,
 } from 'react-native';
 import { supabase } from '../../config/supabase';
 import { useAuth } from '../../context/AuthContext';
@@ -24,7 +26,7 @@ interface Transaction {
   type: 'income' | 'expense';
   date: string;
   is_settled: boolean;
-  categories?: { name: string; rule_group: string } | null;
+  categories?: { name: string; rule_group: string } | { name: string; rule_group: string }[] | null;
 }
 
 export const DashboardScreen = () => {
@@ -98,16 +100,20 @@ export const DashboardScreen = () => {
     let wants = 0;
     let savings = 0;
 
-    items.forEach((item) => {
-      const val = Number(item.amount);
+    items.forEach((item: any) => {
+      const val = Number(item.amount) || 0;
+      const rawCat = item.categories || item.category;
+      const catObj = Array.isArray(rawCat) ? rawCat[0] : rawCat;
+      const rule = catObj?.rule_group;
+
       if (item.type === 'income') {
-        income += val;
+        income += val; // Receita é apenas dinheiro NOVO a entrar (salário, bónus, rendimentos)
       } else {
         expense += val;
-        const rule = item.categories?.rule_group;
+        // As despesas e alocações preenchem as 3 barras do orçamento:
         if (rule === 'needs_50') needs += val;
         else if (rule === 'wants_30') wants += val;
-        else if (rule === 'savings_20') savings += val;
+        else if (rule === 'savings_20') savings += val; // O dinheiro que guardou/investiu!
       }
     });
 
@@ -138,11 +144,11 @@ export const DashboardScreen = () => {
     }
   };
 
-  // Apaga a transação com confirmação
+  // Apaga a transação com confirmação (mantido para caso queira apagar direto pelo long-press)
   const deleteTransaction = (item: Transaction) => {
     Alert.alert(
       'Apagar Lançamento',
-      `Tem a certeza de que deseja remover "${item.description}"?`,
+      `Tem certeza de que deseja remover "${item.description}"?`,
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -300,7 +306,10 @@ export const DashboardScreen = () => {
             <View style={{ flex: 1, paddingRight: 8 }}>
               <Text style={styles.txDesc}>{item.description}</Text>
               <Text style={styles.txSub}>
-                {item.categories?.name ?? 'Geral'} • {item.date}
+                {(Array.isArray(item.categories)
+                  ? item.categories[0]?.name
+                  : item.categories?.name) ?? 'Geral'}{' '}
+                • {item.date}
               </Text>
             </View>
 
@@ -351,12 +360,16 @@ export const DashboardScreen = () => {
         onSuccess={fetchTransactions}
       />
 
+      {/* Modal de Detalhes, Edição e Exclusão com callback de atualização imediata */}
       <PurchaseDetailsModal
         visible={!!selectedTx}
         onClose={() => setSelectedTx(null)}
+        transactionId={selectedTx?.id ?? ''}
         description={selectedTx?.description ?? ''}
         date={selectedTx?.date ?? ''}
         amount={selectedTx?.amount ?? 0}
+        onUpdated={fetchTransactions}
+        onDeleted={fetchTransactions}
       />
 
       {/* Modal que abre a tela completa com comparação, busca e cesta */}
@@ -378,8 +391,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 4,
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 28) + 16 : 16,
+    paddingBottom: 8,
   },
   welcomeText: { fontSize: 22, fontWeight: 'bold', color: '#F8FAFC' },
   subText: { fontSize: 12, color: '#94A3B8' },
@@ -460,7 +473,10 @@ const styles = StyleSheet.create({
     borderRadius: 20,
   },
   addBtnText: { color: '#F8FAFC', fontWeight: 'bold', fontSize: 12 },
-  listContent: { paddingHorizontal: 20, paddingBottom: 24 },
+  listContent: { 
+    paddingHorizontal: 20, 
+    paddingBottom: 110, // Garante que a barra de 3 botões do Android não corte os últimos cards
+  },
   txItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',

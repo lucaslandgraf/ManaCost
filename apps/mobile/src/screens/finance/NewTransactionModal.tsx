@@ -8,6 +8,8 @@ import {
   StyleSheet,
   Alert,
   ScrollView,
+  Platform,
+  StatusBar,
 } from 'react-native';
 import { supabase } from '../../config/supabase';
 import { useAuth } from '../../context/AuthContext';
@@ -220,6 +222,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#0F172A',
     borderRadius: 8,
     padding: 4,
+  },
+  container: {
+    flex: 1,
+    backgroundColor: '#0F172A',
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 24) + 8 : 0,
   },
   typeBtn: {
     flex: 1,
