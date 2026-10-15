@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -36,8 +36,7 @@ interface PriceSearchScreenProps {
 const PRESET_QUERIES = ['Gasolina Comum', 'Etanol', 'Leite Integral', 'Arroz 5kg', 'Café 500g', 'Ovos'];
 const RADIUS_OPTIONS = [5, 10, 15, 20];
 
-// URL do Proxy do Menor Preço (substitua pela sua URL pública HTTPS do Cloudflare ou Render)
-const API_BASE_URL = 'https://ours-writings-therapy-knights.trycloudflare.com';
+const API_BASE_URL = 'https://manacost.onrender.com';
 
 export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -45,6 +44,9 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack }) 
   const [results, setResults] = useState<ProdutoPreco[]>([]);
   const [loading, setLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+  
+  // Controle de Ordenação ('distancia' ou 'preco')
+  const [sortBy, setSortBy] = useState<'distancia' | 'preco'>('distancia');
 
   // Coordenadas padrão de Londrina (Centro)
   const userLat = -23.3045;
@@ -83,6 +85,19 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack }) 
       setLoading(false);
     }
   };
+
+  // Ordenação dinâmica em memória (instantânea, sem precisar refazer requisição)
+  const sortedResults = useMemo(() => {
+    return [...results].sort((a, b) => {
+      if (sortBy === 'distancia') {
+        const distA = parseFloat(a.distanciaKm || '9999');
+        const distB = parseFloat(b.distanciaKm || '9999');
+        return distA - distB;
+      } else {
+        return a.valor - b.valor;
+      }
+    });
+  }, [results, sortBy]);
 
   const openInMaps = (item: ProdutoPreco) => {
     const query = item.estabelecimento.latitude && item.estabelecimento.longitude
@@ -155,7 +170,10 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack }) 
             <TouchableOpacity
               key={r}
               style={[styles.radiusChip, radius === r && styles.radiusChipActive]}
-              onPress={() => setRadius(r)}
+              onPress={() => {
+                setRadius(r);
+                if (searchTerm.trim()) handleSearch();
+              }}
             >
               <Text style={[styles.radiusText, radius === r && styles.radiusTextActive]}>
                 {r} km
@@ -165,6 +183,32 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack }) 
         </View>
       </View>
 
+      {/* Seletor de Ordenação (Distância vs Preço) */}
+      {results.length > 0 && (
+        <View style={styles.sortBar}>
+          <Text style={styles.sortLabel}>Ordenar por:</Text>
+          <View style={styles.sortButtonsRow}>
+            <TouchableOpacity
+              style={[styles.sortBtn, sortBy === 'distancia' && styles.sortBtnActive]}
+              onPress={() => setSortBy('distancia')}
+            >
+              <Text style={[styles.sortBtnText, sortBy === 'distancia' && styles.sortBtnTextActive]}>
+                🚗 Mais Próximos
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.sortBtn, sortBy === 'preco' && styles.sortBtnActive]}
+              onPress={() => setSortBy('preco')}
+            >
+              <Text style={[styles.sortBtnText, sortBy === 'preco' && styles.sortBtnTextActive]}>
+                💰 Menor Preço
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
       {/* Lista de Resultados */}
       {loading ? (
         <View style={styles.centerContainer}>
@@ -173,8 +217,8 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack }) 
         </View>
       ) : (
         <FlatList
-          data={results}
-          keyExtractor={(item) => item.id}
+          data={sortedResults}
+          keyExtractor={(item, index) => item.id || String(index)}
           contentContainerStyle={styles.listContent}
           renderItem={({ item }) => (
             <View style={styles.card}>
@@ -182,12 +226,10 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack }) 
                 <View style={{ flex: 1, paddingRight: 8 }}>
                   <Text style={styles.cardDesc} numberOfLines={2}>{item.descricao}</Text>
                   
-                  {/* Nome do Mercado / Posto */}
                   <Text style={styles.cardEstablishment} numberOfLines={1}>
                     🏪 {item.estabelecimento.nome}
                   </Text>
 
-                  {/* Endereço Completo com Bairro */}
                   {(item.estabelecimento.endereco || item.estabelecimento.bairro) ? (
                     <Text style={styles.cardAddress} numberOfLines={1}>
                       📍 {[item.estabelecimento.endereco, item.estabelecimento.bairro].filter(Boolean).join(' - ')}
@@ -289,7 +331,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
-    marginBottom: 12,
+    marginBottom: 10,
   },
   radiusLabel: { color: '#94A3B8', fontSize: 12 },
   radiusChips: { flexDirection: 'row', gap: 6 },
@@ -304,6 +346,42 @@ const styles = StyleSheet.create({
   radiusChipActive: { backgroundColor: 'rgba(56, 189, 248, 0.2)', borderColor: '#38BDF8' },
   radiusText: { color: '#64748B', fontSize: 11, fontWeight: '600' },
   radiusTextActive: { color: '#38BDF8', fontWeight: 'bold' },
+  sortBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+  sortLabel: {
+    color: '#94A3B8',
+    fontSize: 12,
+  },
+  sortButtonsRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  sortBtn: {
+    backgroundColor: '#1E293B',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  sortBtnActive: {
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    borderColor: '#10B981',
+  },
+  sortBtnText: {
+    color: '#64748B',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  sortBtnTextActive: {
+    color: '#34D399',
+    fontWeight: 'bold',
+  },
   listContent: { paddingHorizontal: 16, paddingBottom: 40 },
   card: {
     backgroundColor: '#1E293B',

@@ -1,11 +1,92 @@
+import re
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
 
 app = Flask(__name__)
-CORS(app)  # Permite requisições vindas do celular/Expo
+CORS(app)
 
-# Codificador de coordenadas para Geohash base32
+# 1. Mapa de substituição de caracteres da cifra da Celepar
+DECODE_MAP = {
+    'J': 'A',
+    'Z': 'G',
+    'L': 'R',
+    'Q': 'A',
+    'X': 'O',
+    'M': 'N',
+    'V': 'C',
+    'F': 'P',
+    'Y': 'U',
+    'K': 'C',
+    'W': 'S',
+}
+
+# 2. Dicionário de termos conhecidos de estabelecimentos e endereços de Londrina e PR
+KNOWN_WORDS = {
+    "ESTACIO": "ESTACAO",
+    "CJPR": "CAFE",
+    "CERJEJL": "CERVEJA",
+    "CERTEJS": "CERVEJA",
+    "TEERA": "TERRA",
+    "ALKIMENTODS": "ALIMENTOS",
+    "TECSOLOFIA": "TECNOLOGIA",
+    "TECLOLOZIA": "TECNOLOGIA",
+    "FOMD": "FOOD",
+    "SERJICE": "SERVICE",
+    "YLTRA": "ULTRA",
+    "BOD": "BOM",
+    "VISTQ": "VISTA",
+    "VIUA": "VILA",
+    "VEHA": "VELHA",
+    "JUXUTUQUARA": "UMBARA",
+    "AYRIANOBOLISF": "ADRIANOPOLIS",
+    "ADOGANOS": "ADUANAS",
+    "CRISPOZ": "CRISPO",
+    "HERMILIF": "HERCILIO",
+    "HERMILIL": "HERCILIO",
+    "BABTIGE": "BAPTISTA",
+    "PFERFEITAO": "PERFEITO",
+    "SAOOR": "SABOR",
+    "CLUBEH": "CLUBE",
+    "BODIZA": "BOLINHA",
+    "LULXOO": "LUXO",
+    "ROUPASR": "ROUPAS",
+    "DEQICACTO": "DEDICACAO",
+    "GOCE": "DOCE",
+    "MEFCERIA": "MERCERIA",
+    "FERININX": "FEMININO",
+    "ARVORSE": "ARVORES",
+    "CEAA": "CENA",
+    "FRGENDS": "FRIENDS",
+}
+
+def decode_celepar_text(text: str) -> str:
+    """Aplica a decodificação de substituição e normalização de palavras."""
+    if not text:
+        return ""
+    
+    words = text.split()
+    corrected_words = []
+    
+    for w in words:
+        upper_w = w.upper()
+        # Se a palavra for conhecida no dicionário, troca direto
+        if upper_w in KNOWN_WORDS:
+            corrected_words.append(KNOWN_WORDS[upper_w])
+            continue
+        
+        # Limpa repetições de letras anômalas (ex: PFERFEITAO -> PERFEITO)
+        cleaned = re.sub(r'([A-Z])\1+', r'\1', upper_w)
+        
+        # Se após limpar casar com o dicionário
+        if cleaned in KNOWN_WORDS:
+            corrected_words.append(KNOWN_WORDS[cleaned])
+            continue
+            
+        corrected_words.append(upper_w)
+        
+    return " ".join(corrected_words)
+
 def encode_geohash(lat, lon, precision=9):
     BASE32 = '0123456789bcdefghjkmnpqrstuvwxyz'
     min_lat, max_lat = -90.0, 90.0
@@ -79,20 +160,29 @@ def menor_preco():
         for item in raw_data.get('produtos', []):
             estab = item.get('estabelecimento', {})
             end_parts = [estab.get('tp_logr'), estab.get('nm_logr'), estab.get('nr_logr')]
-            endereco = " ".join([p for p in end_parts if p])
+            raw_endereco = " ".join([p for p in end_parts if p])
+            
+            raw_nome = estab.get('nm_fan') or estab.get('nm_emp') or 'Estabelecimento'
+            raw_bairro = estab.get('bairro', '')
+
+            # Aplica a decodificação inteligente
+            nome_limpo = decode_celepar_text(raw_nome)
+            endereco_limpo = decode_celepar_text(raw_endereco)
+            bairro_limpo = decode_celepar_text(raw_bairro)
+            desc_limpa = decode_celepar_text(item.get('desc') or termo)
             
             produtos.append({
                 'id': item.get('id'),
-                'descricao': item.get('desc') or termo,
+                'descricao': desc_limpa,
                 'valor': float(str(item.get('valor', 0)).replace(',', '.')),
                 'valorOriginal': float(str(item.get('valor_tabela', 0)).replace(',', '.')) if item.get('valor_tabela') else None,
                 'dataHora': item.get('datahora'),
                 'tempoRelativo': item.get('tempo', 'recente'),
                 'distanciaKm': f"{float(item.get('distkm', 0)):.1f}" if item.get('distkm') else None,
                 'estabelecimento': {
-                    'nome': estab.get('nm_fan') or estab.get('nm_emp') or 'Estabelecimento',
-                    'endereco': endereco,
-                    'bairro': estab.get('bairro', ''),
+                    'nome': nome_limpo,
+                    'endereco': endereco_limpo,
+                    'bairro': bairro_limpo,
                     'municipio': estab.get('mun', 'Londrina'),
                     'latitude': estab.get('latitude'),
                     'longitude': estab.get('longitude')
@@ -104,6 +194,4 @@ def menor_preco():
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    # Roda ouvindo em todas as interfaces para o celular acessar
-    print("Servidor Menor Preço rodando na porta 5001...")
-    app.run(host='0.0.0.0', port=5001, debug=True)
+    app.run(host='0.0.0.0', port=5001)
