@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: manacost-menor-preco
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn server_menor_preco:app
+    plan: free

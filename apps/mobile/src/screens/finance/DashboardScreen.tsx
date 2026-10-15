@@ -11,6 +11,7 @@ import {
   Modal,
   Platform,
   StatusBar,
+  ScrollView,
 } from 'react-native';
 import { supabase } from '../../config/supabase';
 import { useAuth } from '../../context/AuthContext';
@@ -18,6 +19,9 @@ import { NewTransactionModal } from './NewTransactionModal';
 import { ScannerScreen } from './ScannerScreen';
 import { PurchaseDetailsModal } from './PurchaseDetailsModal';
 import { DealsScreen } from './DealsScreen';
+import { SettingsModal } from './SettingsModal';
+import { YieldCalculatorModal } from './YieldCalculatorModal';
+import { PriceSearchScreen } from './PriceSearchScreen';
 
 interface Transaction {
   id: string;
@@ -34,9 +38,23 @@ export const DashboardScreen = () => {
   const [scannerVisible, setScannerVisible] = useState(false);
   const [dealsModalVisible, setDealsModalVisible] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
+  const [settingsVisible, setSettingsVisible] = useState(false);
   const { user, signOut } = useAuth();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(false);
+  const [yieldModalVisible, setYieldModalVisible] = useState(false);
+  const [priceSearchVisible, setPriceSearchVisible] = useState(false);
+
+  // Regras de cálculo dinâmicas carregadas da tabela profiles
+  const [budgetRules, setBudgetRules] = useState({
+    useFixed: false,
+    needsPct: 50,
+    wantsPct: 30,
+    savingsPct: 20,
+    fixedNeeds: 0,
+    fixedWants: 0,
+    fixedSavings: 0,
+  });
 
   // Controlo de Mês de Competência
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -45,7 +63,7 @@ export const DashboardScreen = () => {
   const [totalIncome, setTotalIncome] = useState(0);
   const [totalExpense, setTotalExpense] = useState(0);
 
-  // Totais da regra 50/30/20
+  // Totais orçamentais calculados
   const [spentNeeds, setSpentNeeds] = useState(0);
   const [spentWants, setSpentWants] = useState(0);
   const [spentSavings, setSpentSavings] = useState(0);
@@ -70,6 +88,33 @@ export const DashboardScreen = () => {
       'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
     ];
     return `${months[date.getMonth()]} ${date.getFullYear()}`;
+  };
+
+  const fetchBudgetRules = async () => {
+    if (!user) return;
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('rule_needs_pct, rule_wants_pct, rule_savings_pct, use_fixed_targets, fixed_needs_val, fixed_wants_val, fixed_savings_val')
+        .eq('id', user.id)
+        .single();
+
+      if (error && error.code !== 'PGRST116') throw error;
+
+      if (data) {
+        setBudgetRules({
+          useFixed: Boolean(data.use_fixed_targets),
+          needsPct: Number(data.rule_needs_pct ?? 50),
+          wantsPct: Number(data.rule_wants_pct ?? 30),
+          savingsPct: Number(data.rule_savings_pct ?? 20),
+          fixedNeeds: Number(data.fixed_needs_val ?? 0),
+          fixedWants: Number(data.fixed_wants_val ?? 0),
+          fixedSavings: Number(data.fixed_savings_val ?? 0),
+        });
+      }
+    } catch (e) {
+      console.warn('Erro ao carregar configurações de teto:', e);
+    }
   };
 
   const fetchTransactions = async () => {
@@ -107,13 +152,12 @@ export const DashboardScreen = () => {
       const rule = catObj?.rule_group;
 
       if (item.type === 'income') {
-        income += val; // Receita é apenas dinheiro NOVO a entrar (salário, bónus, rendimentos)
+        income += val;
       } else {
         expense += val;
-        // As despesas e alocações preenchem as 3 barras do orçamento:
         if (rule === 'needs_50') needs += val;
         else if (rule === 'wants_30') wants += val;
-        else if (rule === 'savings_20') savings += val; // O dinheiro que guardou/investiu!
+        else if (rule === 'savings_20') savings += val;
       }
     });
 
@@ -124,7 +168,6 @@ export const DashboardScreen = () => {
     setSpentSavings(savings);
   };
 
-  // Alterna o estado de liquidação (Pendente <-> Liquidado)
   const toggleSettled = async (item: Transaction) => {
     try {
       const updatedStatus = !item.is_settled;
@@ -144,7 +187,6 @@ export const DashboardScreen = () => {
     }
   };
 
-  // Apaga a transação com confirmação (mantido para caso queira apagar direto pelo long-press)
   const deleteTransaction = (item: Transaction) => {
     Alert.alert(
       'Apagar Lançamento',
@@ -177,12 +219,25 @@ export const DashboardScreen = () => {
   };
 
   useEffect(() => {
+    fetchBudgetRules();
+  }, [user]);
+
+  useEffect(() => {
     fetchTransactions();
   }, [currentDate]);
 
-  const budgetNeeds = totalIncome * 0.5;
-  const budgetWants = totalIncome * 0.3;
-  const budgetSavings = totalIncome * 0.2;
+  // Cálculo proporcional com base nas percentagens personalizadas ou valores fixos
+  const budgetNeeds = budgetRules.useFixed
+    ? budgetRules.fixedNeeds
+    : totalIncome * (budgetRules.needsPct / 100);
+
+  const budgetWants = budgetRules.useFixed
+    ? budgetRules.fixedWants
+    : totalIncome * (budgetRules.wantsPct / 100);
+
+  const budgetSavings = budgetRules.useFixed
+    ? budgetRules.fixedSavings
+    : totalIncome * (budgetRules.savingsPct / 100);
 
   const renderProgressBar = (spent: number, budget: number, color: string) => {
     const ratio = budget > 0 ? Math.min((spent / budget) * 100, 100) : 0;
@@ -200,9 +255,20 @@ export const DashboardScreen = () => {
           <Text style={styles.welcomeText}>ManaCost</Text>
           <Text style={styles.subText}>{user?.email}</Text>
         </View>
-        <TouchableOpacity style={styles.logoutBtn} onPress={signOut}>
-          <Text style={styles.logoutText}>Sair</Text>
-        </TouchableOpacity>
+
+        <View style={styles.headerActions}>
+          <TouchableOpacity 
+            style={styles.settingsBtn} 
+            onPress={() => setSettingsVisible(true)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.settingsIcon}>⚙️</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.logoutBtn} onPress={signOut}>
+            <Text style={styles.logoutText}>Sair</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Seletor de Mês de Competência */}
@@ -233,49 +299,88 @@ export const DashboardScreen = () => {
         </View>
       </View>
 
-      {/* Regra 50/30/20 */}
+      {/* Teto de Gastos Proporcional Personalizável */}
       <View style={styles.budgetCard}>
-        <Text style={styles.budgetTitle}>Orçamento Proporcional (50/30/20)</Text>
+        <Text style={styles.budgetTitle}>
+          {budgetRules.useFixed
+            ? 'Orçamento com Teto Fixo (R$)'
+            : `Orçamento Proporcional (${budgetRules.needsPct}/${budgetRules.wantsPct}/${budgetRules.savingsPct})`}
+        </Text>
 
         <View style={styles.budgetItem}>
           <View style={styles.budgetRow}>
-            <Text style={styles.budgetLabel}>Necessidades (50%)</Text>
-            <Text style={styles.budgetValue}>R$ {spentNeeds.toFixed(2)} / R$ {budgetNeeds.toFixed(2)}</Text>
+            <Text style={styles.budgetLabel}>
+              Necessidades {budgetRules.useFixed ? '(Fixo)' : `(${budgetRules.needsPct}%)`}
+            </Text>
+            <Text style={styles.budgetValue}>
+              R$ {spentNeeds.toFixed(2)} / R$ {budgetNeeds.toFixed(2)}
+            </Text>
           </View>
           {renderProgressBar(spentNeeds, budgetNeeds, '#38BDF8')}
         </View>
 
         <View style={styles.budgetItem}>
           <View style={styles.budgetRow}>
-            <Text style={styles.budgetLabel}>Desejos (30%)</Text>
-            <Text style={styles.budgetValue}>R$ {spentWants.toFixed(2)} / R$ {budgetWants.toFixed(2)}</Text>
+            <Text style={styles.budgetLabel}>
+              Desejos {budgetRules.useFixed ? '(Fixo)' : `(${budgetRules.wantsPct}%)`}
+            </Text>
+            <Text style={styles.budgetValue}>
+              R$ {spentWants.toFixed(2)} / R$ {budgetWants.toFixed(2)}
+            </Text>
           </View>
           {renderProgressBar(spentWants, budgetWants, '#F59E0B')}
         </View>
 
         <View style={styles.budgetItem}>
           <View style={styles.budgetRow}>
-            <Text style={styles.budgetLabel}>Reserva/Invest (20%)</Text>
-            <Text style={styles.budgetValue}>R$ {spentSavings.toFixed(2)} / R$ {budgetSavings.toFixed(2)}</Text>
+            <Text style={styles.budgetLabel}>
+              Reserva/Invest {budgetRules.useFixed ? '(Fixo)' : `(${budgetRules.savingsPct}%)`}
+            </Text>
+            <Text style={styles.budgetValue}>
+              R$ {spentSavings.toFixed(2)} / R$ {budgetSavings.toFixed(2)}
+            </Text>
           </View>
           {renderProgressBar(spentSavings, budgetSavings, '#10B981')}
         </View>
       </View>
 
-      {/* Ações e Lançamentos */}
+      {/* Ações e Lançamentos - Com atalhos de ferramentas e busca */}
       <View style={styles.listHeader}>
         <Text style={styles.sectionTitle}>Lançamentos</Text>
-        <View style={{ flexDirection: 'row', gap: 6 }}>
+        
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.actionsBar}
+        >
+          <TouchableOpacity 
+            style={styles.searchPriceButton} 
+            onPress={() => setPriceSearchVisible(true)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.searchPriceButtonText}>🔍 Menor Preço</Text>
+          </TouchableOpacity>
+
           <TouchableOpacity 
             style={styles.dealsButton} 
             onPress={() => setDealsModalVisible(true)}
+            activeOpacity={0.7}
           >
             <Text style={styles.dealsButtonText}>🏷️ Ofertas</Text>
           </TouchableOpacity>
 
+          <TouchableOpacity 
+            style={styles.yieldButton} 
+            onPress={() => setYieldModalVisible(true)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.yieldButtonText}>📈 CDI</Text>
+          </TouchableOpacity>
+
           <TouchableOpacity
-            style={[styles.addBtn, { backgroundColor: '#38BDF8' }]}
+            style={[styles.addBtn, { backgroundColor: '#0284C7' }]}
             onPress={() => setScannerVisible(true)}
+            activeOpacity={0.7}
           >
             <Text style={styles.addBtnText}>📷 NFC-e</Text>
           </TouchableOpacity>
@@ -283,10 +388,11 @@ export const DashboardScreen = () => {
           <TouchableOpacity
             style={styles.addBtn}
             onPress={() => setModalVisible(true)}
+            activeOpacity={0.7}
           >
             <Text style={styles.addBtnText}>+ Lançar</Text>
           </TouchableOpacity>
-        </View>
+        </ScrollView>
       </View>
 
       <FlatList
@@ -323,7 +429,6 @@ export const DashboardScreen = () => {
                 {item.type === 'income' ? '+' : '-'} R$ {Number(item.amount).toFixed(2)}
               </Text>
 
-              {/* Botão de alternância de Liquidação */}
               <TouchableOpacity
                 style={[
                   styles.statusBadge,
@@ -360,7 +465,6 @@ export const DashboardScreen = () => {
         onSuccess={fetchTransactions}
       />
 
-      {/* Modal de Detalhes, Edição e Exclusão com callback de atualização imediata */}
       <PurchaseDetailsModal
         visible={!!selectedTx}
         onClose={() => setSelectedTx(null)}
@@ -372,7 +476,6 @@ export const DashboardScreen = () => {
         onDeleted={fetchTransactions}
       />
 
-      {/* Modal que abre a tela completa com comparação, busca e cesta */}
       <Modal
         visible={dealsModalVisible}
         animationType="slide"
@@ -380,6 +483,30 @@ export const DashboardScreen = () => {
       >
         <DealsScreen onBack={() => setDealsModalVisible(false)} />
       </Modal>
+
+      <Modal
+  visible={priceSearchVisible}
+  animationType="slide"
+  onRequestClose={() => setPriceSearchVisible(false)}
+>
+  <PriceSearchScreen onBack={() => setPriceSearchVisible(false)} />
+</Modal>
+
+      {/* Modal de Personalização do Teto de Gastos */}
+      <SettingsModal
+        visible={settingsVisible}
+        onClose={() => setSettingsVisible(false)}
+        onSaved={() => {
+          fetchBudgetRules();
+          fetchTransactions();
+        }}
+      />
+
+      <YieldCalculatorModal
+  visible={yieldModalVisible}
+  onClose={() => setYieldModalVisible(false)}
+  initialAmount={spentSavings > 0 ? spentSavings : 1000}
+/>
     </SafeAreaView>
   );
 };
@@ -396,7 +523,27 @@ const styles = StyleSheet.create({
   },
   welcomeText: { fontSize: 22, fontWeight: 'bold', color: '#F8FAFC' },
   subText: { fontSize: 12, color: '#94A3B8' },
-  logoutBtn: { padding: 8 },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  settingsBtn: {
+    backgroundColor: '#1E293B',
+    padding: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#334155',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  settingsIcon: {
+    fontSize: 18,
+  },
+  logoutBtn: { 
+    padding: 8,
+    marginLeft: 4,
+  },
   logoutText: { color: '#EF4444', fontSize: 13, fontWeight: 'bold' },
   monthSelector: {
     flexDirection: 'row',
@@ -452,30 +599,60 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     marginTop: 16,
     marginBottom: 8,
   },
-  sectionTitle: { color: '#F8FAFC', fontSize: 16, fontWeight: 'bold' },
+  listContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 24,
+  },
+  sectionTitle: { 
+    color: '#F8FAFC', 
+    fontSize: 15, 
+    fontWeight: 'bold',
+  },
+  actionsBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
   dealsButton: {
-    backgroundColor: 'rgba(16, 185, 129, 0.2)',
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
     borderColor: '#10B981',
     borderWidth: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 20,
+    paddingHorizontal: 7,
+    paddingVertical: 5,
+    borderRadius: 14,
   },
-  dealsButtonText: { color: '#34D399', fontWeight: 'bold', fontSize: 12 },
+  dealsButtonText: { 
+    color: '#34D399', 
+    fontWeight: 'bold', 
+    fontSize: 11,
+  },
+  yieldButton: {
+    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+    borderColor: '#38BDF8',
+    borderWidth: 1,
+    paddingHorizontal: 7,
+    paddingVertical: 5,
+    borderRadius: 14,
+  },
+  yieldButtonText: { 
+    color: '#38BDF8', 
+    fontWeight: 'bold', 
+    fontSize: 11,
+  },
   addBtn: {
     backgroundColor: '#10B981',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 20,
+    paddingHorizontal: 7,
+    paddingVertical: 5,
+    borderRadius: 14,
   },
-  addBtnText: { color: '#F8FAFC', fontWeight: 'bold', fontSize: 12 },
-  listContent: { 
-    paddingHorizontal: 20, 
-    paddingBottom: 110, // Garante que a barra de 3 botões do Android não corte os últimos cards
+  addBtnText: { 
+    color: '#F8FAFC', 
+    fontWeight: 'bold', 
+    fontSize: 11,
   },
   txItem: {
     flexDirection: 'row',
@@ -517,4 +694,17 @@ const styles = StyleSheet.create({
     color: '#FBBF24',
   },
   emptyText: { textAlign: 'center', color: '#64748B', marginTop: 24, fontSize: 14 },
+  searchPriceButton: {
+    backgroundColor: 'rgba(14, 165, 233, 0.15)',
+    borderColor: '#38BDF8',
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 14,
+  },
+  searchPriceButtonText: { 
+    color: '#38BDF8', 
+    fontWeight: 'bold', 
+    fontSize: 11,
+  },
 });

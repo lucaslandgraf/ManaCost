@@ -1,7 +1,8 @@
 import os
 import sys
-from supabase import create_client, Client
+from datetime import date
 from dotenv import load_dotenv
+from supabase import create_client, Client
 
 from extractors.condor import scrape_condor_deals
 from extractors.muffato import scrape_muffato_deals
@@ -19,6 +20,16 @@ if not SUPABASE_URL or not SUPABASE_KEY:
     raise ValueError("Configurações do Supabase ausentes no .env.")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+
+def cleanup_expired_deals():
+    """Remove ofertas cujo prazo de validade já expirou."""
+    try:
+        today_str = str(date.today())
+        res = supabase.table("flyer_deals").delete().lt("valid_until", today_str).execute()
+        print(f"✓ Limpeza de ofertas expiradas (< {today_str}) concluída.")
+    except Exception as e:
+        print(f"✗ Aviso na limpeza de ofertas expiradas: {e}")
 
 
 def sync_deals_to_supabase(deals: list):
@@ -45,6 +56,10 @@ if __name__ == "__main__":
     target = sys.argv[1].lower() if len(sys.argv) > 1 else "all"
     print(f"=== INICIANDO PIPELINE MANACOST (ALVO: {target.upper()}) ===")
 
+    # 1. Limpa registros expirados antes de rodar os scrapers
+    cleanup_expired_deals()
+
+    # 2. Coleta as ofertas
     all_deals = []
 
     if target in ("condor", "all"):
@@ -65,6 +80,7 @@ if __name__ == "__main__":
     if target in ("almeida", "all"):
         all_deals.extend(scrape_almeida_deals())
 
+    # 3. Envia os dados atualizados para o banco
     sync_deals_to_supabase(all_deals)
 
     print("\n=== PIPELINE CONCLUÍDO COM SUCESSO ===")

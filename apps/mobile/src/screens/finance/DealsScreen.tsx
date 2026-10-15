@@ -55,6 +55,12 @@ interface Flyer {
   badge_color: string;
 }
 
+interface ProductImageWithFallbackProps {
+  uri?: string | null;
+  category?: string | null;
+  name?: string;
+}
+
 const CATALOG_PAGE_SIZE = 100;
 
 const STORES_LIST = [
@@ -80,6 +86,48 @@ const FALLBACK_FLYER_URLS: Record<string, string> = {
   'Atacadão Tiradentes': 'https://www.atacadao.com.br/loja/londrina-tiradentes',
   'Tonhão Maxi': 'https://www.supermercadostonhaomaxi.com/encarte',
   'Super Golff': 'https://supergolff.com.br/ofertas#book/',
+};
+
+export const ProductImageWithFallback: React.FC<ProductImageWithFallbackProps> = ({
+  uri,
+  category,
+  name,
+}) => {
+  const [hasError, setHasError] = useState(false);
+
+  const getFallbackIcon = () => {
+    const text = `${category || ''} ${name || ''}`.toLowerCase();
+
+    if (text.includes('agua') || text.includes('água') || text.includes('mineral')) return '💧';
+    if (text.includes('bisteca') || text.includes('carne') || text.includes('suin') || text.includes('bovin') || text.includes('frango')) return '🥩';
+    if (text.includes('arroz') || text.includes('feijao') || text.includes('farinha') || text.includes('trigo')) return '🌾';
+    if (text.includes('cerveja') || text.includes('chopp')) return '🍺';
+    if (text.includes('refrigerante') || text.includes('suco') || text.includes('nectar')) return '🥤';
+    if (text.includes('leite') || text.includes('queijo') || text.includes('iogurte') || text.includes('mussarela')) return '🧀';
+    if (text.includes('limpeza') || text.includes('detergente') || text.includes('sabao') || text.includes('amaciante') || text.includes('desinfetante')) return '🧹';
+    if (text.includes('dente') || text.includes('escova') || text.includes('sabonete') || text.includes('shampoo')) return '🪥';
+    if (text.includes('maca') || text.includes('maçã') || text.includes('laranja') || text.includes('banana') || text.includes('tomate')) return '🍎';
+    if (text.includes('pao') || text.includes('biscoito') || text.includes('bolacha')) return '🍞';
+
+    return '🛒';
+  };
+
+  if (!uri || hasError) {
+    return (
+      <View style={styles.cardImagePlaceholder}>
+        <Text style={styles.cardPlaceholderEmoji}>{getFallbackIcon()}</Text>
+      </View>
+    );
+  }
+
+  return (
+    <Image
+      source={{ uri }}
+      style={styles.cardImage}
+      resizeMode="contain"
+      onError={() => setHasError(true)}
+    />
+  );
 };
 
 export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
@@ -135,7 +183,6 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
       : `${date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} às ${timeStr}`;
   };
 
-  // 1. Busca produtos comparados (clusters com spread)
   const fetchMatches = async () => {
     try {
       setLoadingMatches(true);
@@ -185,7 +232,6 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
     }
   };
 
-  // 2. Busca catálogo geral (menor preço puro na flyer_deals)
   const fetchCatalog = async (loadMore = false) => {
     if (
       loadMore &&
@@ -247,7 +293,6 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
     }
   };
 
-  // 3. Busca encartes
   const fetchFlyers = async () => {
     setLoadingFlyers(true);
     try {
@@ -592,17 +637,11 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
                       onPress={() => toggleExpand(item.id)}
                       style={styles.cardHeaderArea}
                     >
-                      {item.image_url ? (
-                        <Image
-                          source={{ uri: item.image_url }}
-                          style={styles.cardImage}
-                          resizeMode="cover"
-                        />
-                      ) : (
-                        <View style={[styles.cardImage, styles.placeholderImage]}>
-                          <Text style={styles.placeholderText}>🏷️</Text>
-                        </View>
-                      )}
+                      <ProductImageWithFallback
+                        uri={item.image_url}
+                        category={item.category}
+                        name={item.display_name}
+                      />
 
                       <View style={styles.cardBody}>
                         <View style={styles.badgeRow}>
@@ -627,7 +666,7 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
                           </View>
 
                           <View style={styles.spreadBox}>
-                            <Text style={styles.spreadLabel}>Spread</Text>
+                            <Text style={styles.spreadLabel}>Economia</Text>
                             <Text style={styles.spreadValue}>
                               R$ {Number(item.spread).toFixed(2).replace('.', ',')}
                             </Text>
@@ -742,17 +781,11 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
                 return (
                   <View style={styles.card}>
                     <View style={styles.cardHeaderArea}>
-                      {item.image_url ? (
-                        <Image
-                          source={{ uri: item.image_url }}
-                          style={styles.cardImage}
-                          resizeMode="cover"
-                        />
-                      ) : (
-                        <View style={[styles.cardImage, styles.placeholderImage]}>
-                          <Text style={styles.placeholderText}>🏷️</Text>
-                        </View>
-                      )}
+                      <ProductImageWithFallback
+                        uri={item.image_url}
+                        category={item.category}
+                        name={item.product_name}
+                      />
 
                       <View style={styles.cardBody}>
                         <View style={styles.badgeRow}>
@@ -771,7 +804,6 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
                           )}
                         </View>
 
-                        {/* numberOfLines={4} para acomodar nomes longos sem cortar especificações */}
                         <Text style={styles.productName} numberOfLines={4}>
                           {item.product_name}
                         </Text>
@@ -1067,12 +1099,17 @@ const styles = StyleSheet.create({
     height: 120,
     backgroundColor: '#0F172A',
   },
-  placeholderImage: {
+  cardImagePlaceholder: {
+    width: 100,
+    height: 120,
+    backgroundColor: '#0F172A',
     justifyContent: 'center',
     alignItems: 'center',
+    borderRightWidth: 1,
+    borderRightColor: '#334155',
   },
-  placeholderText: {
-    fontSize: 32,
+  cardPlaceholderEmoji: {
+    fontSize: 38,
   },
   cardBody: {
     flex: 1,

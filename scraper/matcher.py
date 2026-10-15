@@ -62,15 +62,12 @@ def split_outliers_by_ratio(group: list[dict], max_ratio: float = 3.0) -> list[l
 
 def build_clusters(deals: list[dict]) -> list[list[dict]]:
     """Gera grupos canônicos refinados agrupando primeiro por token-raiz/categoria."""
-    # 1. Agrupa por chave canônica direta
     canonical_clusters = defaultdict(list)
     for deal in deals:
         key = generate_canonical_key(deal["product_name"])
         if key:
             canonical_clusters[key].append(deal)
 
-    # 2. Indexa por primeiro termo para não cruzar itens sem relação
-    # Ex: só compara chaves que começam com 'leite' entre si
     buckets = defaultdict(list)
     for key in canonical_clusters.keys():
         first_token = key.split()[0] if key else "geral"
@@ -79,7 +76,6 @@ def build_clusters(deals: list[dict]) -> list[list[dict]]:
     merged_clusters = []
     visited = set()
 
-    # 3. Faz o fuzzy matching apenas dentro do mesmo bucket (100x mais rápido)
     for bucket_keys in buckets.values():
         for i, key in enumerate(bucket_keys):
             if key in visited:
@@ -120,7 +116,6 @@ def persist_matches_to_supabase(clusters: list[list[dict]]):
         print("[Matcher] Nenhum agrupamento para gravar.")
         return
 
-    # Limpeza preventiva dos agrupamentos antigos para nunca deixar sobras
     print("[Persistência] Limpando agrupamentos anteriores...")
     supabase.table("product_match_items").delete().neq("id", "00000000-0000-0000-0000-000000000000").execute()
     supabase.table("product_matches").delete().neq("id", "00000000-0000-0000-0000-000000000000").execute()
@@ -139,8 +134,17 @@ def persist_matches_to_supabase(clusters: list[list[dict]]):
         canonical_key = generate_canonical_key(cheapest["product_name"]) or f"cluster-{idx}"
         unique_canonical = f"{canonical_key}-{idx}"
 
-        best_image = next((d["image_url"] for d in sorted_group if d.get("image_url")), None)
-        best_category = next((d["category"] for d in sorted_group if d.get("category")), None)
+        # 1. Herança inteligente de imagem: se algum concorrente tem foto válida, propaga para o grupo
+        best_image = next(
+            (d["image_url"] for d in sorted_group if d.get("image_url") and str(d["image_url"]).strip()),
+            None
+        )
+
+        # 2. Herança inteligente de categoria
+        best_category = next(
+            (d["category"] for d in sorted_group if d.get("category") and str(d["category"]).strip()),
+            None
+        )
 
         stores = {d["store_name"] for d in group}
         min_p = float(cheapest["deal_price"])
@@ -157,9 +161,13 @@ def persist_matches_to_supabase(clusters: list[list[dict]]):
             "cheapest_store": cheapest["store_name"],
             "priciest_store": priciest["store_name"],
             "image_url": best_image,
-            "updated_at": now_iso,  # <-- Coluna preenchida
+            "updated_at": now_iso,
         })
-        cluster_index_map[unique_canonical] = sorted_group
+        # Guarda o grupo junto com a melhor imagem compartilhada
+        cluster_index_map[unique_canonical] = {
+            "group": sorted_group,
+            "best_image": best_image,
+        }
 
     # 1. Batch upsert em product_matches
     print(f"[Persistência] Enviando registros para 'product_matches'...")
@@ -177,21 +185,26 @@ def persist_matches_to_supabase(clusters: list[list[dict]]):
 
     print(f"✓ {len(inserted_matches)} cabeçalhos de matches gravados/atualizados.")
 
-    # 2. Gravar os itens vinculados em product_match_items (já estritamente 1 por loja)
+    # 2. Gravar os itens vinculados em product_match_items
     items_payload = []
     for match_row in inserted_matches:
         match_id = match_row["id"]
         canonical_key = match_row["canonical_key"]
-        origin_deals = cluster_index_map.get(canonical_key, [])
+        cluster_data = cluster_index_map.get(canonical_key, {})
+        origin_deals = cluster_data.get("group", [])
+        shared_image = cluster_data.get("best_image")
 
         for deal in origin_deals:
+            # Se este supermercado não forneceu imagem, herda a foto do concorrente do mesmo produto!
+            item_image = deal.get("image_url") or shared_image
+
             items_payload.append({
                 "match_id": match_id,
                 "deal_id": deal.get("id"),
                 "store_name": deal["store_name"],
                 "raw_product_name": deal["product_name"],
                 "price": float(deal["deal_price"]),
-                "image_url": deal.get("image_url"),
+                "image_url": item_image,
             })
 
     print(f"[Persistência] Enviando {len(items_payload)} ofertas filhas para 'product_match_items'...")
