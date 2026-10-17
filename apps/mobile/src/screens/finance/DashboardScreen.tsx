@@ -22,6 +22,7 @@ import { DealsScreen } from './DealsScreen';
 import { SettingsModal } from './SettingsModal';
 import { YieldCalculatorModal } from './YieldCalculatorModal';
 import { PriceSearchScreen } from './PriceSearchScreen';
+import { RecurringBillsModal } from './RecurringBillsModal';
 
 interface Transaction {
   id: string;
@@ -30,6 +31,8 @@ interface Transaction {
   type: 'income' | 'expense';
   date: string;
   is_settled: boolean;
+  split_status?: 'none' | 'gift' | 'pending' | 'settled' | null;
+  spent_for_name?: string | null;
   categories?: { name: string; rule_group: string } | { name: string; rule_group: string }[] | null;
 }
 
@@ -44,6 +47,7 @@ export const DashboardScreen = () => {
   const [loading, setLoading] = useState(false);
   const [yieldModalVisible, setYieldModalVisible] = useState(false);
   const [priceSearchVisible, setPriceSearchVisible] = useState(false);
+  const [recurringModalVisible, setRecurringModalVisible] = useState(false);
 
   // Regras de cálculo dinâmicas carregadas da tabela profiles
   const [budgetRules, setBudgetRules] = useState({
@@ -118,24 +122,79 @@ export const DashboardScreen = () => {
   };
 
   const fetchTransactions = async () => {
+    if (!user) return;
     setLoading(true);
     const { startDate, endDate } = getMonthDateRange(currentDate);
 
-    const { data } = await supabase
+    try {
+      // 1. Procura as transações já registadas para o mês selecionado
+     const { data: existingData } = await supabase
       .from('transactions')
-      .select('id, description, amount, type, date, is_settled, categories(name, rule_group)')
+      .select('id, description, amount, type, date, is_settled, split_status, spent_for_name, repeats_monthly, categories(name, rule_group)')
       .gte('date', startDate)
       .lte('date', endDate)
       .order('date', { ascending: false });
 
-    if (data) {
-      setTransactions(data as unknown as Transaction[]);
-      calculateMetrics(data as unknown as Transaction[]);
-    } else {
+      let currentItems: Transaction[] = (existingData as unknown as Transaction[]) || [];
+
+      // 2. Procura todas as contas ativas na tabela recurring_bills
+      const { data: activeBills } = await supabase
+        .from('recurring_bills')
+        .select('id, description, amount, due_day, category_id, type')
+        .eq('is_active', true);
+
+      if (activeBills && activeBills.length > 0) {
+        const existingDescriptions = new Set(
+          currentItems.map((tx) => tx.description.trim().toLowerCase())
+        );
+
+        const year = currentDate.getFullYear();
+        const month = currentDate.getMonth();
+        const toAutoInsert = [];
+
+       for (const bill of activeBills) {
+          if (!existingDescriptions.has(bill.description.trim().toLowerCase())) {
+            const lastDayOfMonth = new Date(year, month + 1, 0).getDate();
+            const validDay = Math.min(bill.due_day, lastDayOfMonth);
+            const targetDate = new Date(year, month, validDay).toISOString().split('T')[0];
+
+            toAutoInsert.push({
+            user_id: user.id,
+            description: bill.description.trim(),
+            amount: bill.amount,
+            type: bill.type || 'expense',
+            category_id: bill.category_id,
+            date: targetDate,
+            is_settled: false,
+            spent_for_name: (bill as any).spent_for_name || null,
+            split_status: 'none',
+            repeats_monthly: true,
+          });
+          }
+        }
+
+        // Se existirem novas contas fixas a projetar, insere-as e junta-as à lista
+        if (toAutoInsert.length > 0) {
+          const { data: insertedData, error: insError } = await supabase
+            .from('transactions')
+            .insert(toAutoInsert)
+            .select('id, description, amount, type, date, is_settled, split_status, spent_for_name, categories(name, rule_group)');
+
+          if (!insError && insertedData) {
+            currentItems = [...(insertedData as unknown as Transaction[]), ...currentItems];
+          }
+        }
+      }
+
+      setTransactions(currentItems);
+      calculateMetrics(currentItems);
+    } catch (err) {
+      console.warn('Erro ao carregar transações e contas fixas:', err);
       setTransactions([]);
       calculateMetrics([]);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const calculateMetrics = (items: Transaction[]) => {
@@ -154,6 +213,11 @@ export const DashboardScreen = () => {
       if (item.type === 'income') {
         income += val;
       } else {
+        // Se a pessoa já ressarciu o valor (settled), neutraliza e não entra na despesa pessoal
+        if (item.split_status === 'settled') {
+          return;
+        }
+
         expense += val;
         if (rule === 'needs_50') needs += val;
         else if (rule === 'wants_30') wants += val;
@@ -187,37 +251,90 @@ export const DashboardScreen = () => {
     }
   };
 
-  const deleteTransaction = (item: Transaction) => {
+  const deleteTransaction = async (item: any) => {
+    // 1. Verifica se é um item recorrente (pela flag da transação ou pela tabela recurring_bills)
+    const { data: recBill } = await supabase
+      .from('recurring_bills')
+      .select('id, is_active')
+      .ilike('description', item.description.trim())
+      .maybeSingle();
+
+    const isRecurring = Boolean(item.repeats_monthly || recBill);
+
+    if (isRecurring) {
+      Alert.alert(
+        'Item Recorrente',
+        `"${item.description}" repete-se todos os meses. Como deseja excluir?`,
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          {
+            text: 'Excluir apenas deste mês',
+            style: 'default',
+            onPress: async () => {
+              // Apaga apenas o registro deste mês
+              await supabase.from('transactions').delete().eq('id', item.id);
+              
+              // Atualiza localmente a lista para a interface responder na hora
+              setTransactions((prev) => prev.filter((tx) => tx.id !== item.id));
+              calculateMetrics(transactions.filter((tx) => tx.id !== item.id));
+            },
+          },
+          {
+            text: 'Cancelar assinatura e apagar de todos os meses futuros',
+            style: 'destructive',
+            onPress: async () => {
+              // 1. Desativa ou remove da tabela de assinaturas fixas para não ser recriado nunca mais
+              await supabase
+                .from('recurring_bills')
+                .delete()
+                .ilike('description', item.description.trim());
+
+              // 2. Desmarca a recorrência
+              await supabase
+                .from('transactions')
+                .update({ repeats_monthly: false })
+                .ilike('description', item.description.trim());
+
+              // 3. Apaga deste mês e de todos os meses futuros pendentes
+              if (user) {
+                await supabase
+                  .from('transactions')
+                  .delete()
+                  .eq('user_id', user.id)
+                  .ilike('description', item.description.trim())
+                  .gte('date', item.date)
+                  .eq('is_settled', false);
+              }
+
+              fetchTransactions();
+              Alert.alert('Sucesso', 'Assinatura cancelada e removida dos meses atuais e futuros.');
+            },
+          },
+        ]
+      );
+      return;
+    }
+
+    // Exclusão normal de transação avulsa
     Alert.alert(
       'Apagar Lançamento',
-      `Tem certeza de que deseja remover "${item.description}"?`,
+      `Tem a certeza de que deseja remover "${item.description}"?`,
       [
         { text: 'Cancelar', style: 'cancel' },
         {
           text: 'Apagar',
           style: 'destructive',
           onPress: async () => {
-            try {
-              const { error } = await supabase
-                .from('transactions')
-                .delete()
-                .eq('id', item.id);
-
-              if (error) throw error;
-
-              const remaining = transactions.filter((tx) => tx.id !== item.id);
-              setTransactions(remaining);
-              calculateMetrics(remaining);
-            } catch (err) {
-              console.error('Erro ao apagar lançamento:', err);
-              Alert.alert('Erro', 'Não foi possível remover o lançamento.');
-            }
+            await supabase.from('transactions').delete().eq('id', item.id);
+            const remaining = transactions.filter((tx) => tx.id !== item.id);
+            setTransactions(remaining);
+            calculateMetrics(remaining);
           },
         },
       ]
     );
   };
-
+  
   useEffect(() => {
     fetchBudgetRules();
   }, [user]);
@@ -226,7 +343,6 @@ export const DashboardScreen = () => {
     fetchTransactions();
   }, [currentDate]);
 
-  // Cálculo proporcional com base nas percentagens personalizadas ou valores fixos
   const budgetNeeds = budgetRules.useFixed
     ? budgetRules.fixedNeeds
     : totalIncome * (budgetRules.needsPct / 100);
@@ -246,6 +362,70 @@ export const DashboardScreen = () => {
         <View style={[styles.progressFill, { width: `${ratio}%`, backgroundColor: color }]} />
       </View>
     );
+  };
+
+  const syncRecurringBillsForCurrentMonth = async () => {
+    if (!user) return;
+    try {
+      // 1. Procura as assinaturas ativas cadastradas
+      const { data: bills } = await supabase
+        .from('recurring_bills')
+        .select('*')
+        .eq('is_active', true);
+
+      if (!bills || bills.length === 0) {
+        Alert.alert('Aviso', 'Nenhuma assinatura ativa encontrada para gerar.');
+        return;
+      }
+
+      // 2. Evita gerar novamente lançamentos já existentes no mês selecionado
+      const { startDate, endDate } = getMonthDateRange(currentDate);
+      const { data: existingTx, error: existingError } = await supabase
+        .from('transactions')
+        .select('description')
+        .gte('date', startDate)
+        .lte('date', endDate);
+
+      if (existingError) throw existingError;
+
+      const existingNames = new Set(
+        (existingTx || []).map((transaction) => transaction.description.trim().toLowerCase())
+      );
+      const year = currentDate.getFullYear();
+      const month = currentDate.getMonth();
+      const toInsert = [];
+
+      for (const bill of bills) {
+        if (!existingNames.has(bill.description.trim().toLowerCase())) {
+          const lastDayOfMonth = new Date(year, month + 1, 0).getDate();
+          const validDay = Math.min(bill.due_day, lastDayOfMonth);
+          const billDate = new Date(year, month, validDay).toISOString().split('T')[0];
+
+          toInsert.push({
+            user_id: user.id,
+            description: bill.description.trim(),
+            amount: bill.amount,
+            type: bill.type || 'expense',
+            category_id: bill.category_id,
+            date: billDate,
+            is_settled: false,
+            split_status: 'none',
+          });
+        }
+      }
+
+      if (toInsert.length > 0) {
+        const { error } = await supabase.from('transactions').insert(toInsert);
+        if (error) throw error;
+        Alert.alert('Sucesso', `${toInsert.length} lançamento(s) recorrente(s) gerado(s) no mês!`);
+        fetchTransactions();
+      } else {
+        Alert.alert('Informação', 'Todas as assinaturas ativas já constam nos lançamentos deste mês.');
+      }
+    } catch (err: any) {
+      console.warn('Erro ao sincronizar assinaturas:', err);
+      Alert.alert('Erro', err.message);
+    }
   };
 
   return (
@@ -344,7 +524,7 @@ export const DashboardScreen = () => {
         </View>
       </View>
 
-      {/* Ações e Lançamentos - Com atalhos de ferramentas e busca */}
+      {/* Ações e Lançamentos - Barra deslizante completa */}
       <View style={styles.listHeader}>
         <Text style={styles.sectionTitle}>Lançamentos</Text>
         
@@ -353,6 +533,14 @@ export const DashboardScreen = () => {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.actionsBar}
         >
+          <TouchableOpacity 
+            style={styles.recurringButton} 
+            onPress={() => setRecurringModalVisible(true)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.recurringButtonText}>🔁 Fixas</Text>
+          </TouchableOpacity>
+
           <TouchableOpacity 
             style={styles.searchPriceButton} 
             onPress={() => setPriceSearchVisible(true)}
@@ -411,12 +599,28 @@ export const DashboardScreen = () => {
           >
             <View style={{ flex: 1, paddingRight: 8 }}>
               <Text style={styles.txDesc}>{item.description}</Text>
+              
               <Text style={styles.txSub}>
                 {(Array.isArray(item.categories)
                   ? item.categories[0]?.name
                   : item.categories?.name) ?? 'Geral'}{' '}
                 • {item.date}
               </Text>
+
+              {/* Tag de terceiro ou origem */}
+              {item.spent_for_name ? (
+                <View style={styles.splitTag}>
+                  {item.type === 'income' ? (
+                    <Text style={styles.splitIncomeText}>📥 De: {item.spent_for_name}</Text>
+                  ) : item.split_status === 'pending' ? (
+                    <Text style={styles.splitPendingText}>⏳ Vai pagar: {item.spent_for_name}</Text>
+                  ) : item.split_status === 'settled' ? (
+                    <Text style={styles.splitSettledText}>✅ Pago por: {item.spent_for_name}</Text>
+                  ) : (
+                    <Text style={styles.splitGiftText}>🎁 Para: {item.spent_for_name}</Text>
+                  )}
+                </View>
+              ) : null}
             </View>
 
             <View style={styles.rightActions}>
@@ -456,6 +660,7 @@ export const DashboardScreen = () => {
       <NewTransactionModal
         visible={modalVisible}
         onClose={() => setModalVisible(false)}
+        currentMonthDate={currentDate}
         onSuccess={fetchTransactions}
       />
 
@@ -472,8 +677,16 @@ export const DashboardScreen = () => {
         description={selectedTx?.description ?? ''}
         date={selectedTx?.date ?? ''}
         amount={selectedTx?.amount ?? 0}
+        userMonthlyIncome={totalIncome}
         onUpdated={fetchTransactions}
         onDeleted={fetchTransactions}
+      />
+
+      <RecurringBillsModal
+        visible={recurringModalVisible}
+        onClose={() => setRecurringModalVisible(false)}
+        currentMonthDate={currentDate}
+        onSyncMonth={syncRecurringBillsForCurrentMonth}
       />
 
       <Modal
@@ -485,14 +698,13 @@ export const DashboardScreen = () => {
       </Modal>
 
       <Modal
-  visible={priceSearchVisible}
-  animationType="slide"
-  onRequestClose={() => setPriceSearchVisible(false)}
->
-  <PriceSearchScreen onBack={() => setPriceSearchVisible(false)} />
-</Modal>
+        visible={priceSearchVisible}
+        animationType="slide"
+        onRequestClose={() => setPriceSearchVisible(false)}
+      >
+        <PriceSearchScreen onBack={() => setPriceSearchVisible(false)} />
+      </Modal>
 
-      {/* Modal de Personalização do Teto de Gastos */}
       <SettingsModal
         visible={settingsVisible}
         onClose={() => setSettingsVisible(false)}
@@ -503,10 +715,10 @@ export const DashboardScreen = () => {
       />
 
       <YieldCalculatorModal
-  visible={yieldModalVisible}
-  onClose={() => setYieldModalVisible(false)}
-  initialAmount={spentSavings > 0 ? spentSavings : 1000}
-/>
+        visible={yieldModalVisible}
+        onClose={() => setYieldModalVisible(false)}
+        initialAmount={spentSavings > 0 ? spentSavings : 1000}
+      />
     </SafeAreaView>
   );
 };
@@ -615,7 +827,33 @@ const styles = StyleSheet.create({
   actionsBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
+    gap: 6,
+  },
+  recurringButton: {
+    backgroundColor: 'rgba(168, 85, 247, 0.15)',
+    borderColor: '#A855F7',
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 14,
+  },
+  recurringButtonText: { 
+    color: '#C084FC', 
+    fontWeight: 'bold', 
+    fontSize: 11,
+  },
+  searchPriceButton: {
+    backgroundColor: 'rgba(14, 165, 233, 0.15)',
+    borderColor: '#38BDF8',
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 14,
+  },
+  searchPriceButtonText: { 
+    color: '#38BDF8', 
+    fontWeight: 'bold', 
+    fontSize: 11,
   },
   dealsButton: {
     backgroundColor: 'rgba(16, 185, 129, 0.15)',
@@ -665,6 +903,29 @@ const styles = StyleSheet.create({
   },
   txDesc: { color: '#F8FAFC', fontSize: 15, fontWeight: '500' },
   txSub: { color: '#64748B', fontSize: 12, marginTop: 2 },
+  splitTag: {
+    marginTop: 4,
+  },
+  splitPendingText: {
+    color: '#F59E0B',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  splitSettledText: {
+    color: '#34D399',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  splitGiftText: {
+    color: '#38BDF8',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  splitIncomeText: {
+    color: '#34D399',
+    fontSize: 11,
+    fontWeight: '600',
+  },
   rightActions: {
     alignItems: 'flex-end',
     justifyContent: 'center',
@@ -694,17 +955,4 @@ const styles = StyleSheet.create({
     color: '#FBBF24',
   },
   emptyText: { textAlign: 'center', color: '#64748B', marginTop: 24, fontSize: 14 },
-  searchPriceButton: {
-    backgroundColor: 'rgba(14, 165, 233, 0.15)',
-    borderColor: '#38BDF8',
-    borderWidth: 1,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 14,
-  },
-  searchPriceButtonText: { 
-    color: '#38BDF8', 
-    fontWeight: 'bold', 
-    fontSize: 11,
-  },
 });

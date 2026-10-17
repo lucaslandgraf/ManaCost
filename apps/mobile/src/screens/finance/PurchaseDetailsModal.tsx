@@ -1,18 +1,21 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Modal,
   View,
   Text,
+  TextInput,
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
-  FlatList,
-  TextInput,
   Alert,
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { supabase } from '../../config/supabase';
+import { useAuth } from '../../context/AuthContext';
 
-interface PurchasedItem {
+interface Item {
   id: string;
   name: string;
   quantity: number;
@@ -20,212 +23,227 @@ interface PurchasedItem {
   total_price: number;
 }
 
-interface PurchaseDetailsModalProps {
+interface Category {
+  id: string;
+  name: string;
+  type: string;
+}
+
+interface Props {
   visible: boolean;
   onClose: () => void;
   transactionId: string;
   description: string;
   date: string;
   amount: number;
-  onUpdated?: () => void | Promise<void>;
-  onDeleted?: () => void | Promise<void>;
+  userMonthlyIncome?: number;
+  onUpdated: () => void;
+  onDeleted: () => void;
 }
 
-export const PurchaseDetailsModal: React.FC<PurchaseDetailsModalProps> = ({
+export const PurchaseDetailsModal: React.FC<Props> = ({
   visible,
   onClose,
   transactionId,
   description,
   date,
   amount,
+  userMonthlyIncome = 0,
   onUpdated,
   onDeleted,
 }) => {
-  const [items, setItems] = useState<PurchasedItem[]>([]);
+  const { user } = useAuth();
+  const [items, setItems] = useState<Item[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [selectedCatId, setSelectedCatId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [purchaseRecordId, setPurchaseRecordId] = useState<string | null>(null);
-  const [displayDescription, setDisplayDescription] = useState(description);
-  const [displayAmount, setDisplayAmount] = useState(Number(amount));
-  const receiptRequestId = useRef(0);
-
-  // Estados de Edição
   const [isEditing, setIsEditing] = useState(false);
-  const [editDesc, setEditDesc] = useState(description);
-  const [editAmount, setEditAmount] = useState(String(amount));
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    if (visible) {
-      setDisplayDescription(description);
-      setDisplayAmount(Number(amount));
-      setEditDesc(description);
-      setEditAmount(String(amount));
-      setIsEditing(false);
-      loadReceiptItems();
-    } else {
-      receiptRequestId.current += 1;
-      setItems([]);
-      setPurchaseRecordId(null);
-      setLoading(false);
-    }
-  }, [visible, transactionId, description, date, amount]);
+  // Estados locais sincronizados com a base de dados
+  const [currentDesc, setCurrentDesc] = useState(description);
+  const [currentAmount, setCurrentAmount] = useState(amount);
+  const [currentDate, setCurrentDate] = useState(date);
+  const [currentType, setCurrentType] = useState<'expense' | 'income'>('expense');
+  const [repeatsMonthly, setRepeatsMonthly] = useState(false);
 
-  const loadReceiptItems = async () => {
-    const requestId = ++receiptRequestId.current;
+  // Identificação de assinatura correspondente em recurring_bills
+  const [matchingRecurringBill, setMatchingRecurringBill] = useState<{ id: string; is_active: boolean } | null>(null);
+
+  // Edição
+  const [editDesc, setEditDesc] = useState(description);
+  const [editAmount, setEditAmount] = useState(amount.toString());
+  const [editRepeats, setEditRepeats] = useState(false);
+  
+  // Terceiros
+  const [isForSomeone, setIsForSomeone] = useState(false);
+  const [personName, setPersonName] = useState('');
+  const [splitStatus, setSplitStatus] = useState<'gift' | 'pending' | 'settled' | 'none'>('pending');
+
+  const [showLifeTime, setShowLifeTime] = useState(false);
+
+  useEffect(() => {
+    if (visible && transactionId) {
+      setIsEditing(false);
+      setShowLifeTime(false);
+      setCurrentDesc(description);
+      setCurrentAmount(amount);
+      setCurrentDate(date);
+      setEditDesc(description);
+      setEditAmount(amount.toString());
+      fetchTransactionDetails();
+      fetchCategories();
+    }
+  }, [visible, transactionId]);
+
+  const fetchCategories = async () => {
+    const { data } = await supabase
+      .from('categories')
+      .select('id, name, type')
+      .order('name');
+    setCategories(data || []);
+  };
+
+  const fetchTransactionDetails = async () => {
     setLoading(true);
     try {
-      const storeName = description.replace(/^NFC-e:\s*/i, '').trim();
-
-      const { data: purchaseData, error: purchaseError } = await supabase
-        .from('purchases')
-        .select('id')
-        .eq('store_name', storeName)
-        .eq('purchase_date', date)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (purchaseError) throw purchaseError;
-      if (requestId !== receiptRequestId.current) return;
-
-      if (purchaseData?.id) {
-        setPurchaseRecordId(purchaseData.id);
-        const { data: itemsData, error: itemsError } = await supabase
-          .from('purchase_items')
-          .select('id, name, quantity, unit_price, total_price')
-          .eq('purchase_id', purchaseData.id)
-          .order('total_price', { ascending: false });
-
-        if (itemsError) throw itemsError;
-        if (requestId === receiptRequestId.current) {
-          setItems((itemsData || []) as PurchasedItem[]);
-        }
-      } else {
-        setPurchaseRecordId(null);
-        setItems([]);
-      }
-    } catch (err) {
-      console.error('Erro ao buscar itens da nota:', err);
-      if (requestId === receiptRequestId.current) {
-        setItems([]);
-        setPurchaseRecordId(null);
-      }
-    } finally {
-      if (requestId === receiptRequestId.current) setLoading(false);
-    }
-  };
-
-  const handleSaveEdit = async () => {
-    const rawAmount = editAmount.trim().replace(/[^\d,.-]/g, '');
-    const normalizedAmount = rawAmount.includes(',')
-      ? rawAmount.replace(/\./g, '').replace(',', '.')
-      : rawAmount;
-    const parsedAmount = Number(normalizedAmount);
-    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
-      Alert.alert('Valor inválido', 'Insira um valor numérico válido.');
-      return;
-    }
-
-    setSaving(true);
-    try {
-      const { data: updatedTransaction, error: txError } = await supabase
+      const { data: txData, error: txError } = await supabase
         .from('transactions')
-        .update({
-          description: editDesc.trim(),
-          amount: parsedAmount,
-        })
+        .select('*')
         .eq('id', transactionId)
-        .select('description, amount')
         .single();
 
-      if (txError) throw txError;
+      if (txData && !txError) {
+        setCurrentDesc(txData.description || description);
+        setCurrentAmount(txData.amount || amount);
+        setCurrentDate(txData.date || date);
+        setCurrentType(txData.type || 'expense');
+        setSelectedCatId(txData.category_id || null);
+        setRepeatsMonthly(Boolean(txData.repeats_monthly));
+        setEditRepeats(Boolean(txData.repeats_monthly));
 
-      if (purchaseRecordId) {
-        const cleanStoreName = editDesc.replace(/^NFC-e:\s*/i, '').trim();
+        setEditDesc(txData.description || description);
+        setEditAmount(String(txData.amount || amount));
 
-        const { error: pError } = await supabase
-          .from('purchases')
-          .update({
-            store_name: cleanStoreName,
-            total_amount: parsedAmount,
-          })
-          .eq('id', purchaseRecordId);
-
-        if (pError) throw pError;
+        if (txData.spent_for_name) {
+          setIsForSomeone(true);
+          setPersonName(txData.spent_for_name);
+          setSplitStatus(txData.split_status || (txData.type === 'income' ? 'none' : 'pending'));
+        } else {
+          setIsForSomeone(false);
+          setPersonName('');
+          setSplitStatus(txData.type === 'income' ? 'none' : 'pending');
+        }
       }
 
-      const savedDescription = editDesc.trim();
-      setDisplayDescription(savedDescription);
-      setDisplayAmount(parsedAmount);
-      setEditDesc(savedDescription);
-      setEditAmount(parsedAmount.toFixed(2).replace('.', ','));
-      setIsEditing(false);
+      // Procura se tem conta fixa correspondente na tabela recurring_bills
+      const targetName = (txData?.description || description).trim();
+      const { data: recBill } = await supabase
+        .from('recurring_bills')
+        .select('id, is_active')
+        .ilike('description', targetName)
+        .maybeSingle();
 
-      // Only reload receipt rows from Supabase; editing the purchase total never changes item prices.
-      if (purchaseRecordId) {
-        const { data: itemsData, error: itemsError } = await supabase
+      setMatchingRecurringBill(recBill || null);
+
+      // Procura itens fiscais vinculados
+      let targetPurchaseId = txData?.purchase_id;
+      if (!targetPurchaseId && (txData?.description || description).startsWith('NFC-e:')) {
+        const cleanStoreName = (txData?.description || description).replace('NFC-e:', '').trim();
+        const { data: matchedPurchase } = await supabase
+          .from('purchases')
+          .select('id')
+          .ilike('store_name', `%${cleanStoreName}%`)
+          .order('purchase_date', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        targetPurchaseId = matchedPurchase?.id;
+      }
+
+      if (targetPurchaseId) {
+        const { data: itemsData } = await supabase
           .from('purchase_items')
           .select('id, name, quantity, unit_price, total_price')
-          .eq('purchase_id', purchaseRecordId)
-          .order('total_price', { ascending: false });
-
-        if (itemsError) throw itemsError;
-        setItems((itemsData || []) as PurchasedItem[]);
+          .eq('purchase_id', targetPurchaseId);
+        setItems(itemsData || []);
+      } else {
+        const { data: directItems } = await supabase
+          .from('purchase_items')
+          .select('id, name, quantity, unit_price, total_price')
+          .eq('transaction_id', transactionId);
+        setItems(directItems || []);
       }
-
-      setDisplayDescription(updatedTransaction.description);
-      setDisplayAmount(Number(updatedTransaction.amount));
-      setEditDesc(updatedTransaction.description);
-      setEditAmount(Number(updatedTransaction.amount).toFixed(2).replace('.', ','));
-
-      setIsEditing(false);
-      await onUpdated?.();
-      onClose();
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Falha ao salvar alterações.';
-      Alert.alert('Erro ao atualizar', message);
+    } catch (err) {
+      console.warn('Erro ao carregar detalhes:', err);
     } finally {
-      setSaving(false);
+      setLoading(false);
     }
   };
 
-  const handleDelete = () => {
+  const handleToggleRecurringFromDetail = async () => {
+    if (!matchingRecurringBill && !repeatsMonthly) return;
+
+    const currentStatus = matchingRecurringBill ? matchingRecurringBill.is_active : repeatsMonthly;
+    const nextStatus = !currentStatus;
+
     Alert.alert(
-      'Excluir Lançamento',
-      `Tem certeza que deseja apagar "${description}"?`,
+      nextStatus ? 'Reativar Recorrência' : 'Pausar Recorrência',
+      nextStatus
+        ? `Deseja que "${currentDesc}" volte a ser gerada automaticamente nos meses seguintes?`
+        : `Deseja pausar "${currentDesc}" e remover as pendências geradas nos meses seguintes?`,
       [
         { text: 'Cancelar', style: 'cancel' },
         {
-          text: 'Excluir',
-          style: 'destructive',
+          text: nextStatus ? 'Sim, Reativar' : 'Sim, Pausar e Limpar',
+          style: nextStatus ? 'default' : 'destructive',
           onPress: async () => {
+            setSaving(true);
             try {
-              // 1. Remove itens e a compra em cascata
-              if (purchaseRecordId) {
+              // 1. Atualiza na tabela de assinaturas fixas
+              if (matchingRecurringBill) {
                 await supabase
-                  .from('purchase_items')
-                  .delete()
-                  .eq('purchase_id', purchaseRecordId);
-                await supabase
-                  .from('purchases')
-                  .delete()
-                  .eq('id', purchaseRecordId);
+                  .from('recurring_bills')
+                  .update({ is_active: nextStatus })
+                  .eq('id', matchingRecurringBill.id);
+
+                setMatchingRecurringBill({
+                  ...matchingRecurringBill,
+                  is_active: nextStatus,
+                });
               }
 
-              // 2. Remove o lançamento financeiro
-              const { error } = await supabase
+              // 2. Atualiza a flag na transação atual
+              await supabase
                 .from('transactions')
-                .delete()
-                .eq('id', transactionId);
+                .update({ repeats_monthly: nextStatus })
+                .ilike('description', currentDesc.trim());
 
-              if (error) throw error;
+              // 3. Ao pausar, elimina de imediato os lançamentos pendentes posteriores ao mês atual
+              if (!nextStatus && user) {
+                await supabase
+                  .from('transactions')
+                  .delete()
+                  .eq('user_id', user.id)
+                  .ilike('description', currentDesc.trim())
+                  .gt('date', currentDate)
+                  .eq('is_settled', false);
+              }
 
-              await onDeleted?.();
-              onClose();
-            } catch (err: unknown) {
-              const message =
-                err instanceof Error ? err.message : 'Não foi possível apagar o lançamento.';
-              Alert.alert('Erro ao excluir', message);
+              setRepeatsMonthly(nextStatus);
+              setEditRepeats(nextStatus);
+
+              Alert.alert(
+                'Concluído',
+                nextStatus
+                  ? 'A despesa foi reativada para os próximos meses.'
+                  : 'A cobrança foi pausada e os registos futuros pendentes foram eliminados.'
+              );
+              onUpdated();
+            } catch (err: any) {
+              Alert.alert('Erro', err.message);
+            } finally {
+              setSaving(false);
             }
           },
         },
@@ -233,421 +251,517 @@ export const PurchaseDetailsModal: React.FC<PurchaseDetailsModalProps> = ({
     );
   };
 
-  // Monetary arithmetic uses cents; this value is display-only and never written to receipt items.
-  const itemsSumCents = items.reduce((sum, item) => {
-    const itemTotal = Number(item.total_price);
-    return sum + (Number.isFinite(itemTotal) ? Math.round(itemTotal * 100) : 0);
-  }, 0);
-  const adjustmentCents = Math.round(displayAmount * 100) - itemsSumCents;
+  const handleSaveEdit = async () => {
+    const parsedAmount = parseFloat(editAmount.replace(',', '.'));
+    if (!editDesc.trim() || isNaN(parsedAmount) || parsedAmount <= 0) {
+      Alert.alert('Atenção', 'Informe descrição e valor válidos.');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const finalSpentFor = isForSomeone ? personName.trim() : null;
+      const finalSplitStatus = isForSomeone
+        ? currentType === 'income'
+          ? 'none'
+          : splitStatus
+        : 'none';
+
+      // 1. Atualiza a transação do mês atual
+      const { error } = await supabase
+        .from('transactions')
+        .update({
+          description: editDesc.trim(),
+          amount: parsedAmount,
+          category_id: selectedCatId,
+          spent_for_name: finalSpentFor,
+          split_status: finalSplitStatus,
+          repeats_monthly: editRepeats,
+        })
+        .eq('id', transactionId);
+
+      if (error) throw error;
+
+      // 2. Propaga nome, valor, categoria E a observação (spent_for_name) para os meses futuros
+      if (editRepeats || repeatsMonthly || matchingRecurringBill) {
+        // Atualiza a tabela de assinaturas fixas
+        await supabase
+          .from('recurring_bills')
+          .update({
+            description: editDesc.trim(),
+            amount: parsedAmount,
+            category_id: selectedCatId,
+            is_active: editRepeats,
+          })
+          .ilike('description', currentDesc.trim());
+
+        // Atualiza todas as transações futuras pendentes incluindo a observação/origem
+        if (user) {
+          await supabase
+            .from('transactions')
+            .update({
+              description: editDesc.trim(),
+              amount: parsedAmount,
+              category_id: selectedCatId,
+              spent_for_name: finalSpentFor, // <-- Propaga a observação/quem enviou
+              split_status: finalSplitStatus,
+            })
+            .eq('user_id', user.id)
+            .ilike('description', currentDesc.trim())
+            .gt('date', currentDate)
+            .eq('is_settled', false);
+        }
+      }
+
+      // 3. Atualiza os estados locais imediatamente para a tela refletir o novo valor na hora
+      setCurrentDesc(editDesc.trim());
+      setCurrentAmount(parsedAmount);
+      setRepeatsMonthly(editRepeats);
+
+      setIsEditing(false);
+      onUpdated();
+      Alert.alert('Sucesso', 'Lançamento e meses futuros atualizados!');
+    } catch (err: any) {
+      Alert.alert('Erro ao atualizar', err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = () => {
+    const isRecurring = repeatsMonthly || (matchingRecurringBill && matchingRecurringBill.is_active);
+
+    if (isRecurring) {
+      Alert.alert(
+        'Assinatura / Conta Fixa',
+        `"${currentDesc}" repete-se todos os meses. Como deseja prosseguir?`,
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          {
+            text: 'Excluir apenas deste mês',
+            style: 'default',
+            onPress: async () => {
+              await supabase.from('transactions').delete().eq('id', transactionId);
+              onDeleted();
+              onClose();
+            },
+          },
+          {
+            text: 'Cancelar e apagar de todos os meses futuros',
+            style: 'destructive',
+            onPress: async () => {
+              // Desativa a regra global
+              await supabase
+                .from('recurring_bills')
+                .update({ is_active: false })
+                .ilike('description', currentDesc.trim());
+
+              await supabase
+                .from('transactions')
+                .update({ repeats_monthly: false })
+                .ilike('description', currentDesc.trim());
+
+              // Remove este mês e todas as instâncias pendentes nos meses posteriores
+              if (user) {
+                await supabase
+                  .from('transactions')
+                  .delete()
+                  .eq('user_id', user.id)
+                  .ilike('description', currentDesc.trim())
+                  .gte('date', currentDate)
+                  .eq('is_settled', false);
+              }
+
+              onDeleted();
+              onClose();
+              Alert.alert('Cancelado', 'A cobrança foi encerrada e removida de todos os meses futuros.');
+            },
+          },
+        ]
+      );
+      return;
+    }
+
+    Alert.alert(
+      'Excluir Transação',
+      `Tem certeza de que deseja remover "${currentDesc}"?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Excluir',
+          style: 'destructive',
+          onPress: async () => {
+            await supabase.from('transactions').delete().eq('id', transactionId);
+            onDeleted();
+            onClose();
+          },
+        },
+      ]
+    );
+  };
+
+  const isIncome = currentType === 'income';
+  
+  // Deduplica categorias por nome
+  const filteredCategories = categories
+    .filter((c) => c.type === currentType)
+    .filter((cat, index, self) => index === self.findIndex((t) => t.name === cat.name));
+
+  const isRecurringActive = matchingRecurringBill ? matchingRecurringBill.is_active : repeatsMonthly;
 
   return (
-    <Modal
-      visible={visible}
-      animationType="fade"
-      transparent
-      statusBarTranslucent={true}
-      onRequestClose={onClose}
-    >
-      <View style={styles.modalOverlay}>
-        <View style={styles.container}>
-          {/* Cabeçalho */}
-          <View style={styles.header}>
-            <Text style={styles.title}>Detalhe do Cupom Fiscal</Text>
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.overlay}
+      >
+        <View style={styles.card}>
+          <View style={styles.headerRow}>
+            <Text style={styles.title}>
+              {isIncome ? 'Detalhe da Receita' : 'Detalhe da Despesa'}
+            </Text>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
               <Text style={styles.closeBtnText}>✕</Text>
             </TouchableOpacity>
           </View>
 
-          {/* Dados Principais ou Formulário de Edição */}
-          {isEditing ? (
-            <View style={styles.editSection}>
-              <Text style={styles.inputLabel}>Descrição / Estabelecimento</Text>
-              <TextInput
-                style={styles.textInput}
-                value={editDesc}
-                onChangeText={setEditDesc}
-                placeholderTextColor="#64748B"
-              />
-
-              <Text style={styles.inputLabel}>Valor Total (R$)</Text>
-              <TextInput
-                style={styles.textInput}
-                value={editAmount}
-                onChangeText={setEditAmount}
-                keyboardType="decimal-pad"
-                placeholderTextColor="#64748B"
-              />
-
-              <View style={styles.editActionRow}>
-                <TouchableOpacity
-                  style={styles.cancelEditBtn}
-                  onPress={() => setIsEditing(false)}
-                  disabled={saving}
-                >
-                  <Text style={styles.cancelEditText}>Cancelar</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.saveEditBtn}
-                  onPress={handleSaveEdit}
-                  disabled={saving}
-                >
-                  {saving ? (
-                    <ActivityIndicator size="small" color="#FFF" />
-                  ) : (
-                    <Text style={styles.saveEditText}>Salvar</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-            </View>
-          ) : (
-            <View style={styles.content}>
-              <Text style={styles.descText}>{displayDescription}</Text>
-              <Text style={styles.dateText}>Data da Compra: {date}</Text>
-
-              <View style={styles.amountBox}>
-                <Text style={styles.amountLabel}>Valor Total Pago</Text>
-                <Text style={styles.amountValue}>
-                  R$ {displayAmount.toFixed(2).replace('.', ',')}
-                </Text>
-              </View>
-            </View>
-          )}
-
-          {/* Itens Comprados (Descritivo da Nota) */}
-          <View style={styles.itemsSection}>
-            <Text style={styles.sectionSubtitle}>Itens Discriminados na Nota:</Text>
-
-            {loading ? (
-              <View style={styles.centerLoading}>
-                <ActivityIndicator size="small" color="#10B981" />
-                <Text style={styles.loadingText}>Buscando produtos da nota...</Text>
-              </View>
-            ) : items.length > 0 ? (
-              <View style={{ flexShrink: 1 }}>
-                <FlatList
-                  data={items}
-                  keyExtractor={(item) => item.id}
-                  style={styles.itemsList}
-                  showsVerticalScrollIndicator={true}
-                  renderItem={({ item }) => (
-                    <View style={styles.receiptItemRow}>
-                      <View style={{ flex: 1, paddingRight: 8 }}>
-                        <Text style={styles.receiptItemName} numberOfLines={2}>
-                          {item.name}
-                        </Text>
-                        <Text style={styles.receiptItemQty}>
-                          {item.quantity} un x R${' '}
-                          {Number(item.unit_price).toFixed(2).replace('.', ',')}
-                        </Text>
-                      </View>
-                      <Text style={styles.receiptItemTotal}>
-                        R$ {Number(item.total_price).toFixed(2).replace('.', ',')}
-                      </Text>
-                    </View>
-                  )}
+          <ScrollView showsVerticalScrollIndicator={false}>
+            {isEditing ? (
+              /* MODO EDIÇÃO COMPLETO */
+              <View style={styles.editContainer}>
+                <Text style={styles.label}>Descrição / Título</Text>
+                <TextInput
+                  style={styles.input}
+                  value={editDesc}
+                  onChangeText={setEditDesc}
+                  placeholder="Descrição"
+                  placeholderTextColor="#64748B"
                 />
 
-                {/* Exibe o ajuste/desconto caso haja diferença entre os itens e o total pago */}
-                {adjustmentCents !== 0 && (
-                  <View style={styles.adjustmentRow}>
-                    <Text style={styles.adjustmentLabel}>
-                      {adjustmentCents < 0
-                        ? 'Desconto Comercial / Ajuste:'
-                        : 'Acréscimo / Taxas:'}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.adjustmentValue,
-                        { color: adjustmentCents < 0 ? '#10B981' : '#F59E0B' },
-                      ]}
+                <Text style={styles.label}>Valor (R$)</Text>
+                <TextInput
+                  style={styles.input}
+                  value={editAmount}
+                  onChangeText={setEditAmount}
+                  keyboardType="decimal-pad"
+                  placeholder="0,00"
+                  placeholderTextColor="#64748B"
+                />
+
+                {/* Seleção de Categoria na Edição */}
+                <Text style={styles.label}>Categoria no Orçamento:</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+                  {filteredCategories.map((c) => (
+                    <TouchableOpacity
+                      key={c.id}
+                      style={[styles.catChip, selectedCatId === c.id && styles.catChipActive]}
+                      onPress={() => setSelectedCatId(c.id)}
                     >
-                      {adjustmentCents < 0 ? '-' : '+'} R${' '}
-                      {(Math.abs(adjustmentCents) / 100).toFixed(2).replace('.', ',')}
+                      <Text style={[styles.catChipText, selectedCatId === c.id && styles.catChipTextActive]}>
+                        {c.name}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+
+                {/* Alternador de Repetição Contínua */}
+                <TouchableOpacity
+                  style={styles.checkboxRow}
+                  onPress={() => setEditRepeats(!editRepeats)}
+                >
+                  <View style={[styles.checkbox, editRepeats && styles.checkboxChecked]} />
+                  <Text style={styles.checkboxLabel}>🔁 Repetir automaticamente nos meses seguintes</Text>
+                </TouchableOpacity>
+
+                {/* Bloco de Terceiros */}
+                <View style={styles.splitBox}>
+                  <TouchableOpacity
+                    style={styles.checkboxRow}
+                    onPress={() => setIsForSomeone(!isForSomeone)}
+                  >
+                    <View style={[styles.checkbox, isForSomeone && styles.checkboxChecked]} />
+                    <Text style={styles.checkboxLabel}>
+                      {isIncome ? '📥 Informar a origem / quem enviou?' : '👤 Gastei para outra pessoa?'}
                     </Text>
-                  </View>
-                )}
+                  </TouchableOpacity>
+
+                  {isForSomeone && (
+                    <View style={{ marginTop: 8 }}>
+                      <TextInput
+                        placeholder={isIncome ? 'Quem enviou' : 'Nome da pessoa'}
+                        placeholderTextColor="#64748B"
+                        style={styles.inputPerson}
+                        value={personName}
+                        onChangeText={setPersonName}
+                      />
+
+                      {!isIncome && (
+                        <View style={styles.splitStatusRow}>
+                          <TouchableOpacity
+                            style={[styles.splitStatusBtn, splitStatus === 'gift' && styles.splitStatusBtnActiveGift]}
+                            onPress={() => setSplitStatus('gift')}
+                          >
+                            <Text style={[styles.splitStatusText, splitStatus === 'gift' && styles.splitStatusTextActive]}>
+                              🎁 Paguei p/ ela
+                            </Text>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            style={[styles.splitStatusBtn, splitStatus === 'pending' && styles.splitStatusBtnActivePending]}
+                            onPress={() => setSplitStatus('pending')}
+                          >
+                            <Text style={[styles.splitStatusText, splitStatus === 'pending' && styles.splitStatusTextActive]}>
+                              ⏳ Vai me pagar
+                            </Text>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            style={[styles.splitStatusBtn, splitStatus === 'settled' && styles.splitStatusBtnActiveSettled]}
+                            onPress={() => setSplitStatus('settled')}
+                          >
+                            <Text style={[styles.splitStatusText, splitStatus === 'settled' && styles.splitStatusTextActive]}>
+                              ✅ Já pagou
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                    </View>
+                  )}
+                </View>
+
+                <View style={styles.editActions}>
+                  <TouchableOpacity style={styles.cancelBtn} onPress={() => setIsEditing(false)} disabled={saving}>
+                    <Text style={styles.cancelBtnText}>Cancelar</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.saveBtn} onPress={handleSaveEdit} disabled={saving}>
+                    <Text style={styles.saveBtnText}>{saving ? 'Salvando...' : 'Salvar Alterações'}</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             ) : (
-              <View style={styles.emptyItemsBox}>
-                <Text style={styles.noItemsText}>
-                  Nenhum item discriminado foi encontrado para este comprovante.
+              /* MODO VISUALIZAÇÃO */
+              <View>
+                <Text style={styles.txDesc}>{currentDesc}</Text>
+                <Text style={styles.txDate}>
+                  Data: {currentDate} {isRecurringActive ? '• 🔁 Assinatura Mensal' : ''}
                 </Text>
+
+                {isForSomeone && personName ? (
+                  <View style={[styles.splitBanner, isIncome && styles.splitBannerIncome]}>
+                    <Text style={[styles.splitBannerTitle, isIncome && styles.splitBannerTitleIncome]}>
+                      {isIncome
+                        ? `📥 Recebido de: ${personName}`
+                        : splitStatus === 'pending'
+                        ? `⏳ Aguardando acerto com: ${personName}`
+                        : splitStatus === 'settled'
+                        ? `✅ Reembolsado por: ${personName}`
+                        : `🎁 Pago para: ${personName}`}
+                    </Text>
+                  </View>
+                ) : null}
+
+                <View style={styles.amountCard}>
+                  <Text style={styles.amountLabel}>Valor {isIncome ? 'Recebido' : 'Pago'}</Text>
+                  <Text style={[styles.amountVal, { color: isIncome ? '#10B981' : '#38BDF8' }]}>
+                    {isIncome ? '+ ' : '- '}R$ {Number(currentAmount).toFixed(2).replace('.', ',')}
+                  </Text>
+                </View>
+
+                {!isIncome && (
+                  <TouchableOpacity
+                    style={[styles.lifeTimeCard, showLifeTime && styles.lifeTimeCardActive]}
+                    onPress={() => setShowLifeTime(!showLifeTime)}
+                    activeOpacity={0.8}
+                  >
+                    <View style={styles.lifeTimeHeader}>
+                      <Text style={styles.lifeTimeTitle}>
+                        {showLifeTime ? '⏳ Custo em Tempo de Vida:' : '🔒 Custo em Horas de Vida'}
+                      </Text>
+                      <Text style={styles.lifeTimeToggleHint}>
+                        {showLifeTime ? 'Toque para ocultar' : 'Toque para desbloquear'}
+                      </Text>
+                    </View>
+
+                    {showLifeTime && (
+                      <View style={styles.lifeTimeContent}>
+                        {(() => {
+                          const baseIncome = userMonthlyIncome > 0 ? userMonthlyIncome : 2000;
+                          const hourlyRate = baseIncome / 160;
+                          const totalHoursDecimal = Number(currentAmount) / hourlyRate;
+                          const hours = Math.floor(totalHoursDecimal);
+                          const minutes = Math.round((totalHoursDecimal - hours) * 60);
+
+                          return (
+                            <>
+                              <Text style={styles.lifeTimeText}>
+                                Custou <Text style={styles.lifeTimeHighlight}>{hours}h {minutes}min</Text> de trabalho.
+                              </Text>
+                              <Text style={styles.lifeTimeSub}>
+                                Baseado na receita mensal de R$ {baseIncome.toFixed(2).replace('.', ',')} (R$ {hourlyRate.toFixed(2).replace('.', ',')}/h).
+                              </Text>
+                            </>
+                          );
+                        })()}
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                )}
+
+                {/* Botão de Pausar / Reativar Cobrança Recorrente */}
+                {(matchingRecurringBill || repeatsMonthly) && (
+                  <TouchableOpacity
+                    style={[
+                      styles.pauseRecurringBtn,
+                      !isRecurringActive && styles.pauseRecurringBtnPaused,
+                    ]}
+                    onPress={handleToggleRecurringFromDetail}
+                    activeOpacity={0.7}
+                  >
+                    <Text
+                      style={[
+                        styles.pauseRecurringBtnText,
+                        !isRecurringActive && styles.pauseRecurringBtnTextPaused,
+                      ]}
+                    >
+                      {isRecurringActive
+                        ? '⏸️ Pausar cobrança nos meses seguintes'
+                        : '▶️ Reativar cobrança nos meses seguintes'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+
+                <View style={styles.topActionsRow}>
+                  <TouchableOpacity style={styles.actionBtnEdit} onPress={() => setIsEditing(true)}>
+                    <Text style={styles.actionBtnEditText}>✏️ Editar</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.actionBtnDelete} onPress={handleDelete}>
+                    <Text style={styles.actionBtnDeleteText}>🗑️ Excluir</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {!isIncome && (
+                  <>
+                    <Text style={styles.sectionTitle}>ITENS DISCRIMINADOS NA NOTA:</Text>
+                    {loading ? (
+                      <ActivityIndicator size="small" color="#38BDF8" style={{ marginVertical: 14 }} />
+                    ) : items.length > 0 ? (
+                      <View style={styles.itemsList}>
+                        {items.map((it) => (
+                          <View key={it.id} style={styles.itemRow}>
+                            <View style={{ flex: 1, paddingRight: 8 }}>
+                              <Text style={styles.itemName}>{it.name}</Text>
+                              <Text style={styles.itemSub}>{it.quantity}x • R$ {Number(it.unit_price).toFixed(2)} un</Text>
+                            </View>
+                            <Text style={styles.itemTotal}>R$ {Number(it.total_price).toFixed(2)}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    ) : (
+                      <View style={styles.emptyItemsBox}>
+                        <Text style={styles.emptyItemsText}>Nenhum item discriminado para este lançamento.</Text>
+                      </View>
+                    )}
+                  </>
+                )}
+
+                <TouchableOpacity style={styles.closeFullBtn} onPress={onClose}>
+                  <Text style={styles.closeFullBtnText}>Fechar</Text>
+                </TouchableOpacity>
               </View>
             )}
-          </View>
-
-          {/* Botões de Ação */}
-          {!isEditing && (
-            <View style={styles.bottomActions}>
-              <TouchableOpacity
-                style={styles.editBtn}
-                onPress={() => setIsEditing(true)}
-              >
-                <Text style={styles.editBtnText}>✏️ Editar</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.deleteBtn}
-                onPress={handleDelete}
-              >
-                <Text style={styles.deleteBtnText}>🗑️ Excluir</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          <TouchableOpacity style={styles.actionBtn} onPress={onClose}>
-            <Text style={styles.actionBtnText}>Fechar</Text>
-          </TouchableOpacity>
+          </ScrollView>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 };
 
 const styles = StyleSheet.create({
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.88)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  container: {
-    width: '100%',
-    maxHeight: '90%',
-    backgroundColor: '#1E293B',
-    borderRadius: 16,
-    padding: 20,
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'flex-end' },
+  card: { backgroundColor: '#1E293B', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, maxHeight: '92%' },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  title: { color: '#F8FAFC', fontSize: 18, fontWeight: 'bold' },
+  closeBtn: { padding: 6 },
+  closeBtnText: { color: '#94A3B8', fontSize: 18, fontWeight: 'bold' },
+  txDesc: { color: '#F8FAFC', fontSize: 18, fontWeight: 'bold' },
+  txDate: { color: '#94A3B8', fontSize: 12, marginTop: 4 },
+  splitBanner: { backgroundColor: '#0F172A', borderRadius: 8, padding: 10, marginVertical: 10, borderWidth: 1, borderColor: '#334155' },
+  splitBannerIncome: { backgroundColor: 'rgba(16, 185, 129, 0.1)', borderColor: 'rgba(16, 185, 129, 0.3)' },
+  splitBannerTitle: { color: '#FBBF24', fontSize: 13, fontWeight: '600' },
+  splitBannerTitleIncome: { color: '#34D399' },
+  amountCard: { backgroundColor: '#0F172A', borderRadius: 12, padding: 14, alignItems: 'center', marginVertical: 10, borderWidth: 1, borderColor: '#334155' },
+  amountLabel: { color: '#94A3B8', fontSize: 12 },
+  amountVal: { fontSize: 24, fontWeight: 'bold', marginTop: 2 },
+  lifeTimeCard: { backgroundColor: '#0F172A', borderRadius: 10, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: '#334155', borderStyle: 'dashed' },
+  lifeTimeCardActive: { borderColor: '#F59E0B', borderStyle: 'solid', backgroundColor: 'rgba(245, 158, 11, 0.08)' },
+  lifeTimeHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  lifeTimeTitle: { color: '#F8FAFC', fontSize: 13, fontWeight: 'bold' },
+  lifeTimeToggleHint: { color: '#94A3B8', fontSize: 11 },
+  lifeTimeContent: { marginTop: 8 },
+  lifeTimeText: { color: '#CBD5E1', fontSize: 14, fontWeight: '500' },
+  lifeTimeHighlight: { color: '#FBBF24', fontWeight: 'bold' },
+  lifeTimeSub: { color: '#64748B', fontSize: 11, marginTop: 3 },
+  pauseRecurringBtn: {
+    backgroundColor: 'rgba(245, 158, 11, 0.12)',
     borderWidth: 1,
-    borderColor: '#334155',
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    borderColor: '#F59E0B',
+    borderRadius: 8,
+    paddingVertical: 9,
     alignItems: 'center',
     marginBottom: 12,
   },
-  title: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#F8FAFC',
+  pauseRecurringBtnPaused: {
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+    borderColor: '#10B981',
   },
-  closeBtn: {
-    padding: 4,
-  },
-  closeBtnText: {
-    color: '#94A3B8',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  content: {
-    marginBottom: 12,
-  },
-  descText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#F8FAFC',
-  },
-  dateText: {
-    fontSize: 13,
-    color: '#94A3B8',
-    marginTop: 4,
-  },
-  amountBox: {
-    backgroundColor: '#0F172A',
-    borderRadius: 10,
-    padding: 12,
-    marginTop: 10,
-    alignItems: 'center',
-  },
-  amountLabel: {
-    color: '#94A3B8',
-    fontSize: 11,
-    marginBottom: 2,
-  },
-  amountValue: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#10B981',
-  },
-  editSection: {
-    marginBottom: 12,
-  },
-  inputLabel: {
-    color: '#94A3B8',
-    fontSize: 12,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  textInput: {
-    backgroundColor: '#0F172A',
-    color: '#F8FAFC',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderWidth: 1,
-    borderColor: '#334155',
-    marginBottom: 10,
-    fontSize: 14,
-  },
-  editActionRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 4,
-  },
-  cancelEditBtn: {
-    flex: 1,
-    backgroundColor: '#334155',
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  cancelEditText: {
-    color: '#94A3B8',
-    fontWeight: 'bold',
-    fontSize: 13,
-  },
-  saveEditBtn: {
-    flex: 1,
-    backgroundColor: '#10B981',
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  saveEditText: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-    fontSize: 13,
-  },
-  itemsSection: {
-    marginVertical: 10,
-    flexShrink: 1,
-  },
-  sectionSubtitle: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#94A3B8',
-    textTransform: 'uppercase',
-    marginBottom: 8,
-  },
-  itemsList: {
-    maxHeight: 180,
-    borderWidth: 1,
-    borderColor: '#334155',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    backgroundColor: '#0F172A',
-  },
-  receiptItemRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#1E293B',
-  },
-  receiptItemName: {
-    color: '#F8FAFC',
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  receiptItemQty: {
-    color: '#94A3B8',
-    fontSize: 11,
-    marginTop: 2,
-  },
-  receiptItemTotal: {
-    color: '#38BDF8',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  adjustmentRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: '#0F172A',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 6,
-    marginTop: 6,
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  adjustmentLabel: {
-    color: '#94A3B8',
-    fontSize: 12,
-    fontStyle: 'italic',
-  },
-  adjustmentValue: {
+  pauseRecurringBtnText: {
+    color: '#FBBF24',
     fontSize: 12,
     fontWeight: 'bold',
   },
-  emptyItemsBox: {
-    backgroundColor: '#0F172A',
-    padding: 14,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  noItemsText: {
-    color: '#64748B',
+  pauseRecurringBtnTextPaused: {
+    color: '#34D399',
     fontSize: 12,
-    fontStyle: 'italic',
-    textAlign: 'center',
-  },
-  centerLoading: {
-    alignItems: 'center',
-    paddingVertical: 16,
-  },
-  loadingText: {
-    color: '#94A3B8',
-    fontSize: 12,
-    marginTop: 6,
-  },
-  bottomActions: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 10,
-    marginBottom: 8,
-  },
-  editBtn: {
-    flex: 1,
-    backgroundColor: 'rgba(56, 189, 248, 0.15)',
-    borderWidth: 1,
-    borderColor: '#38BDF8',
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  editBtnText: {
-    color: '#38BDF8',
     fontWeight: 'bold',
-    fontSize: 13,
   },
-  deleteBtn: {
-    flex: 1,
-    backgroundColor: 'rgba(239, 68, 68, 0.15)',
-    borderWidth: 1,
-    borderColor: '#EF4444',
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  deleteBtnText: {
-    color: '#EF4444',
-    fontWeight: 'bold',
-    fontSize: 13,
-  },
-  actionBtn: {
-    backgroundColor: '#334155',
-    paddingVertical: 12,
-    borderRadius: 10,
-    alignItems: 'center',
-  },
-  actionBtnText: {
-    color: '#F8FAFC',
-    fontWeight: 'bold',
-    fontSize: 14,
-  },
+  topActionsRow: { flexDirection: 'row', gap: 10, marginBottom: 14 },
+  actionBtnEdit: { flex: 1, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: '#38BDF8', backgroundColor: 'rgba(56, 189, 248, 0.1)', alignItems: 'center' },
+  actionBtnEditText: { color: '#38BDF8', fontWeight: 'bold', fontSize: 13 },
+  actionBtnDelete: { flex: 1, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: '#EF4444', backgroundColor: 'rgba(239, 68, 68, 0.1)', alignItems: 'center' },
+  actionBtnDeleteText: { color: '#EF4444', fontWeight: 'bold', fontSize: 13 },
+  sectionTitle: { color: '#94A3B8', fontSize: 11, fontWeight: 'bold', marginBottom: 6, textTransform: 'uppercase' },
+  itemsList: { backgroundColor: '#0F172A', borderRadius: 10, padding: 12, marginBottom: 14, borderWidth: 1, borderColor: '#334155' },
+  itemRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#1E293B' },
+  itemName: { color: '#F8FAFC', fontSize: 13, fontWeight: '500' },
+  itemSub: { color: '#64748B', fontSize: 11, marginTop: 2 },
+  itemTotal: { color: '#F8FAFC', fontSize: 13, fontWeight: 'bold' },
+  emptyItemsBox: { backgroundColor: '#0F172A', borderRadius: 10, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: '#334155' },
+  emptyItemsText: { color: '#64748B', fontSize: 12, textAlign: 'center' },
+  closeFullBtn: { backgroundColor: '#334155', paddingVertical: 12, borderRadius: 10, alignItems: 'center', marginBottom: 8 },
+  closeFullBtnText: { color: '#F8FAFC', fontWeight: 'bold', fontSize: 14 },
+  editContainer: { paddingVertical: 4 },
+  label: { color: '#94A3B8', fontSize: 12, marginBottom: 6 },
+  input: { backgroundColor: '#0F172A', color: '#F8FAFC', padding: 12, borderRadius: 8, fontSize: 15, marginBottom: 10, borderWidth: 1, borderColor: '#334155' },
+  catChip: { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: '#0F172A', borderRadius: 16, marginRight: 6, borderWidth: 1, borderColor: '#334155' },
+  catChipActive: { backgroundColor: '#38BDF8', borderColor: '#38BDF8' },
+  catChipText: { color: '#94A3B8', fontSize: 12 },
+  catChipTextActive: { color: '#0F172A', fontWeight: 'bold' },
+  checkboxRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 6 },
+  checkbox: { width: 18, height: 18, borderRadius: 4, borderWidth: 2, borderColor: '#64748B', marginRight: 8 },
+  checkboxChecked: { backgroundColor: '#10B981', borderColor: '#10B981' },
+  checkboxLabel: { color: '#CBD5E1', fontSize: 13 },
+  splitBox: { backgroundColor: '#0F172A', borderRadius: 10, padding: 12, marginVertical: 8, borderWidth: 1, borderColor: '#334155' },
+  inputPerson: { backgroundColor: '#1E293B', color: '#F8FAFC', padding: 10, borderRadius: 8, fontSize: 14, marginBottom: 8, borderWidth: 1, borderColor: '#334155' },
+  splitStatusRow: { flexDirection: 'row', gap: 4 },
+  splitStatusBtn: { flex: 1, paddingVertical: 6, borderRadius: 6, backgroundColor: '#1E293B', alignItems: 'center', borderWidth: 1, borderColor: '#334155' },
+  splitStatusBtnActiveGift: { backgroundColor: 'rgba(56, 189, 248, 0.2)', borderColor: '#38BDF8' },
+  splitStatusBtnActivePending: { backgroundColor: 'rgba(245, 158, 11, 0.2)', borderColor: '#F59E0B' },
+  splitStatusBtnActiveSettled: { backgroundColor: 'rgba(16, 185, 129, 0.2)', borderColor: '#10B981' },
+  splitStatusText: { color: '#94A3B8', fontSize: 10, fontWeight: '600' },
+  splitStatusTextActive: { color: '#F8FAFC', fontWeight: 'bold' },
+  editActions: { flexDirection: 'row', gap: 10, marginTop: 12, marginBottom: 8 },
+  cancelBtn: { flex: 1, paddingVertical: 12, borderRadius: 8, backgroundColor: '#334155', alignItems: 'center' },
+  cancelBtnText: { color: '#F8FAFC', fontWeight: 'bold' },
+  saveBtn: { flex: 1, paddingVertical: 12, borderRadius: 8, backgroundColor: '#10B981', alignItems: 'center' },
+  saveBtnText: { color: '#F8FAFC', fontWeight: 'bold' },
 });
