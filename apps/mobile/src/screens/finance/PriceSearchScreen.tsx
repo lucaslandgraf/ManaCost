@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   Linking,
   Platform,
 } from 'react-native';
+import * as Location from 'expo-location';
 
 interface ProdutoPreco {
   id: string;
@@ -35,8 +36,84 @@ interface PriceSearchScreenProps {
 
 const PRESET_QUERIES = ['Gasolina Comum', 'Etanol', 'Leite Integral', 'Arroz 5kg', 'Café 500g', 'Ovos'];
 const RADIUS_OPTIONS = [5, 10, 15, 20];
+const BASE32 = '0123456789bcdefghjkmnpqrstuvwxyz';
 
-const API_BASE_URL = 'https://manacost.onrender.com';
+function encodeGeohash(latitude: number, longitude: number, precision: number = 9): string {
+  const BITS = [16, 8, 4, 2, 1];
+  let isEven = true;
+  let latMin = -90.0, latMax = 90.0;
+  let lonMin = -180.0, lonMax = 180.0;
+  let arg = 0;
+  let bit = 0;
+  let hash = '';
+
+  while (hash.length < precision) {
+    if (isEven) {
+      const mid = (lonMin + lonMax) / 2;
+      if (longitude > mid) {
+        arg |= BITS[bit];
+        lonMin = mid;
+      } else {
+        lonMax = mid;
+      }
+    } else {
+      const mid = (latMin + latMax) / 2;
+      if (latitude > mid) {
+        arg |= BITS[bit];
+        latMin = mid;
+      } else {
+        latMax = mid;
+      }
+    }
+
+    isEven = !isEven;
+    if (bit < 4) {
+      bit++;
+    } else {
+      hash += BASE32[arg];
+      bit = 0;
+      arg = 0;
+    }
+  }
+  return hash;
+}
+
+function decodeGeohash(geohash: string): { latitude: number; longitude: number } {
+  let isEven = true;
+  let latMin = -90.0, latMax = 90.0;
+  let lonMin = -180.0, lonMax = 180.0;
+
+  for (let i = 0; i < geohash.length; i++) {
+    const c = geohash[i];
+    const cd = BASE32.indexOf(c);
+    if (cd === -1) break;
+
+    for (let j = 0; j < 5; j++) {
+      const mask = [16, 8, 4, 2, 1][j];
+      if (isEven) {
+        const mid = (lonMin + lonMax) / 2;
+        if ((cd & mask) !== 0) {
+          lonMin = mid;
+        } else {
+          lonMax = mid;
+        }
+      } else {
+        const mid = (latMin + latMax) / 2;
+        if ((cd & mask) !== 0) {
+          latMin = mid;
+        } else {
+          latMax = mid;
+        }
+      }
+      isEven = !isEven;
+    }
+  }
+
+  return {
+    latitude: Number(((latMin + latMax) / 2).toFixed(6)),
+    longitude: Number(((lonMin + lonMax) / 2).toFixed(6)),
+  };
+}
 
 export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -44,13 +121,33 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack }) 
   const [results, setResults] = useState<ProdutoPreco[]>([]);
   const [loading, setLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
-  
-  // Controle de Ordenação ('distancia' ou 'preco')
+
   const [sortBy, setSortBy] = useState<'distancia' | 'preco'>('distancia');
 
-  // Coordenadas padrão de Londrina (Centro)
-  const userLat = -23.3045;
-  const userLng = -51.1696;
+  // Coordenadas dinâmicas do GPS com fallback para Londrina
+  const [userCoords, setUserCoords] = useState<{ lat: number; lng: number }>({
+    lat: -23.3045,
+    lng: -51.1696,
+  });
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === 'granted') {
+          const location = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced,
+          });
+          setUserCoords({
+            lat: location.coords.latitude,
+            lng: location.coords.longitude,
+          });
+        }
+      } catch (err) {
+        console.warn('Não foi possível obter o GPS exato, usando padrão:', err);
+      }
+    })();
+  }, []);
 
   const handleSearch = async (termToSearch?: string) => {
     const term = (termToSearch || searchTerm).trim();
@@ -60,33 +157,112 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack }) 
     setHasSearched(true);
 
     try {
-      const res = await fetch(`${API_BASE_URL}/menor-preco`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          termo: term,
-          latitude: userLat,
-          longitude: userLng,
-          raio: radius,
-        }),
+      const localGeohash = encodeGeohash(userCoords.lat, userCoords.lng, 9);
+      const termoBase = term.split(' ')[0];
+
+      const browserHeaders = {
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'pt-BR,pt;q=0.9',
+        'Referer': `https://menorpreco.notaparana.pr.gov.br/app?termo=${encodeURIComponent(term)}&local=${localGeohash}`,
+        'User-Agent':
+          'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
+      };
+
+      // 1. Obter Categoria
+      let catId = '';
+      try {
+        const catRes = await fetch(
+          `https://menorpreco.notaparana.pr.gov.br/api/v1/categorias?local=${localGeohash}&termo=${encodeURIComponent(termoBase)}&raio=${radius}`,
+          { headers: browserHeaders }
+        );
+        if (catRes.ok) {
+          const catData = await catRes.json();
+          const listaCats = catData?.categorias || (Array.isArray(catData) ? catData : []);
+          if (listaCats.length > 0) {
+            catId = String(listaCats[0].id || listaCats[0].codigo || '');
+          }
+        }
+      } catch (_) {}
+
+      // 2. Obter Produtos
+      const prodParams = new URLSearchParams({
+        local: localGeohash,
+        termo: term,
+        offset: '0',
+        raio: String(radius),
+        data: '-1',
+        ordem: '0',
       });
 
-      if (!res.ok) {
-        throw new Error(`Erro na consulta (${res.status})`);
+      if (catId) {
+        prodParams.append('categoria', catId);
       }
 
-      const data = await res.json();
-      setResults(data?.produtos || []);
+      const prodRes = await fetch(
+        `https://menorpreco.notaparana.pr.gov.br/api/v1/produtos?${prodParams.toString()}`,
+        { method: 'GET', headers: browserHeaders }
+      );
+
+      if (!prodRes.ok) {
+        throw new Error(`Erro na resposta da SEFAZ (${prodRes.status})`);
+      }
+
+      const data = await prodRes.json();
+      const rawList = data?.produtos || [];
+
+      const mapped: ProdutoPreco[] = rawList
+        .map((item: any) => {
+          const est = item.estabelecimento || {};
+          const nomeEstabelecimento = (est.nm_fan || est.nm_emp || 'Mercado').trim();
+
+          const logr = [est.tp_logr, est.nm_logr].filter(Boolean).join(' ').trim();
+          const enderecoCompleto = logr ? `${logr}, ${est.nr_logr || 's/n'}` : '';
+
+          const coords = decodeGeohash(item.local || localGeohash);
+
+          return {
+            id: String(item.id || item.codigo || Math.random()),
+            descricao: (item.desc || term).trim(),
+            valor: parseFloat(String(item.valor || 0).replace(',', '.')),
+            valorOriginal: item.valor_tabela ? parseFloat(String(item.valor_tabela).replace(',', '.')) : null,
+            dataHora: item.datahora || null,
+            tempoRelativo: item.tempo || 'recente',
+            distanciaKm: item.distkm ? Number(item.distkm).toFixed(2) : null,
+            estabelecimento: {
+              nome: nomeEstabelecimento,
+              endereco: enderecoCompleto,
+              bairro: est.bairro || '',
+              municipio: est.mun || 'Londrina',
+              latitude: coords.latitude,
+              longitude: coords.longitude,
+            },
+          };
+        })
+        // Filtra endereços de zona rural ou coordenadas sem número que distorcem o raio urbano
+        .filter((prod: ProdutoPreco) => {
+          const endereco = (prod.estabelecimento.endereco || '').toUpperCase();
+          const bairro = (prod.estabelecimento.bairro || '').toUpperCase();
+          
+          const isRural =
+            endereco.includes('ZONA RURAL') ||
+            endereco.includes('COL NOVA') ||
+            endereco.includes('ASSENTAMENTO') ||
+            bairro.includes('ZONA RURAL') ||
+            bairro.includes('RURAL');
+
+          return !isRural;
+        });
+
+      setResults(mapped);
     } catch (err: any) {
-      console.warn('Erro ao consultar menores preços:', err);
-      alert('Não foi possível obter os preços. Verifique sua conexão e tente novamente.');
+      console.warn('Erro ao consultar Menor Preço diretamente no dispositivo:', err);
+      alert('Não foi possível obter os preços. Verifique a ligação e tente novamente.');
       setResults([]);
     } finally {
       setLoading(false);
     }
   };
 
-  // Ordenação dinâmica em memória (instantânea, sem precisar refazer requisição)
   const sortedResults = useMemo(() => {
     return [...results].sort((a, b) => {
       if (sortBy === 'distancia') {
@@ -100,14 +276,27 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack }) 
   }, [results, sortBy]);
 
   const openInMaps = (item: ProdutoPreco) => {
-    const query = item.estabelecimento.latitude && item.estabelecimento.longitude
-      ? `${item.estabelecimento.latitude},${item.estabelecimento.longitude}`
-      : encodeURIComponent(`${item.estabelecimento.nome}, ${item.estabelecimento.endereco}, Londrina`);
-    
+    const cleanName = item.estabelecimento.nome
+      .replace(/\b(LTDA|EPP|ME|EIRELI|S\/A)\b/gi, '')
+      .replace(/[-_]/g, ' ')
+      .trim();
+
+    let searchQuery = '';
+
+    if (item.estabelecimento.endereco) {
+      searchQuery = `${cleanName}, ${item.estabelecimento.endereco}, ${item.estabelecimento.bairro || ''}, ${item.estabelecimento.municipio || 'Londrina'}`;
+    } else {
+      searchQuery = item.estabelecimento.latitude && item.estabelecimento.longitude
+        ? `${item.estabelecimento.latitude},${item.estabelecimento.longitude}`
+        : `${cleanName}, Londrina - PR`;
+    }
+
+    const encodedQuery = encodeURIComponent(searchQuery.replace(/\s{2,}/g, ' ').trim());
+
     const url = Platform.select({
-      ios: `maps:0,0?q=${query}`,
-      android: `geo:0,0?q=${query}`,
-      default: `https://www.google.com/maps/search/?api=1&query=${query}`,
+      ios: `maps:0,0?q=${encodedQuery}`,
+      android: `geo:0,0?q=${encodedQuery}`,
+      default: `https://www.google.com/maps/search/?api=1&query=${encodedQuery}`,
     });
 
     if (url) Linking.openURL(url);
@@ -183,7 +372,7 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack }) 
         </View>
       </View>
 
-      {/* Seletor de Ordenação (Distância vs Preço) */}
+      {/* Seletor de Ordenação */}
       {results.length > 0 && (
         <View style={styles.sortBar}>
           <Text style={styles.sortLabel}>Ordenar por:</Text>
@@ -224,13 +413,15 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack }) 
             <View style={styles.card}>
               <View style={styles.cardHeader}>
                 <View style={{ flex: 1, paddingRight: 8 }}>
-                  <Text style={styles.cardDesc} numberOfLines={2}>{item.descricao}</Text>
-                  
+                  <Text style={styles.cardDesc} numberOfLines={2}>
+                    {item.descricao}
+                  </Text>
+
                   <Text style={styles.cardEstablishment} numberOfLines={1}>
                     🏪 {item.estabelecimento.nome}
                   </Text>
 
-                  {(item.estabelecimento.endereco || item.estabelecimento.bairro) ? (
+                  {item.estabelecimento.endereco || item.estabelecimento.bairro ? (
                     <Text style={styles.cardAddress} numberOfLines={1}>
                       📍 {[item.estabelecimento.endereco, item.estabelecimento.bairro].filter(Boolean).join(' - ')}
                     </Text>
@@ -251,10 +442,7 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack }) 
 
               <View style={styles.cardFooter}>
                 <Text style={styles.timeTag}>🕒 Emitido {item.tempoRelativo}</Text>
-                <TouchableOpacity
-                  style={styles.routeBtn}
-                  onPress={() => openInMaps(item)}
-                >
+                <TouchableOpacity style={styles.routeBtn} onPress={() => openInMaps(item)}>
                   <Text style={styles.routeBtnText}>Abrir no Mapa ↗</Text>
                 </TouchableOpacity>
               </View>

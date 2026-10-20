@@ -11,7 +11,6 @@ import {
   Modal,
   Platform,
   StatusBar,
-  ScrollView,
 } from 'react-native';
 import { supabase } from '../../config/supabase';
 import { useAuth } from '../../context/AuthContext';
@@ -31,6 +30,7 @@ interface Transaction {
   type: 'income' | 'expense';
   date: string;
   is_settled: boolean;
+  repeats_monthly?: boolean;
   split_status?: 'none' | 'gift' | 'pending' | 'settled' | null;
   spent_for_name?: string | null;
   categories?: { name: string; rule_group: string } | { name: string; rule_group: string }[] | null;
@@ -48,8 +48,10 @@ export const DashboardScreen = () => {
   const [yieldModalVisible, setYieldModalVisible] = useState(false);
   const [priceSearchVisible, setPriceSearchVisible] = useState(false);
   const [recurringModalVisible, setRecurringModalVisible] = useState(false);
+  const [toolsModalVisible, setToolsModalVisible] = useState(false);
+  const [baseSalaryIncome, setBaseSalaryIncome] = useState(0);
 
-  // Regras de cálculo dinâmicas carregadas da tabela profiles
+  // Regras orçamentais da tabela profiles
   const [budgetRules, setBudgetRules] = useState({
     useFixed: false,
     needsPct: 50,
@@ -60,14 +62,12 @@ export const DashboardScreen = () => {
     fixedSavings: 0,
   });
 
-  // Controlo de Mês de Competência
+  // Mês de Competência
   const [currentDate, setCurrentDate] = useState(new Date());
 
-  // Totais financeiros
+  // Métricas financeiras
   const [totalIncome, setTotalIncome] = useState(0);
   const [totalExpense, setTotalExpense] = useState(0);
-
-  // Totais orçamentais calculados
   const [spentNeeds, setSpentNeeds] = useState(0);
   const [spentWants, setSpentWants] = useState(0);
   const [spentSavings, setSpentSavings] = useState(0);
@@ -117,7 +117,7 @@ export const DashboardScreen = () => {
         });
       }
     } catch (e) {
-      console.warn('Erro ao carregar configurações de teto:', e);
+      console.warn('Erro ao carregar regras orçamentais:', e);
     }
   };
 
@@ -127,13 +127,13 @@ export const DashboardScreen = () => {
     const { startDate, endDate } = getMonthDateRange(currentDate);
 
     try {
-      // 1. Procura as transações já registadas para o mês selecionado
-     const { data: existingData } = await supabase
-      .from('transactions')
-      .select('id, description, amount, type, date, is_settled, split_status, spent_for_name, repeats_monthly, categories(name, rule_group)')
-      .gte('date', startDate)
-      .lte('date', endDate)
-      .order('date', { ascending: false });
+      // 1. Procura as transações já registadas para o mês selecionado (incluindo repeats_monthly)
+      const { data: existingData } = await supabase
+        .from('transactions')
+        .select('id, description, amount, type, date, is_settled, split_status, spent_for_name, repeats_monthly, categories(name, rule_group)')
+        .gte('date', startDate)
+        .lte('date', endDate)
+        .order('date', { ascending: false });
 
       let currentItems: Transaction[] = (existingData as unknown as Transaction[]) || [];
 
@@ -152,33 +152,32 @@ export const DashboardScreen = () => {
         const month = currentDate.getMonth();
         const toAutoInsert = [];
 
-       for (const bill of activeBills) {
+        for (const bill of activeBills) {
           if (!existingDescriptions.has(bill.description.trim().toLowerCase())) {
             const lastDayOfMonth = new Date(year, month + 1, 0).getDate();
             const validDay = Math.min(bill.due_day, lastDayOfMonth);
             const targetDate = new Date(year, month, validDay).toISOString().split('T')[0];
 
             toAutoInsert.push({
-            user_id: user.id,
-            description: bill.description.trim(),
-            amount: bill.amount,
-            type: bill.type || 'expense',
-            category_id: bill.category_id,
-            date: targetDate,
-            is_settled: false,
-            spent_for_name: (bill as any).spent_for_name || null,
-            split_status: 'none',
-            repeats_monthly: true,
-          });
+              user_id: user.id,
+              description: bill.description.trim(),
+              amount: bill.amount,
+              type: bill.type || 'expense',
+              category_id: bill.category_id,
+              date: targetDate,
+              is_settled: false,
+              spent_for_name: (bill as any).spent_for_name || null,
+              split_status: 'none',
+              repeats_monthly: true,
+            });
           }
         }
 
-        // Se existirem novas contas fixas a projetar, insere-as e junta-as à lista
         if (toAutoInsert.length > 0) {
           const { data: insertedData, error: insError } = await supabase
             .from('transactions')
             .insert(toAutoInsert)
-            .select('id, description, amount, type, date, is_settled, split_status, spent_for_name, categories(name, rule_group)');
+            .select('id, description, amount, type, date, is_settled, split_status, spent_for_name, repeats_monthly, categories(name, rule_group)');
 
           if (!insError && insertedData) {
             currentItems = [...(insertedData as unknown as Transaction[]), ...currentItems];
@@ -189,7 +188,7 @@ export const DashboardScreen = () => {
       setTransactions(currentItems);
       calculateMetrics(currentItems);
     } catch (err) {
-      console.warn('Erro ao carregar transações e contas fixas:', err);
+      console.warn('Erro ao carregar transações:', err);
       setTransactions([]);
       calculateMetrics([]);
     } finally {
@@ -199,6 +198,7 @@ export const DashboardScreen = () => {
 
   const calculateMetrics = (items: Transaction[]) => {
     let income = 0;
+    let salaryBase = 0;
     let expense = 0;
     let needs = 0;
     let wants = 0;
@@ -208,24 +208,34 @@ export const DashboardScreen = () => {
       const val = Number(item.amount) || 0;
       const rawCat = item.categories || item.category;
       const catObj = Array.isArray(rawCat) ? rawCat[0] : rawCat;
-      const rule = catObj?.rule_group;
+      const catName = (catObj?.name || '').toLowerCase();
+      const desc = (item.description || '').toLowerCase();
 
       if (item.type === 'income') {
         income += val;
-      } else {
-        // Se a pessoa já ressarciu o valor (settled), neutraliza e não entra na despesa pessoal
-        if (item.split_status === 'settled') {
-          return;
-        }
 
+        // Considera salário pelo título OU pela categoria selecionada
+        const isSalary =
+          desc.includes('salário') ||
+          desc.includes('salario') ||
+          catName.includes('salário') ||
+          catName.includes('salario');
+
+        if (isSalary) {
+          salaryBase += val;
+        }
+      } else {
+        if (item.split_status === 'settled') return;
         expense += val;
-        if (rule === 'needs_50') needs += val;
-        else if (rule === 'wants_30') wants += val;
-        else if (rule === 'savings_20') savings += val;
+        if (catObj?.rule_group === 'needs_50') needs += val;
+        else if (catObj?.rule_group === 'wants_30') wants += val;
+        else if (catObj?.rule_group === 'savings_20') savings += val;
       }
     });
 
     setTotalIncome(income);
+    // Se encontrou salário cadastrado, fixa nele; caso contrário, usa o total de receitas
+    setBaseSalaryIncome(salaryBase > 0 ? salaryBase : income);
     setTotalExpense(expense);
     setSpentNeeds(needs);
     setSpentWants(wants);
@@ -252,7 +262,6 @@ export const DashboardScreen = () => {
   };
 
   const deleteTransaction = async (item: any) => {
-    // 1. Verifica se é um item recorrente (pela flag da transação ou pela tabela recurring_bills)
     const { data: recBill } = await supabase
       .from('recurring_bills')
       .select('id, is_active')
@@ -271,31 +280,26 @@ export const DashboardScreen = () => {
             text: 'Excluir apenas deste mês',
             style: 'default',
             onPress: async () => {
-              // Apaga apenas o registro deste mês
               await supabase.from('transactions').delete().eq('id', item.id);
-              
-              // Atualiza localmente a lista para a interface responder na hora
-              setTransactions((prev) => prev.filter((tx) => tx.id !== item.id));
-              calculateMetrics(transactions.filter((tx) => tx.id !== item.id));
+              const remaining = transactions.filter((tx) => tx.id !== item.id);
+              setTransactions(remaining);
+              calculateMetrics(remaining);
             },
           },
           {
-            text: 'Cancelar assinatura e apagar de todos os meses futuros',
+            text: 'Cancelar assinatura e apagar dos meses futuros',
             style: 'destructive',
             onPress: async () => {
-              // 1. Desativa ou remove da tabela de assinaturas fixas para não ser recriado nunca mais
               await supabase
                 .from('recurring_bills')
                 .delete()
                 .ilike('description', item.description.trim());
 
-              // 2. Desmarca a recorrência
               await supabase
                 .from('transactions')
                 .update({ repeats_monthly: false })
                 .ilike('description', item.description.trim());
 
-              // 3. Apaga deste mês e de todos os meses futuros pendentes
               if (user) {
                 await supabase
                   .from('transactions')
@@ -315,7 +319,6 @@ export const DashboardScreen = () => {
       return;
     }
 
-    // Exclusão normal de transação avulsa
     Alert.alert(
       'Apagar Lançamento',
       `Tem a certeza de que deseja remover "${item.description}"?`,
@@ -334,7 +337,7 @@ export const DashboardScreen = () => {
       ]
     );
   };
-  
+
   useEffect(() => {
     fetchBudgetRules();
   }, [user]);
@@ -367,7 +370,6 @@ export const DashboardScreen = () => {
   const syncRecurringBillsForCurrentMonth = async () => {
     if (!user) return;
     try {
-      // 1. Procura as assinaturas ativas cadastradas
       const { data: bills } = await supabase
         .from('recurring_bills')
         .select('*')
@@ -378,7 +380,6 @@ export const DashboardScreen = () => {
         return;
       }
 
-      // 2. Evita gerar novamente lançamentos já existentes no mês selecionado
       const { startDate, endDate } = getMonthDateRange(currentDate);
       const { data: existingTx, error: existingError } = await supabase
         .from('transactions')
@@ -410,6 +411,7 @@ export const DashboardScreen = () => {
             date: billDate,
             is_settled: false,
             split_status: 'none',
+            repeats_monthly: true,
           });
         }
       }
@@ -524,65 +526,33 @@ export const DashboardScreen = () => {
         </View>
       </View>
 
-      {/* Ações e Lançamentos - Barra deslizante completa */}
-      <View style={styles.listHeader}>
-        <Text style={styles.sectionTitle}>Lançamentos</Text>
-        
-        <ScrollView 
-          horizontal 
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.actionsBar}
-        >
-          <TouchableOpacity 
-            style={styles.recurringButton} 
-            onPress={() => setRecurringModalVisible(true)}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.recurringButtonText}>🔁 Fixas</Text>
-          </TouchableOpacity>
+      {/* Cabeçalho de Lançamentos Limpo e Direto */}
+      <View style={styles.sectionHeaderRow}>
+        <View>
+          <Text style={styles.sectionTitle}>Lançamentos</Text>
+          <Text style={styles.sectionSubtitle}>{transactions.length} registo(s) no mês</Text>
+        </View>
 
-          <TouchableOpacity 
-            style={styles.searchPriceButton} 
-            onPress={() => setPriceSearchVisible(true)}
+        <View style={styles.headerButtonsRow}>
+          <TouchableOpacity
+            style={styles.btnTools}
+            onPress={() => setToolsModalVisible(true)}
             activeOpacity={0.7}
           >
-            <Text style={styles.searchPriceButtonText}>🔍 Menor Preço</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            style={styles.dealsButton} 
-            onPress={() => setDealsModalVisible(true)}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.dealsButtonText}>🏷️ Ofertas</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            style={styles.yieldButton} 
-            onPress={() => setYieldModalVisible(true)}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.yieldButtonText}>📈 CDI</Text>
+            <Text style={styles.btnToolsText}>⚡ Ferramentas</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.addBtn, { backgroundColor: '#0284C7' }]}
-            onPress={() => setScannerVisible(true)}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.addBtnText}>📷 NFC-e</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.addBtn}
+            style={styles.btnAddMain}
             onPress={() => setModalVisible(true)}
             activeOpacity={0.7}
           >
-            <Text style={styles.addBtnText}>+ Lançar</Text>
+            <Text style={styles.btnAddMainText}>+ Lançar</Text>
           </TouchableOpacity>
-        </ScrollView>
+        </View>
       </View>
 
+      {/* Lista com resguardo inferior seguro para a barra de navegação do Android */}
       <FlatList
         data={transactions}
         keyExtractor={(item) => item.id}
@@ -590,6 +560,7 @@ export const DashboardScreen = () => {
           <RefreshControl refreshing={loading} onRefresh={fetchTransactions} tintColor="#fff" />
         }
         contentContainerStyle={styles.listContent}
+        showsVerticalScrollIndicator={false}
         renderItem={({ item }) => (
           <TouchableOpacity 
             style={styles.txItem} 
@@ -607,7 +578,6 @@ export const DashboardScreen = () => {
                 • {item.date}
               </Text>
 
-              {/* Tag de terceiro ou origem */}
               {item.spent_for_name ? (
                 <View style={styles.splitTag}>
                   {item.type === 'income' ? (
@@ -656,6 +626,112 @@ export const DashboardScreen = () => {
           <Text style={styles.emptyText}>Nenhuma transação neste período.</Text>
         }
       />
+      <View style={styles.bottomBarBarrier} />
+
+      {/* Menu Inferior de Recursos & Ferramentas */}
+      <Modal
+        visible={toolsModalVisible}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setToolsModalVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.toolsOverlay}
+          activeOpacity={1}
+          onPress={() => setToolsModalVisible(false)}
+        >
+          <View style={styles.toolsCard}>
+            <View style={styles.toolsHeader}>
+              <Text style={styles.toolsTitle}>Recursos & Ferramentas</Text>
+              <TouchableOpacity onPress={() => setToolsModalVisible(false)}>
+                <Text style={styles.toolsClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.toolsGrid}>
+              <TouchableOpacity
+                style={styles.toolItem}
+                onPress={() => {
+                  setToolsModalVisible(false);
+                  setRecurringModalVisible(true);
+                }}
+              >
+                <View style={[styles.toolIconBox, { backgroundColor: 'rgba(168, 85, 247, 0.15)' }]}>
+                  <Text style={styles.toolIcon}>🔁</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.toolLabel}>Assinaturas & Fixas</Text>
+                  <Text style={styles.toolSub}>Contas automáticas</Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.toolItem}
+                onPress={() => {
+                  setToolsModalVisible(false);
+                  setPriceSearchVisible(true);
+                }}
+              >
+                <View style={[styles.toolIconBox, { backgroundColor: 'rgba(14, 165, 233, 0.15)' }]}>
+                  <Text style={styles.toolIcon}>🔍</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.toolLabel}>Menor Preço</Text>
+                  <Text style={styles.toolSub}>Comparador geral</Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.toolItem}
+                onPress={() => {
+                  setToolsModalVisible(false);
+                  setDealsModalVisible(true);
+                }}
+              >
+                <View style={[styles.toolIconBox, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
+                  <Text style={styles.toolIcon}>🏷️</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.toolLabel}>Ofertas</Text>
+                  <Text style={styles.toolSub}>Encartes e promoções</Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.toolItem}
+                onPress={() => {
+                  setToolsModalVisible(false);
+                  setScannerVisible(true);
+                }}
+              >
+                <View style={[styles.toolIconBox, { backgroundColor: 'rgba(56, 189, 248, 0.15)' }]}>
+                  <Text style={styles.toolIcon}>📸</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.toolLabel}>Ler NFC-e</Text>
+                  <Text style={styles.toolSub}>Escanear QR Code</Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.toolItem}
+                onPress={() => {
+                  setToolsModalVisible(false);
+                  setYieldModalVisible(true);
+                }}
+              >
+                <View style={[styles.toolIconBox, { backgroundColor: 'rgba(245, 158, 11, 0.15)' }]}>
+                  <Text style={styles.toolIcon}>📈</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.toolLabel}>Simulador CDI</Text>
+                  <Text style={styles.toolSub}>Rendimento da reserva</Text>
+                </View>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       <NewTransactionModal
         visible={modalVisible}
@@ -677,7 +753,7 @@ export const DashboardScreen = () => {
         description={selectedTx?.description ?? ''}
         date={selectedTx?.date ?? ''}
         amount={selectedTx?.amount ?? 0}
-        userMonthlyIncome={totalIncome}
+        userMonthlyIncome={baseSalaryIncome}
         onUpdated={fetchTransactions}
         onDeleted={fetchTransactions}
       />
@@ -724,7 +800,10 @@ export const DashboardScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0F172A' },
+  container: { 
+    flex: 1, 
+    backgroundColor: '#0F172A',
+  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -807,90 +886,61 @@ const styles = StyleSheet.create({
   budgetValue: { color: '#F8FAFC', fontSize: 12, fontWeight: '600' },
   progressBg: { height: 6, backgroundColor: '#0F172A', borderRadius: 3, overflow: 'hidden' },
   progressFill: { height: '100%', borderRadius: 3 },
-  listHeader: {
+  sectionHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     marginTop: 16,
-    marginBottom: 8,
-  },
-  listContent: {
-    paddingHorizontal: 16,
-    paddingBottom: 24,
+    marginBottom: 10,
   },
   sectionTitle: { 
     color: '#F8FAFC', 
-    fontSize: 15, 
+    fontSize: 16, 
     fontWeight: 'bold',
   },
-  actionsBar: {
+  sectionSubtitle: {
+    color: '#64748B',
+    fontSize: 11,
+    marginTop: 1,
+  },
+  headerButtonsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 8,
   },
-  recurringButton: {
-    backgroundColor: 'rgba(168, 85, 247, 0.15)',
-    borderColor: '#A855F7',
+  btnTools: {
+    backgroundColor: 'rgba(56, 189, 248, 0.1)',
     borderWidth: 1,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 14,
-  },
-  recurringButtonText: { 
-    color: '#C084FC', 
-    fontWeight: 'bold', 
-    fontSize: 11,
-  },
-  searchPriceButton: {
-    backgroundColor: 'rgba(14, 165, 233, 0.15)',
     borderColor: '#38BDF8',
-    borderWidth: 1,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
   },
-  searchPriceButtonText: { 
-    color: '#38BDF8', 
-    fontWeight: 'bold', 
-    fontSize: 11,
+  btnToolsText: {
+    color: '#38BDF8',
+    fontWeight: '700',
+    fontSize: 12,
   },
-  dealsButton: {
-    backgroundColor: 'rgba(16, 185, 129, 0.15)',
-    borderColor: '#10B981',
-    borderWidth: 1,
-    paddingHorizontal: 7,
-    paddingVertical: 5,
-    borderRadius: 14,
-  },
-  dealsButtonText: { 
-    color: '#34D399', 
-    fontWeight: 'bold', 
-    fontSize: 11,
-  },
-  yieldButton: {
-    backgroundColor: 'rgba(56, 189, 248, 0.15)',
-    borderColor: '#38BDF8',
-    borderWidth: 1,
-    paddingHorizontal: 7,
-    paddingVertical: 5,
-    borderRadius: 14,
-  },
-  yieldButtonText: { 
-    color: '#38BDF8', 
-    fontWeight: 'bold', 
-    fontSize: 11,
-  },
-  addBtn: {
+  btnAddMain: {
     backgroundColor: '#10B981',
-    paddingHorizontal: 7,
-    paddingVertical: 5,
-    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
   },
-  addBtnText: { 
+  btnAddMainText: { 
     color: '#F8FAFC', 
     fontWeight: 'bold', 
-    fontSize: 11,
+    fontSize: 12,
+  },
+  listContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+  },
+  bottomBarBarrier: {
+    height: Platform.OS === 'android' ? 68 : 0,
+    backgroundColor: '#0F172A',
+    width: '100%',
   },
   txItem: {
     flexDirection: 'row',
@@ -955,4 +1005,67 @@ const styles = StyleSheet.create({
     color: '#FBBF24',
   },
   emptyText: { textAlign: 'center', color: '#64748B', marginTop: 24, fontSize: 14 },
+  toolsOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'flex-end',
+  },
+  toolsCard: {
+    backgroundColor: '#1E293B',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    paddingBottom: Platform.OS === 'android' ? 36 : 28,
+  },
+  toolsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  toolsTitle: {
+    color: '#F8FAFC',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  toolsClose: {
+    color: '#94A3B8',
+    fontSize: 18,
+    fontWeight: 'bold',
+    padding: 4,
+  },
+  toolsGrid: {
+    flexDirection: 'column',
+    gap: 8,
+  },
+  toolItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0F172A',
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#334155',
+    gap: 12,
+  },
+  toolIconBox: {
+    width: 38,
+    height: 38,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  toolIcon: {
+    fontSize: 18,
+  },
+  toolLabel: {
+    color: '#F8FAFC',
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  toolSub: {
+    color: '#64748B',
+    fontSize: 11,
+    marginTop: 1,
+  },
 });

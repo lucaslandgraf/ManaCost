@@ -67,8 +67,12 @@ wheels/
 # ==========================================
 # DENO / SUPABASE LOCAL
 # ==========================================
-.supabase/.temp/
-.supabase/branches/
+.temp/
+**/.temp/
+supabase/.temp/
+supabase/supabase/
+apps/mobile/supabase/
+.supabase/
 
 # ==========================================
 # SISTEMA OPERACIONAL & EDITORES

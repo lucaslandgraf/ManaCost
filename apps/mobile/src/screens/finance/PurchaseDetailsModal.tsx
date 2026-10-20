@@ -200,7 +200,6 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
           onPress: async () => {
             setSaving(true);
             try {
-              // 1. Atualiza na tabela de assinaturas fixas
               if (matchingRecurringBill) {
                 await supabase
                   .from('recurring_bills')
@@ -213,13 +212,11 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
                 });
               }
 
-              // 2. Atualiza a flag na transação atual
               await supabase
                 .from('transactions')
                 .update({ repeats_monthly: nextStatus })
                 .ilike('description', currentDesc.trim());
 
-              // 3. Ao pausar, elimina de imediato os lançamentos pendentes posteriores ao mês atual
               if (!nextStatus && user) {
                 await supabase
                   .from('transactions')
@@ -267,7 +264,6 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
           : splitStatus
         : 'none';
 
-      // 1. Atualiza a transação do mês atual
       const { error } = await supabase
         .from('transactions')
         .update({
@@ -282,9 +278,7 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
 
       if (error) throw error;
 
-      // 2. Propaga nome, valor, categoria E a observação (spent_for_name) para os meses futuros
       if (editRepeats || repeatsMonthly || matchingRecurringBill) {
-        // Atualiza a tabela de assinaturas fixas
         await supabase
           .from('recurring_bills')
           .update({
@@ -295,7 +289,6 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
           })
           .ilike('description', currentDesc.trim());
 
-        // Atualiza todas as transações futuras pendentes incluindo a observação/origem
         if (user) {
           await supabase
             .from('transactions')
@@ -303,7 +296,7 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
               description: editDesc.trim(),
               amount: parsedAmount,
               category_id: selectedCatId,
-              spent_for_name: finalSpentFor, // <-- Propaga a observação/quem enviou
+              spent_for_name: finalSpentFor,
               split_status: finalSplitStatus,
             })
             .eq('user_id', user.id)
@@ -313,7 +306,6 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
         }
       }
 
-      // 3. Atualiza os estados locais imediatamente para a tela refletir o novo valor na hora
       setCurrentDesc(editDesc.trim());
       setCurrentAmount(parsedAmount);
       setRepeatsMonthly(editRepeats);
@@ -350,7 +342,6 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
             text: 'Cancelar e apagar de todos os meses futuros',
             style: 'destructive',
             onPress: async () => {
-              // Desativa a regra global
               await supabase
                 .from('recurring_bills')
                 .update({ is_active: false })
@@ -361,7 +352,6 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
                 .update({ repeats_monthly: false })
                 .ilike('description', currentDesc.trim());
 
-              // Remove este mês e todas as instâncias pendentes nos meses posteriores
               if (user) {
                 await supabase
                   .from('transactions')
@@ -402,7 +392,6 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
 
   const isIncome = currentType === 'income';
   
-  // Deduplica categorias por nome
   const filteredCategories = categories
     .filter((c) => c.type === currentType)
     .filter((cat, index, self) => index === self.findIndex((t) => t.name === cat.name));
@@ -427,7 +416,6 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
 
           <ScrollView showsVerticalScrollIndicator={false}>
             {isEditing ? (
-              /* MODO EDIÇÃO COMPLETO */
               <View style={styles.editContainer}>
                 <Text style={styles.label}>Descrição / Título</Text>
                 <TextInput
@@ -448,7 +436,6 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
                   placeholderTextColor="#64748B"
                 />
 
-                {/* Seleção de Categoria na Edição */}
                 <Text style={styles.label}>Categoria no Orçamento:</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
                   {filteredCategories.map((c) => (
@@ -464,7 +451,6 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
                   ))}
                 </ScrollView>
 
-                {/* Alternador de Repetição Contínua */}
                 <TouchableOpacity
                   style={styles.checkboxRow}
                   onPress={() => setEditRepeats(!editRepeats)}
@@ -473,7 +459,6 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
                   <Text style={styles.checkboxLabel}>🔁 Repetir automaticamente nos meses seguintes</Text>
                 </TouchableOpacity>
 
-                {/* Bloco de Terceiros */}
                 <View style={styles.splitBox}>
                   <TouchableOpacity
                     style={styles.checkboxRow}
@@ -539,7 +524,6 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
                 </View>
               </View>
             ) : (
-              /* MODO VISUALIZAÇÃO */
               <View>
                 <Text style={styles.txDesc}>{currentDesc}</Text>
                 <Text style={styles.txDate}>
@@ -585,8 +569,8 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
                     {showLifeTime && (
                       <View style={styles.lifeTimeContent}>
                         {(() => {
-                          const baseIncome = userMonthlyIncome > 0 ? userMonthlyIncome : 2000;
-                          const hourlyRate = baseIncome / 160;
+                          const baseSalary = userMonthlyIncome > 0 ? userMonthlyIncome : 2000;
+                          const hourlyRate = baseSalary / 160;
                           const totalHoursDecimal = Number(currentAmount) / hourlyRate;
                           const hours = Math.floor(totalHoursDecimal);
                           const minutes = Math.round((totalHoursDecimal - hours) * 60);
@@ -597,8 +581,8 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
                                 Custou <Text style={styles.lifeTimeHighlight}>{hours}h {minutes}min</Text> de trabalho.
                               </Text>
                               <Text style={styles.lifeTimeSub}>
-                                Baseado na receita mensal de R$ {baseIncome.toFixed(2).replace('.', ',')} (R$ {hourlyRate.toFixed(2).replace('.', ',')}/h).
-                              </Text>
+  Baseado no salário de R$ {baseSalary.toFixed(2).replace('.', ',')} (R$ {hourlyRate.toFixed(2).replace('.', ',')}/h).
+</Text>
                             </>
                           );
                         })()}
@@ -607,7 +591,6 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
                   </TouchableOpacity>
                 )}
 
-                {/* Botão de Pausar / Reativar Cobrança Recorrente */}
                 {(matchingRecurringBill || repeatsMonthly) && (
                   <TouchableOpacity
                     style={[
