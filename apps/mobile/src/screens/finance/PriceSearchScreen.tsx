@@ -11,6 +11,8 @@ import {
   Platform,
 } from 'react-native';
 import * as Location from 'expo-location';
+import { useBasket } from '../../context/BasketContext';
+import { BasketModal } from './BasketModal';
 
 interface ProdutoPreco {
   id: string;
@@ -121,6 +123,10 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack }) 
   const [results, setResults] = useState<ProdutoPreco[]>([]);
   const [loading, setLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+
+  // Integração com a Cesta Inteligente
+  const { addItem, totalItems } = useBasket();
+  const [basketVisible, setBasketVisible] = useState(false);
 
   const [sortBy, setSortBy] = useState<'distancia' | 'preco'>('distancia');
 
@@ -238,7 +244,7 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack }) 
             },
           };
         })
-        // Filtra endereços de zona rural ou coordenadas sem número que distorcem o raio urbano
+        // Filtra endereços de zona rural ou sem número que distorcem o raio urbano
         .filter((prod: ProdutoPreco) => {
           const endereco = (prod.estabelecimento.endereco || '').toUpperCase();
           const bairro = (prod.estabelecimento.bairro || '').toUpperCase();
@@ -310,7 +316,17 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack }) 
           <Text style={styles.backBtnText}>‹ Voltar</Text>
         </TouchableOpacity>
         <Text style={styles.title}>Menor Preço Paraná</Text>
-        <View style={{ width: 50 }} />
+
+        {/* Botão Ver Cesta */}
+        <TouchableOpacity
+          style={styles.basketTopBtn}
+          onPress={() => setBasketVisible(true)}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.basketTopBtnText}>
+            🛒 {totalItems > 0 ? `(${totalItems})` : ''}
+          </Text>
+        </TouchableOpacity>
       </View>
 
       {/* Barra de Busca */}
@@ -442,9 +458,31 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack }) 
 
               <View style={styles.cardFooter}>
                 <Text style={styles.timeTag}>🕒 Emitido {item.tempoRelativo}</Text>
-                <TouchableOpacity style={styles.routeBtn} onPress={() => openInMaps(item)}>
-                  <Text style={styles.routeBtnText}>Abrir no Mapa ↗</Text>
-                </TouchableOpacity>
+                
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  {/* Botão Adicionar à Cesta Inteligente */}
+                  <TouchableOpacity
+                    style={styles.addBasketBtn}
+                    onPress={() => {
+                      addItem({
+                        id: item.id,
+                        descricao: item.descricao,
+                        valor: item.valor,
+                        estabelecimento: {
+                          nome: item.estabelecimento.nome,
+                          endereco: item.estabelecimento.endereco,
+                        },
+                      });
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.addBasketBtnText}>+ Cesta</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity style={styles.routeBtn} onPress={() => openInMaps(item)}>
+                    <Text style={styles.routeBtnText}>Abrir no Mapa ↗</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             </View>
           )}
@@ -463,6 +501,12 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack }) 
           }
         />
       )}
+
+      {/* Modal da Cesta Inteligente */}
+      <BasketModal
+        visible={basketVisible}
+        onClose={() => setBasketVisible(false)}
+      />
     </View>
   );
 };
@@ -479,6 +523,15 @@ const styles = StyleSheet.create({
   backBtn: { paddingVertical: 4 },
   backBtnText: { color: '#38BDF8', fontSize: 16, fontWeight: 'bold' },
   title: { color: '#F8FAFC', fontSize: 17, fontWeight: 'bold' },
+  basketTopBtn: {
+    backgroundColor: '#1E293B',
+    borderWidth: 1,
+    borderColor: '#38BDF8',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+  },
+  basketTopBtnText: { color: '#38BDF8', fontWeight: 'bold', fontSize: 13 },
   searchBar: {
     flexDirection: 'row',
     paddingHorizontal: 16,
@@ -593,6 +646,17 @@ const styles = StyleSheet.create({
   divider: { height: 1, backgroundColor: '#334155', marginVertical: 10 },
   cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   timeTag: { color: '#64748B', fontSize: 11 },
+  addBasketBtn: {
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    borderWidth: 1,
+    borderColor: '#10B981',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  addBasketBtnText: { color: '#34D399', fontSize: 11, fontWeight: 'bold' },
   routeBtn: {
     backgroundColor: 'rgba(2, 132, 199, 0.15)',
     paddingHorizontal: 10,

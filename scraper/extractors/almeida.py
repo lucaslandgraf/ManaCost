@@ -86,7 +86,7 @@ def scrape_almeida_deals() -> list[dict]:
 
                     if final_price > 0 and clean_name:
                         deals.append({
-                            "store_name": "Almeida",
+                            "store_name": "Almeida Mercados",
                             "product_name": standardize_units(clean_name),
                             "deal_price": final_price,
                             "category": query.capitalize(),

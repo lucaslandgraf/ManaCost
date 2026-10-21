@@ -10,6 +10,8 @@ from extractors.atacadao import scrape_atacadao_deals
 from extractors.viscardi import scrape_viscardi_deals
 from extractors.santarem import scrape_santarem_deals
 from extractors.almeida import scrape_almeida_deals
+from extractors.amigao import scrape_amigao_deals
+from extractors.carrefour import scrape_carrefour_deals
 
 load_dotenv()
 
@@ -79,6 +81,12 @@ if __name__ == "__main__":
 
     if target in ("almeida", "all"):
         all_deals.extend(scrape_almeida_deals())
+
+    if target in ("amigao", "all"):
+        all_deals.extend(scrape_amigao_deals())
+
+    if target in ("carrefour", "all"):
+        all_deals.extend(scrape_carrefour_deals())
 
     # 3. Envia os dados atualizados para o banco
     sync_deals_to_supabase(all_deals)

@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   SafeAreaView,
+  Alert,
 } from 'react-native';
 import { useBasket } from '../../context/BasketContext';
 
@@ -22,11 +23,15 @@ interface BasketModalProps {
 }
 
 export const BasketModal: React.FC<BasketModalProps> = ({ visible, onClose }) => {
-  const { items, removeItem, clearBasket } = useBasket();
+  const { items, removeItem, updateQuantity, clearBasket } = useBasket();
 
-  // 1. Soma global da cesta (Menor Preço Total)
+  // 1. Soma global da cesta considerando quantidade
   const totalBasketPrice = useMemo(() => {
-    return items.reduce((acc, item) => acc + (Number(item.min_price) || 0), 0);
+    return items.reduce((acc: number, item: any) => {
+      const price = Number(item.valor ?? item.min_price) || 0;
+      const qty = Number(item.quantidade) || 1;
+      return acc + price * qty;
+    }, 0);
   }, [items]);
 
   // 2. Agrupamento e ranking por supermercado
@@ -35,15 +40,20 @@ export const BasketModal: React.FC<BasketModalProps> = ({ visible, onClose }) =>
 
     const map: Record<string, { total: number; count: number }> = {};
 
-    items.forEach((item) => {
-      const store = item.cheapest_store || 'Outros';
-      const price = Number(item.min_price) || 0;
+    items.forEach((item: any) => {
+      const store =
+        item.estabelecimento?.nome ||
+        item.cheapest_store ||
+        item.store_name ||
+        'Outros';
+      const price = Number(item.valor ?? item.min_price) || 0;
+      const qty = Number(item.quantidade) || 1;
 
       if (!map[store]) {
         map[store] = { total: 0, count: 0 };
       }
-      map[store].total += price;
-      map[store].count += 1;
+      map[store].total += price * qty;
+      map[store].count += qty;
     });
 
     return Object.entries(map)
@@ -52,11 +62,11 @@ export const BasketModal: React.FC<BasketModalProps> = ({ visible, onClose }) =>
         total_price: data.total,
         items_count: data.count,
       }))
-      .sort((a, b) => b.total_price - a.total_price); // Lojas com mais volume no topo
+      .sort((a, b) => b.total_price - a.total_price);
   }, [items]);
 
   return (
-    <Modal visible={visible} animationType="slide" transparent>
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.modalOverlay}>
         <SafeAreaView style={styles.container}>
           {/* Cabeçalho */}
@@ -64,7 +74,7 @@ export const BasketModal: React.FC<BasketModalProps> = ({ visible, onClose }) =>
             <View>
               <Text style={styles.title}>Cesta Inteligente</Text>
               <Text style={styles.subtitle}>
-                {items.length} {items.length === 1 ? 'item selecionado' : 'itens selecionados'}
+                {items.length} {items.length === 1 ? 'produto na lista' : 'produtos na lista'}
               </Text>
             </View>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
@@ -102,11 +112,12 @@ export const BasketModal: React.FC<BasketModalProps> = ({ visible, onClose }) =>
                     ]}
                   >
                     <View style={styles.resultLeft}>
-                      <Text style={styles.storeRank}>
+                      <Text style={styles.storeRank} numberOfLines={1}>
+                        {index === 0 ? '🏆 ' : '🏬 '}
                         {item.store_name}
                       </Text>
                       <Text style={styles.availabilityText}>
-                        {item.items_count} {item.items_count === 1 ? 'produto nesta rede' : 'produtos nesta rede'}
+                        {item.items_count} {item.items_count === 1 ? 'unidade' : 'unidades'} selecionadas
                       </Text>
                     </View>
 
@@ -126,12 +137,19 @@ export const BasketModal: React.FC<BasketModalProps> = ({ visible, onClose }) =>
             )}
           </View>
 
-          {/* Lista de Produtos Adicionados */}
+          {/* Lista de Produtos Adicionados com Controles de Quantidade */}
           <View style={styles.itemsSection}>
             <View style={styles.itemsSectionHeader}>
               <Text style={styles.sectionTitle}>Produtos na Lista</Text>
               {items.length > 0 && (
-                <TouchableOpacity onPress={clearBasket}>
+                <TouchableOpacity
+                  onPress={() =>
+                    Alert.alert('Limpar Cesta', 'Tem a certeza de que deseja remover tudo?', [
+                      { text: 'Cancelar', style: 'cancel' },
+                      { text: 'Limpar', style: 'destructive', onPress: clearBasket },
+                    ])
+                  }
+                >
                   <Text style={styles.clearText}>Limpar Tudo</Text>
                 </TouchableOpacity>
               )}
@@ -139,26 +157,57 @@ export const BasketModal: React.FC<BasketModalProps> = ({ visible, onClose }) =>
 
             <FlatList
               data={items}
-              keyExtractor={(item) => item.id}
+              keyExtractor={(item: any) => String(item.id)}
               contentContainerStyle={{ paddingBottom: 20 }}
-              renderItem={({ item }) => (
-                <View style={styles.itemRow}>
-                  <View style={{ flex: 1, marginRight: 8 }}>
-                    <Text style={styles.itemName} numberOfLines={2}>
-                      {item.display_name}
-                    </Text>
-                    <Text style={styles.itemPriceHint}>
-                      R$ {Number(item.min_price).toFixed(2).replace('.', ',')} ({item.cheapest_store})
-                    </Text>
+              renderItem={({ item }: { item: any }) => {
+                const price = Number(item.valor ?? item.min_price) || 0;
+                const store =
+                  item.estabelecimento?.nome ||
+                  item.cheapest_store ||
+                  item.store_name ||
+                  'Mercado';
+                const name = item.descricao || item.display_name || 'Produto';
+                const qty = Number(item.quantidade) || 1;
+
+                return (
+                  <View style={styles.itemRow}>
+                    <View style={{ flex: 1, marginRight: 8 }}>
+                      <Text style={styles.itemName} numberOfLines={2}>
+                        {name}
+                      </Text>
+                      <Text style={styles.itemPriceHint}>
+                        R$ {price.toFixed(2).replace('.', ',')} un • {store}
+                      </Text>
+                    </View>
+
+                    {/* Controles de Quantidade */}
+                    <View style={styles.qtyContainer}>
+                      <TouchableOpacity
+                        style={styles.qtyBtn}
+                        onPress={() => (updateQuantity ? updateQuantity(item.id, -1) : removeItem(item.id))}
+                      >
+                        <Text style={styles.qtyBtnText}>-</Text>
+                      </TouchableOpacity>
+
+                      <Text style={styles.qtyText}>{qty}</Text>
+
+                      <TouchableOpacity
+                        style={styles.qtyBtn}
+                        onPress={() => updateQuantity && updateQuantity(item.id, 1)}
+                      >
+                        <Text style={styles.qtyBtnText}>+</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        onPress={() => removeItem(item.id)}
+                        style={styles.removeBtn}
+                      >
+                        <Text style={styles.removeBtnText}>🗑️</Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
-                  <TouchableOpacity
-                    onPress={() => removeItem(item.id)}
-                    style={styles.removeBtn}
-                  >
-                    <Text style={styles.removeBtnText}>Remover</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
+                );
+              }}
             />
           </View>
         </SafeAreaView>
@@ -246,7 +295,7 @@ const styles = StyleSheet.create({
   resultCardHighlight: {
     borderColor: '#38BDF8',
   },
-  resultLeft: { flex: 1 },
+  resultLeft: { flex: 1, paddingRight: 8 },
   storeRank: { fontSize: 14, fontWeight: 'bold', color: '#F8FAFC' },
   availabilityText: { fontSize: 11, color: '#94A3B8', marginTop: 2 },
   resultRight: { alignItems: 'flex-end' },
@@ -277,7 +326,20 @@ const styles = StyleSheet.create({
   },
   itemName: { fontSize: 13, fontWeight: '600', color: '#F8FAFC' },
   itemPriceHint: { fontSize: 11, color: '#94A3B8', marginTop: 2 },
-  removeBtn: { paddingVertical: 4, paddingHorizontal: 8 },
-  removeBtnText: { color: '#F87171', fontSize: 12, fontWeight: 'bold' },
+  qtyContainer: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  qtyBtn: {
+    backgroundColor: '#1E293B',
+    borderWidth: 1,
+    borderColor: '#334155',
+    width: 26,
+    height: 26,
+    borderRadius: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  qtyBtnText: { color: '#38BDF8', fontSize: 15, fontWeight: 'bold' },
+  qtyText: { color: '#F8FAFC', fontSize: 13, fontWeight: 'bold', minWidth: 18, textAlign: 'center' },
+  removeBtn: { padding: 4, marginLeft: 4 },
+  removeBtnText: { fontSize: 14 },
   emptyText: { color: '#64748B', fontSize: 13, fontStyle: 'italic', paddingVertical: 8 },
 });

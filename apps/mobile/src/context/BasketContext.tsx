@@ -1,64 +1,78 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { createContext, useContext, useState } from 'react';
 
-export interface BasketProduct {
+export interface BasketItem {
   id: string;
-  display_name: string;
-  min_price: number;
-  image_url: string | null;
-  cheapest_store: string;
+  descricao: string;
+  valor: number;
+  estabelecimento: {
+    nome: string;
+    endereco: string;
+  };
+  quantidade: number;
 }
 
 interface BasketContextData {
-  items: BasketProduct[];
-  addItem: (product: BasketProduct) => void;
+  items: BasketItem[];
+  addItem: (item: Omit<BasketItem, 'quantidade'>) => void;
   removeItem: (id: string) => void;
+  updateQuantity: (id: string, delta: number) => void;
   clearBasket: () => void;
-  isInBasket: (id: string) => boolean;
+  totalItems: number;
+  totalPrice: number;
 }
-
-const STORAGE_KEY = '@manacost_basket_items';
 
 const BasketContext = createContext<BasketContextData>({} as BasketContextData);
 
 export const BasketProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [items, setItems] = useState<BasketProduct[]>([]);
+  const [items, setItems] = useState<BasketItem[]>([]);
 
-  useEffect(() => {
-    AsyncStorage.getItem(STORAGE_KEY).then((data) => {
-      if (data) {
-        try {
-          setItems(JSON.parse(data));
-        } catch {
-          setItems([]);
-        }
+  const addItem = (newItem: Omit<BasketItem, 'quantidade'>) => {
+    setItems((prev) => {
+      const existing = prev.find((i) => i.id === newItem.id);
+      if (existing) {
+        return prev.map((i) =>
+          i.id === newItem.id ? { ...i, quantidade: i.quantidade + 1 } : i
+        );
       }
+      return [...prev, { ...newItem, quantidade: 1 }];
     });
-  }, []);
-
-  const saveItems = async (newItems: BasketProduct[]) => {
-    setItems(newItems);
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newItems));
-  };
-
-  const addItem = (product: BasketProduct) => {
-    if (!items.some((i) => i.id === product.id)) {
-      saveItems([...items, product]);
-    }
   };
 
   const removeItem = (id: string) => {
-    saveItems(items.filter((i) => i.id !== id));
+    setItems((prev) => prev.filter((i) => i.id !== id));
   };
 
-  const clearBasket = () => {
-    saveItems([]);
+  const updateQuantity = (id: string, delta: number) => {
+    setItems((prev) =>
+      prev
+        .map((i) => {
+          if (i.id === id) {
+            const nextQty = i.quantidade + delta;
+            return nextQty > 0 ? { ...i, quantidade: nextQty } : null;
+          }
+          return i;
+        })
+        .filter(Boolean) as BasketItem[]
+    );
   };
 
-  const isInBasket = (id: string) => items.some((i) => i.id === id);
+  const clearBasket = () => setItems([]);
+
+  const totalItems = items.reduce((sum, item) => sum + item.quantidade, 0);
+  const totalPrice = items.reduce((sum, item) => sum + item.valor * item.quantidade, 0);
 
   return (
-    <BasketContext.Provider value={{ items, addItem, removeItem, clearBasket, isInBasket }}>
+    <BasketContext.Provider
+      value={{
+        items,
+        addItem,
+        removeItem,
+        updateQuantity,
+        clearBasket,
+        totalItems,
+        totalPrice,
+      }}
+    >
       {children}
     </BasketContext.Provider>
   );

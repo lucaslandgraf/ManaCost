@@ -61,21 +61,22 @@ interface ProductImageWithFallbackProps {
   name?: string;
 }
 
-const CATALOG_PAGE_SIZE = 100;
+const CATALOG_PAGE_SIZE = 250;
 
+// Lista apenas lojas que possuem raspagem de ofertas ativas no banco de dados
 const STORES_LIST = [
   'Todas',
   'Super Muffato',
-  'Max Atacadista',
   'Hiper Condor',
   'Atacadão',
   'Santarém',
   'Viscardi',
   'Almeida Mercados',
-  'Tonhão Maxi',
-  'Super Golff',
+  'Amigão Supermercados',
+  'Carrefour',
 ];
 
+// URLs dos encartes para a aba Encartes (aqui podem ficar todos, incluindo Tonhão e Max)
 const FALLBACK_FLYER_URLS: Record<string, string> = {
   'Super Muffato': 'https://www.supermuffato.com.br/lojas-fisicas?tab=encartes&loja=26',
   'Max Atacadista': 'https://www.maxatacadista.com.br/lojas/encartes-e-videos/?loja=110',
@@ -86,6 +87,8 @@ const FALLBACK_FLYER_URLS: Record<string, string> = {
   'Atacadão Tiradentes': 'https://www.atacadao.com.br/loja/londrina-tiradentes',
   'Tonhão Maxi': 'https://www.supermercadostonhaomaxi.com/encarte',
   'Super Golff': 'https://supergolff.com.br/ofertas#book/',
+  'Amigão Supermercados': 'https://drive.google.com/drive/folders/10nVHbmCOmeRQlmS3HTAbCRGGSlBw6E27',
+  'Carrefour': 'https://www.tiendeo.com.br/Encartes-Catalogos/carrefour',
 };
 
 export const ProductImageWithFallback: React.FC<ProductImageWithFallbackProps> = ({
@@ -160,7 +163,7 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
   const [loadingWeb, setLoadingWeb] = useState(true);
 
   // Cesta Inteligente
-  const { items, addItem, removeItem, isInBasket } = useBasket();
+  const { items, addItem, removeItem } = useBasket();
   const [basketVisible, setBasketVisible] = useState(false);
 
   const formatUpdateDate = (dateString?: string) => {
@@ -268,7 +271,27 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
       }
 
       if (selectedStore !== 'Todas') {
-        query = query.ilike('store_name', `%${selectedStore}%`);
+        // Tolerância de correspondência para nomes de lojas do banco
+        let storeKeyword = selectedStore;
+        if (selectedStore.includes('Almeida')) {
+          storeKeyword = 'Almeida';
+        } else if (selectedStore.includes('Muffato')) {
+          storeKeyword = 'Muffato';
+        } else if (selectedStore.includes('Condor')) {
+          storeKeyword = 'Condor';
+        } else if (selectedStore.includes('Atacadão')) {
+          storeKeyword = 'Atacad';
+        } else if (selectedStore.includes('Amigão')) {
+          storeKeyword = 'Amigão';
+        } else if (selectedStore.includes('Carrefour')) {
+          storeKeyword = 'Carrefour';
+        } else if (selectedStore.includes('Santarém')) {
+          storeKeyword = 'Santarém';
+        } else if (selectedStore.includes('Viscardi')) {
+          storeKeyword = 'Viscardi';
+        }
+
+        query = query.ilike('store_name', `%${storeKeyword}%`);
       }
 
       const { data, error } = await query;
@@ -314,6 +337,8 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
           { id: '7', store_name: 'Atacadão Tiradentes', flyer_url: FALLBACK_FLYER_URLS['Atacadão Tiradentes'], category: 'encarte', badge_color: '#F97316' },
           { id: '8', store_name: 'Tonhão Maxi', flyer_url: FALLBACK_FLYER_URLS['Tonhão Maxi'], category: 'encarte', badge_color: '#14B8A6' },
           { id: '9', store_name: 'Super Golff', flyer_url: FALLBACK_FLYER_URLS['Super Golff'], category: 'encarte', badge_color: '#6366F1' },
+          { id: '10', store_name: 'Amigão Supermercados', flyer_url: FALLBACK_FLYER_URLS['Amigão Supermercados'], category: 'encarte', badge_color: '#EAB308' },
+          { id: '11', store_name: 'Carrefour', flyer_url: FALLBACK_FLYER_URLS['Carrefour'], category: 'encarte', badge_color: '#0284C7' },
         ]);
       }
     } catch (e) {
@@ -560,7 +585,7 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
             />
           </View>
 
-          {/* Filtro por Supermercado (Exclusivo na aba Menor Preço) */}
+          {/* Filtro por Supermercado */}
           {activeTab === 'catalog' && (
             <View style={styles.storesFilterContainer}>
               <FlatList
@@ -616,7 +641,7 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
               ]}
               renderItem={({ item }) => {
                 const isExpanded = expandedId === item.id;
-                const inBasket = isInBasket(item.id);
+                const inBasket = items.some((basketItem) => basketItem.id === item.id);
 
                 const bestByStoreMap = new Map<string, MatchItem>();
                 (item.product_match_items || []).forEach((deal) => {
@@ -687,10 +712,12 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
                               } else {
                                 addItem({
                                   id: item.id,
-                                  display_name: item.display_name,
-                                  min_price: item.min_price,
-                                  image_url: item.image_url,
-                                  cheapest_store: item.cheapest_store,
+                                  descricao: item.display_name,
+                                  valor: item.min_price,
+                                  estabelecimento: {
+                                    nome: item.cheapest_store,
+                                    endereco: '',
+                                  },
                                 });
                               }
                             }}
@@ -776,7 +803,7 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
                 items.length > 0 && { paddingBottom: 85 },
               ]}
               renderItem={({ item }) => {
-                const inBasket = isInBasket(item.id);
+                const inBasket = items.some((basketItem) => basketItem.id === item.id);
 
                 return (
                   <View style={styles.card}>
@@ -827,10 +854,12 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
                               } else {
                                 addItem({
                                   id: item.id,
-                                  display_name: item.product_name,
-                                  min_price: item.deal_price,
-                                  image_url: item.image_url,
-                                  cheapest_store: item.store_name,
+                                  descricao: item.product_name,
+                                  valor: item.deal_price,
+                                  estabelecimento: {
+                                    nome: item.store_name,
+                                    endereco: '',
+                                  },
                                 });
                               }
                             }}
