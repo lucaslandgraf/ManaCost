@@ -50,13 +50,13 @@ def scrape_amigao_deals() -> list[dict]:
 
     op_hash = "ae50c5a735b1464f0ba48be4f2b32f7289ce6284"
 
-    print(f"[Amigão] Coletando {len(SHORT_SEARCH_TERMS)} termos via GetProductsQuery...")
+    print(f"[Amigão] Coletando {len(SHORT_SEARCH_TERMS)} termos via FastStore API...")
 
     for query in SHORT_SEARCH_TERMS:
         variables = {
             "input": {
                 "activeSalesChannel": "1",
-                "postalCode": "86070-545",
+                "postalCode": "86070-545",  # Londrina
                 "page": 0,
                 "selectedFacets": [],
                 "term": query,
@@ -85,54 +85,42 @@ def scrape_amigao_deals() -> list[dict]:
             if resp.status_code == 200:
                 data = resp.json()
                 
-                # Acesso direto à chave 'products' confirmada
+                # Acesso à árvore oficial confirmada
                 gp_data = data.get("data", {}).get("getProducts", {}).get("data", {})
-                products_list = gp_data.get("products", [])
+                products_obj = gp_data.get("products", {})
+                edges = products_obj.get("edges", []) if isinstance(products_obj, dict) else []
 
                 added = 0
-                for item in products_list:
-                    # Se por acaso o item vier como string ou formato inválido, ignora com segurança
-                    if not isinstance(item, dict):
-                        continue
-
-                    node = item.get("node", item)
+                for edge in edges:
+                    node = edge.get("node", {})
                     if not isinstance(node, dict):
                         continue
 
-                    name = node.get("name") or node.get("productName") or ""
+                    name = node.get("name", "").strip()
 
-                    # Extração de preço
+                    # Preço extraído diretamente de offers
                     price = 0.0
                     offers = node.get("offers", {})
                     if isinstance(offers, dict):
-                        price = float(offers.get("lowPrice") or offers.get("price") or 0)
+                        price = float(offers.get("lowPrice") or 0.0)
                         if price <= 0:
-                            sub_offers = offers.get("offers", [])
-                            if sub_offers and isinstance(sub_offers, list):
-                                for sub in sub_offers:
-                                    if isinstance(sub, dict) and sub.get("price"):
-                                        price = float(sub.get("price", 0) or 0)
-                                        break
+                            sub_list = offers.get("offers", [])
+                            if sub_list and isinstance(sub_list, list):
+                                price = float(sub_list[0].get("price", 0.0) or 0.0)
 
-                    if price <= 0:
-                        price = _clean_price(node.get("price") or node.get("spotPrice"))
-
-                    # Extração de imagem
+                    # Imagem
                     img_url = None
-                    images = node.get("image") or node.get("images")
+                    images = node.get("image") or []
                     if isinstance(images, list) and images:
                         first_img = images[0]
-                        if isinstance(first_img, dict):
-                            img_url = first_img.get("url")
-                        elif isinstance(first_img, str):
-                            img_url = first_img
+                        img_url = first_img.get("url") if isinstance(first_img, dict) else str(first_img)
                     elif isinstance(images, dict):
                         img_url = images.get("url")
 
                     if price > 0 and name:
                         deals.append({
                             "store_name": "Amigão Supermercados",
-                            "product_name": standardize_units(name.strip()),
+                            "product_name": standardize_units(name),
                             "deal_price": price,
                             "category": query.capitalize(),
                             "valid_until": valid_until,
@@ -151,10 +139,12 @@ def scrape_amigao_deals() -> list[dict]:
 
     unique_deals = {d["product_name"]: d for d in deals}
     final_list = list(unique_deals.values())
-    print(f"[Amigão] Concluído: {len(final_list)} produtos catalogados.")
+    print(f"[Amigão] Concluído: {len(final_list)} produtos catalogados com sucesso.")
     return final_list
 
 
 if __name__ == "__main__":
     items = scrape_amigao_deals()
-    print(f"Total: {len(items)} | Exemplo: {items[0] if items else 'Vazio'}")
+    print(f"Total: {len(items)}")
+    if items:
+        print(f"Exemplo: {items[0]}")

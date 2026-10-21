@@ -6,6 +6,8 @@ from supabase import create_client, Client
 from extractors.muffato import scrape_muffato_deals
 from extractors.almeida import scrape_almeida_deals
 from extractors.condor import scrape_condor_deals
+from extractors.amigao import scrape_amigao_deals      
+from extractors.carrefour import scrape_carrefour_deals 
 
 load_dotenv()
 
@@ -19,7 +21,7 @@ if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 def run_ingestion():
-    print("Iniciando ingestao de ofertas de Londrina (Muffato + Almeida + Condor)...")
+    print("Iniciando ingestao de ofertas de Londrina (Muffato, Almeida, Condor, Amigão e Carrefour)...")
 
     all_deals = []
 
@@ -47,11 +49,28 @@ def run_ingestion():
     except Exception as e:
         print(f"Falha no Hiper Condor: {e}")
 
+    # 4. Amigão Supermercados (FastStore API)
+    try:
+        amigao_deals = scrape_amigao_deals()
+        all_deals.extend(amigao_deals)
+        print(f"Amigão Supermercados: {len(amigao_deals)} ofertas adicionadas.")
+    except Exception as e:
+        print(f"Falha no Amigão: {e}")
+
+    # 5. Carrefour (VTEX API)
+    try:
+        carrefour_deals = scrape_carrefour_deals()
+        all_deals.extend(carrefour_deals)
+        print(f"Carrefour: {len(carrefour_deals)} ofertas adicionadas.")
+    except Exception as e:
+        print(f"Falha no Carrefour: {e}")
+
+    # Validação executada apenas após a tentativa de recolha de todos os mercados
     if not all_deals:
         print("Nenhuma oferta capturada. Abortando execução.")
         return
 
-    # Validade padrão de 7 dias aplicada a todos os itens coletados
+    # Validade padrão de 7 dias aplicada a todos os itens recolhidos
     valid_until_date = (date.today() + timedelta(days=7)).isoformat()
     for deal in all_deals:
         deal["valid_until"] = valid_until_date

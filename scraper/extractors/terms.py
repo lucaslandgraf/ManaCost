@@ -40,6 +40,21 @@ EXPANDED_SEARCH_TERMS = [
     "atum",
     "biscoito",
 
+    # --- Chocolates, Doces e Sobremesas ---
+    "chocolate",
+    "barra chocolate",
+    "bombom",
+    "garoto",
+    "lacta",
+    "nestle",
+    "bis",
+    "nutella",
+    "doce de leite",
+    "leite condensado",
+    "creme de leite",
+    "gelatina",
+    "mistura bolo",
+
     # --- Margarinas, Laticínios e Matinais ---
     "margarina",
     "qualy",
@@ -62,8 +77,6 @@ EXPANDED_SEARCH_TERMS = [
     "semidesnatado",
     "desnatado",
     "zero lactose",
-    "leite condensado",
-    "creme de leite",
 
     # --- Carnes e Proteínas ---
     "frango",
@@ -140,11 +153,15 @@ EXPANDED_SEARCH_TERMS = [
 ]
 
 SHORT_SEARCH_TERMS = [
-    # Mercearia
+    # Mercearia e Básicos
     "arroz", "feijao", "oleo", "soya", "azeite", "cafe", "acucar", "adocante",
     "macarrao", "espaguete", "farinha", "fuba", "aveia", "molho", "sal",
     "maionese", "ketchup", "vinagre", "milho", "ervilha", "sardinha",
     "atum", "biscoito",
+
+    # Doces e Chocolates
+    "chocolate", "bombom", "bis", "nutella", "doce de leite", "leite condensado",
+    "creme de leite", "gelatina", "mistura bolo",
 
     # Matinais e Laticínios
     "margarina", "qualy", "manteiga", "requeijao", "iogurte", "queijo",
@@ -152,7 +169,7 @@ SHORT_SEARCH_TERMS = [
 
     # Achocolatados e Leites
     "achocolatado", "nescau", "toddy", "leite", "semidesnatado",
-    "zero lactose", "leite condensado", "creme de leite",
+    "zero lactose",
 
     # Carnes e Proteínas
     "frango", "carne", "alcatra", "contra file", "acem", "patinho",

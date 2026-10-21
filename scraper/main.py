@@ -10,8 +10,8 @@ from extractors.atacadao import scrape_atacadao_deals
 from extractors.viscardi import scrape_viscardi_deals
 from extractors.santarem import scrape_santarem_deals
 from extractors.almeida import scrape_almeida_deals
-from extractors.amigao import scrape_amigao_deals
-from extractors.carrefour import scrape_carrefour_deals
+from extractors.amigao import scrape_amigao_deals     
+from extractors.carrefour import scrape_carrefour_deals 
 
 load_dotenv()
 

@@ -1,4 +1,5 @@
 import os
+import re
 from collections import defaultdict
 from dotenv import load_dotenv
 from supabase import create_client, Client
@@ -60,42 +61,73 @@ def split_outliers_by_ratio(group: list[dict], max_ratio: float = 3.0) -> list[l
     return subgroups
 
 
-def build_clusters(deals: list[dict]) -> list[list[dict]]:
-    """Gera grupos canônicos refinados agrupando primeiro por token-raiz/categoria."""
-    canonical_clusters = defaultdict(list)
-    for deal in deals:
-        key = generate_canonical_key(deal["product_name"])
-        if key:
-            canonical_clusters[key].append(deal)
+def clean_search_tokens(text: str) -> str:
+    """Remove palavras de ruído que impedem a correspondência exata entre lojas."""
+    t = text.lower()
+    t = re.sub(r"\b(pct|pacote|un|unidade|tp1|tipo 1|tipo1|vacuo|vácuo|refil|tradicional|especial)\b", "", t)
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
 
+
+def extract_core_keywords(name: str) -> str:
+    """Extrai a palavra-chave central (ex: arroz, feijao, cafe, cerveja) para agrupar em baldes."""
+    t = clean_search_tokens(name)
+    words = t.split()
+    if not words:
+        return "geral"
+    
+    # Palavras-chave prioritárias para distribuição em baldes sem gargalo
+    priority_roots = [
+        "arroz", "feijao", "oleo", "azeite", "cafe", "acucar", "macarrao", 
+        "espaguete", "farinha", "leite", "margarina", "manteiga", "requeijao", 
+        "iogurte", "queijo", "mussarela", "presunto", "achocolatado", "nescau", 
+        "toddy", "frango", "carne", "alcatra", "cerveja", "refrigerante", 
+        "coca", "pepsi", "guarana", "detergente", "sabao", "amaciante", "chocolate"
+    ]
+    for root in priority_roots:
+        if root in t:
+            return root
+            
+    return words[0]
+
+
+def build_clusters(deals: list[dict]) -> list[list[dict]]:
+    """Gera grupos canónicos agrupando pela palavra-chave central e aplicando similaridade."""
+    # 1. Agrupa primeiro por raiz semântica (arroz com arroz, leite com leite, etc.)
     buckets = defaultdict(list)
-    for key in canonical_clusters.keys():
-        first_token = key.split()[0] if key else "geral"
-        buckets[first_token].append(key)
+    for deal in deals:
+        root_key = extract_core_keywords(deal["product_name"])
+        buckets[root_key].append(deal)
 
     merged_clusters = []
-    visited = set()
 
-    for bucket_keys in buckets.values():
-        for i, key in enumerate(bucket_keys):
-            if key in visited:
+    # 2. Compara produtos dentro do mesmo departamento/raiz
+    for root, items in buckets.items():
+        visited = set()
+        for i, deal_a in enumerate(items):
+            deal_a_id = deal_a.get("id") or f"{deal_a['store_name']}-{deal_a['product_name']}"
+            if deal_a_id in visited:
                 continue
 
-            current_group = list(canonical_clusters[key])
-            visited.add(key)
+            current_group = [deal_a]
+            visited.add(deal_a_id)
 
-            for j in range(i + 1, len(bucket_keys)):
-                other_key = bucket_keys[j]
-                if other_key in visited:
+            for j in range(i + 1, len(items)):
+                deal_b = items[j]
+                deal_b_id = deal_b.get("id") or f"{deal_b['store_name']}-{deal_b['product_name']}"
+                if deal_b_id in visited:
                     continue
 
-                sample_a = current_group[0]["product_name"]
-                sample_b = canonical_clusters[other_key][0]["product_name"]
+                # Se for da mesma rede, não junta no mesmo grupo comparativo
+                if deal_a["store_name"] == deal_b["store_name"]:
+                    continue
 
-                if is_match(sample_a, sample_b, threshold=82.0):
-                    current_group.extend(canonical_clusters[other_key])
-                    visited.add(other_key)
+                # Compara similaridade de nome entre supermercados concorrentes com tolerância calibrada
+                if is_match(deal_a["product_name"], deal_b["product_name"], threshold=73.0):
+                    current_group.append(deal_b)
+                    visited.add(deal_b_id)
 
+            # Separa fardos/outliers de preço
             refined_subgroups = split_outliers_by_ratio(current_group, max_ratio=3.0)
             for sub in refined_subgroups:
                 best_by_store = {}
@@ -104,6 +136,7 @@ def build_clusters(deals: list[dict]) -> list[list[dict]]:
                     if store not in best_by_store:
                         best_by_store[store] = item
 
+                # Apenas regista agrupamentos presentes em 2 ou mais supermercados concorrentes
                 if len(best_by_store) > 1:
                     merged_clusters.append(list(best_by_store.values()))
 
@@ -134,7 +167,7 @@ def persist_matches_to_supabase(clusters: list[list[dict]]):
         canonical_key = generate_canonical_key(cheapest["product_name"]) or f"cluster-{idx}"
         unique_canonical = f"{canonical_key}-{idx}"
 
-        # 1. Herança inteligente de imagem: se algum concorrente tem foto válida, propaga para o grupo
+        # 1. Herança inteligente de imagem
         best_image = next(
             (d["image_url"] for d in sorted_group if d.get("image_url") and str(d["image_url"]).strip()),
             None
@@ -163,7 +196,6 @@ def persist_matches_to_supabase(clusters: list[list[dict]]):
             "image_url": best_image,
             "updated_at": now_iso,
         })
-        # Guarda o grupo junto com a melhor imagem compartilhada
         cluster_index_map[unique_canonical] = {
             "group": sorted_group,
             "best_image": best_image,
@@ -195,7 +227,6 @@ def persist_matches_to_supabase(clusters: list[list[dict]]):
         shared_image = cluster_data.get("best_image")
 
         for deal in origin_deals:
-            # Se este supermercado não forneceu imagem, herda a foto do concorrente do mesmo produto!
             item_image = deal.get("image_url") or shared_image
 
             items_payload.append({

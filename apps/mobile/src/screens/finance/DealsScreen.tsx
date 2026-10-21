@@ -61,7 +61,7 @@ interface ProductImageWithFallbackProps {
   name?: string;
 }
 
-const CATALOG_PAGE_SIZE = 250;
+const CATALOG_PAGE_SIZE = 100;
 
 // Lista apenas lojas que possuem raspagem de ofertas ativas no banco de dados
 const STORES_LIST = [
