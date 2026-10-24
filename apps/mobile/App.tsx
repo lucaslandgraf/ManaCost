@@ -6,6 +6,8 @@ import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { BasketProvider } from './src/context/BasketContext';
 import { AuthScreen } from './src/screens/auth/AuthScreen';
 import { DashboardScreen } from './src/screens/finance/DashboardScreen';
+import { EventsScreen } from './src/screens/finance/EventsScreen';
+import { EventDetailsScreen } from './src/screens/finance/EventDetailsScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -24,7 +26,11 @@ const NavigationRoutes = () => {
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {session ? (
-          <Stack.Screen name="Dashboard" component={DashboardScreen} />
+          <>
+            <Stack.Screen name="Dashboard" component={DashboardScreen} />
+            <Stack.Screen name="Events" component={EventsScreen} />
+            <Stack.Screen name="EventDetails" component={EventDetailsScreen} />
+          </>
         ) : (
           <Stack.Screen name="Auth" component={AuthScreen} />
         )}

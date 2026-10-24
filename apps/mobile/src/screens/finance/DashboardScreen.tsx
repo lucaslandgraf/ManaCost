@@ -36,7 +36,7 @@ interface Transaction {
   categories?: { name: string; rule_group: string } | { name: string; rule_group: string }[] | null;
 }
 
-export const DashboardScreen = () => {
+export const DashboardScreen = ({ navigation }: any) => {
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
   const [scannerVisible, setScannerVisible] = useState(false);
   const [dealsModalVisible, setDealsModalVisible] = useState(false);
@@ -649,6 +649,22 @@ export const DashboardScreen = () => {
             </View>
 
             <View style={styles.toolsGrid}>
+              <TouchableOpacity
+                style={styles.toolItem}
+                onPress={() => {
+                  setToolsModalVisible(false);
+                  navigation.navigate('Events');
+                }}
+              >
+                <View style={[styles.toolIconBox, { backgroundColor: 'rgba(56, 189, 248, 0.15)' }]}>
+                  <Text style={styles.toolIcon}>✈️</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.toolLabel}>Viagens & Eventos</Text>
+                  <Text style={styles.toolSub}>Orçamento fechado e isolado</Text>
+                </View>
+              </TouchableOpacity>
+
               <TouchableOpacity
                 style={styles.toolItem}
                 onPress={() => {

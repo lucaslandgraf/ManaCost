@@ -398,6 +398,10 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
 
   const isRecurringActive = matchingRecurringBill ? matchingRecurringBill.is_active : repeatsMonthly;
 
+  // Cálculo da soma dos itens da nota e desconto do mercado
+  const totalItemsBruto = items.reduce((acc, it) => acc + Number(it.total_price || 0), 0);
+  const economiaDesconto = Math.max(0, totalItemsBruto - Number(currentAmount));
+
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <KeyboardAvoidingView
@@ -581,8 +585,8 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
                                 Custou <Text style={styles.lifeTimeHighlight}>{hours}h {minutes}min</Text> de trabalho.
                               </Text>
                               <Text style={styles.lifeTimeSub}>
-  Baseado no salário de R$ {baseSalary.toFixed(2).replace('.', ',')} (R$ {hourlyRate.toFixed(2).replace('.', ',')}/h).
-</Text>
+                                Baseado no salário de R$ {baseSalary.toFixed(2).replace('.', ',')} (R$ {hourlyRate.toFixed(2).replace('.', ',')}/h).
+                              </Text>
                             </>
                           );
                         })()}
@@ -628,17 +632,37 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
                     {loading ? (
                       <ActivityIndicator size="small" color="#38BDF8" style={{ marginVertical: 14 }} />
                     ) : items.length > 0 ? (
-                      <View style={styles.itemsList}>
-                        {items.map((it) => (
-                          <View key={it.id} style={styles.itemRow}>
-                            <View style={{ flex: 1, paddingRight: 8 }}>
-                              <Text style={styles.itemName}>{it.name}</Text>
-                              <Text style={styles.itemSub}>{it.quantity}x • R$ {Number(it.unit_price).toFixed(2)} un</Text>
+                      <>
+                        <View style={styles.itemsList}>
+                          {items.map((it) => (
+                            <View key={it.id} style={styles.itemRow}>
+                              <View style={{ flex: 1, paddingRight: 8 }}>
+                                <Text style={styles.itemName}>{it.name}</Text>
+                                <Text style={styles.itemSub}>{it.quantity}x • R$ {Number(it.unit_price).toFixed(2)} un</Text>
+                              </View>
+                              <Text style={styles.itemTotal}>R$ {Number(it.total_price).toFixed(2)}</Text>
                             </View>
-                            <Text style={styles.itemTotal}>R$ {Number(it.total_price).toFixed(2)}</Text>
+                          ))}
+                        </View>
+
+                        {/* Bloco de Desconto do Mercado se houver diferença de valor */}
+                        {economiaDesconto > 0.01 && (
+                          <View style={styles.discountCard}>
+                            <View style={styles.discountRow}>
+                              <Text style={styles.discountLabel}>Soma dos produtos:</Text>
+                              <Text style={styles.discountOriginal}>
+                                R$ {totalItemsBruto.toFixed(2).replace('.', ',')}
+                              </Text>
+                            </View>
+                            <View style={styles.discountRow}>
+                              <Text style={styles.discountHighlight}>🎉 Descontos do mercado:</Text>
+                              <Text style={styles.discountValue}>
+                                - R$ {economiaDesconto.toFixed(2).replace('.', ',')}
+                              </Text>
+                            </View>
                           </View>
-                        ))}
-                      </View>
+                        )}
+                      </>
                     ) : (
                       <View style={styles.emptyItemsBox}>
                         <Text style={styles.emptyItemsText}>Nenhum item discriminado para este lançamento.</Text>
@@ -713,11 +737,44 @@ const styles = StyleSheet.create({
   actionBtnDelete: { flex: 1, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: '#EF4444', backgroundColor: 'rgba(239, 68, 68, 0.1)', alignItems: 'center' },
   actionBtnDeleteText: { color: '#EF4444', fontWeight: 'bold', fontSize: 13 },
   sectionTitle: { color: '#94A3B8', fontSize: 11, fontWeight: 'bold', marginBottom: 6, textTransform: 'uppercase' },
-  itemsList: { backgroundColor: '#0F172A', borderRadius: 10, padding: 12, marginBottom: 14, borderWidth: 1, borderColor: '#334155' },
+  itemsList: { backgroundColor: '#0F172A', borderRadius: 10, padding: 12, marginBottom: 10, borderWidth: 1, borderColor: '#334155' },
   itemRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#1E293B' },
   itemName: { color: '#F8FAFC', fontSize: 13, fontWeight: '500' },
   itemSub: { color: '#64748B', fontSize: 11, marginTop: 2 },
   itemTotal: { color: '#F8FAFC', fontSize: 13, fontWeight: 'bold' },
+  discountCard: {
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+    borderWidth: 1,
+    borderColor: '#10B981',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 14,
+  },
+  discountRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  discountLabel: {
+    color: '#94A3B8',
+    fontSize: 12,
+  },
+  discountOriginal: {
+    color: '#94A3B8',
+    fontSize: 12,
+    textDecorationLine: 'line-through',
+  },
+  discountHighlight: {
+    color: '#34D399',
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  discountValue: {
+    color: '#34D399',
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
   emptyItemsBox: { backgroundColor: '#0F172A', borderRadius: 10, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: '#334155' },
   emptyItemsText: { color: '#64748B', fontSize: 12, textAlign: 'center' },
   closeFullBtn: { backgroundColor: '#334155', paddingVertical: 12, borderRadius: 10, alignItems: 'center', marginBottom: 8 },

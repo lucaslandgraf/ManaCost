@@ -18,9 +18,10 @@ interface Props {
   visible: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  eventId?: string; // Se fornecido, vincula a despesa ao evento específico
 }
 
-export const ScannerScreen: React.FC<Props> = ({ visible, onClose, onSuccess }) => {
+export const ScannerScreen: React.FC<Props> = ({ visible, onClose, onSuccess, eventId }) => {
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
   const [manualKeyModal, setManualKeyModal] = useState(false);
@@ -45,7 +46,11 @@ export const ScannerScreen: React.FC<Props> = ({ visible, onClose, onSuccess }) 
     setLoading(true);
     try {
       const { data, error } = await supabase.functions.invoke('parse-nfce', {
-        body: { raw_data: qrData, user_id: user?.id },
+        body: { 
+          raw_data: qrData, 
+          user_id: user?.id,
+          event_id: eventId || null // Envia o id do evento se presente
+        },
       });
 
       if (error) {
@@ -79,12 +84,36 @@ export const ScannerScreen: React.FC<Props> = ({ visible, onClose, onSuccess }) 
       } else if (!data?.success) {
         Alert.alert('Erro ao processar nota', data?.error || 'O servidor não confirmou a importação.');
       } else {
-        Alert.alert(
+        const storeName = data?.store_name ?? 'Mercado';
+        const totalAmount = Number(data?.total_amount ?? 0);
+
+        // Se a leitura foi disparada de um evento, registra em event_expenses
+        if (eventId && user) {
+          await supabase.from('event_expenses').insert([
+            {
+              event_id: eventId,
+              user_id: user.id,
+              description: `NFC-e: ${storeName}`,
+              amount: totalAmount,
+              category: 'Alimentação',
+              expense_date: new Date().toISOString().split('T')[0],
+            },
+          ]);
+        }
+
+       Alert.alert(
           'Sucesso',
-          `Compra em ${data?.store_name ?? 'Mercado'} no valor de R$ ${data?.total_amount ?? '0.00'} importada!`
+          `Compra em ${storeName} no valor de R$ ${totalAmount.toFixed(2)} importada!`,
+          [
+            {
+              text: 'OK',
+              onPress: async () => {
+                await onSuccess();
+                onClose();
+              },
+            },
+          ]
         );
-        onSuccess();
-        onClose();
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Não foi possível conectar ao servidor.';
@@ -157,6 +186,14 @@ export const ScannerScreen: React.FC<Props> = ({ visible, onClose, onSuccess }) 
               <View style={styles.targetFrame}>
                 <View style={styles.scanTarget} />
                 <Text style={styles.hintText}>Aponte para o QR Code da Nota Paraná</Text>
+
+                {/* Aviso de compatibilidade territorial */}
+                <View style={styles.warningCard}>
+                  <Text style={styles.warningTitle}>🇧🇷 Apenas Notas Fiscais Brasileiras</Text>
+                  <Text style={styles.warningSub}>
+                    Compatível exclusivamente com QR Codes de NFC-e (SEFAZ / Brasil). Comprovantes internacionais devem ser lançados manualmente.
+                  </Text>
+                </View>
               </View>
 
               <View style={styles.footer}>
@@ -183,7 +220,7 @@ export const ScannerScreen: React.FC<Props> = ({ visible, onClose, onSuccess }) 
         <Modal visible={manualKeyModal} transparent animationType="fade" statusBarTranslucent={true}>
           <View style={styles.modalBackdrop}>
             <View style={styles.manualCard}>
-              <Text style={styles.modalTitle}>Digitar Chave de Acesso</Text>
+              <Text style={styles.modalTitle}>Digitar Chave de Acesso (44 dígitos)</Text>
               <TextInput
                 placeholder="0000 0000 0000 0000 0000 0000 0000 0000 0000"
                 placeholderTextColor="#64748B"
@@ -247,8 +284,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   scanTarget: {
-    width: 260,
-    height: 260,
+    width: 250,
+    height: 250,
     borderWidth: 2,
     borderColor: '#10B981',
     borderRadius: 16,
@@ -256,12 +293,35 @@ const styles = StyleSheet.create({
   },
   hintText: {
     color: '#F8FAFC',
-    marginTop: 16,
-    fontSize: 14,
+    marginTop: 14,
+    fontSize: 13,
     backgroundColor: 'rgba(0,0,0,0.6)',
     paddingHorizontal: 12,
     paddingVertical: 4,
     borderRadius: 8,
+  },
+  warningCard: {
+    marginTop: 12,
+    backgroundColor: 'rgba(15, 23, 42, 0.88)',
+    borderWidth: 1,
+    borderColor: '#38BDF8',
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    maxWidth: 300,
+    alignItems: 'center',
+  },
+  warningTitle: {
+    color: '#38BDF8',
+    fontWeight: 'bold',
+    fontSize: 12,
+    marginBottom: 2,
+  },
+  warningSub: {
+    color: '#94A3B8',
+    fontSize: 10,
+    textAlign: 'center',
+    lineHeight: 14,
   },
   footer: {
     alignItems: 'center',
@@ -331,7 +391,7 @@ const styles = StyleSheet.create({
   },
   modalTitle: {
     color: '#F8FAFC',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: 'bold',
     marginBottom: 12,
   },

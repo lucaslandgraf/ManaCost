@@ -19,7 +19,7 @@ serve(async (req) => {
   }
 
   try {
-    const { raw_data, user_id } = await req.json();
+    const { raw_data, user_id, event_id } = await req.json();
 
     if (!raw_data || !user_id) {
       return new Response(
@@ -38,8 +38,7 @@ serve(async (req) => {
       if (pMatch) accessKey = pMatch[1];
     }
 
-    console.log("Processando leitura. Chave detectada:", accessKey);
-    console.log("Raw data recebido:", raw_data);
+    console.log("Processando leitura. Chave detetada:", accessKey);
 
     if (!accessKey || accessKey.length !== 44) {
       return new Response(
@@ -53,29 +52,97 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
     );
 
-    // 2. Trava de duplicidade
+    // 2. Verificação de existência prévia
     const { data: existingPurchase } = await supabaseAdmin
       .from("purchases")
-      .select("id, purchase_date")
+      .select("id, store_name, total_amount, purchase_date")
       .eq("access_key", accessKey)
       .maybeSingle();
 
-    if (existingPurchase) {
+    // Caso A: Se for chamada a partir de um Evento/Viagem, reaproveita os dados direto
+    if (existingPurchase && event_id) {
+      console.log("Nota já existente. Reutilizando para o evento:", event_id);
       return new Response(
         JSON.stringify({
-          already_registered: true,
-          message: "Esta nota fiscal já foi registrada anteriormente.",
+          success: true,
+          store_name: existingPurchase.store_name,
+          total_amount: Number(existingPurchase.total_amount).toFixed(2),
+          reused: true,
+          access_key: accessKey,
         }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // 3. Fazer requisição para a SEFAZ
+    // Caso B: Se for leitura normal da tela inicial e a nota já existe em `purchases`
+    if (existingPurchase && !event_id) {
+      // 1. Busca transação ativa recente associada a esta compra
+      const { data: activeTxList } = await supabaseAdmin
+        .from("transactions")
+        .select("id")
+        .eq("user_id", user_id)
+        .eq("amount", existingPurchase.total_amount)
+        .ilike("description", `%${existingPurchase.store_name}%`)
+        .limit(1);
+
+      const activeTx = activeTxList && activeTxList.length > 0 ? activeTxList[0] : null;
+
+      // Se a transação já está visível na tela inicial, avisa para evitar duplicar
+      if (activeTx) {
+        return new Response(
+          JSON.stringify({
+            already_registered: true,
+            message: "Esta nota fiscal já consta nos seus lançamentos.",
+          }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Se não existe na tela, busca categoria
+      const { data: category } = await supabaseAdmin
+        .from("categories")
+        .select("id")
+        .eq("user_id", user_id)
+        .ilike("name", "%Supermercado%")
+        .limit(1)
+        .maybeSingle();
+
+      // Recria a transação diretamente
+      const { error: insertTxError } = await supabaseAdmin.from("transactions").insert({
+        user_id,
+        category_id: category?.id || null,
+        description: `NFC-e: ${existingPurchase.store_name}`,
+        amount: existingPurchase.total_amount,
+        type: "expense",
+        date: existingPurchase.purchase_date || new Date().toISOString().split("T")[0],
+        is_settled: true,
+        purchase_id: existingPurchase.id,
+      });
+
+      if (insertTxError) {
+        console.error("Erro ao recriar transação:", insertTxError.message);
+        return new Response(
+          JSON.stringify({ error: `Falha ao recriar transação: ${insertTxError.message}` }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          store_name: existingPurchase.store_name,
+          total_amount: Number(existingPurchase.total_amount).toFixed(2),
+          recreated: true,
+          access_key: accessKey,
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // 3. Consulta à SEFAZ (apenas se for a primeira vez que o sistema processa a nota)
     const targetUrl = raw_data.startsWith("http")
       ? raw_data
       : `http://www.fazenda.pr.gov.br/nfce/qrcode?p=${accessKey}`;
-
-    console.log("Buscando URL da SEFAZ:", targetUrl);
 
     let storeName = "Supermercado / Estabelecimento";
     let totalAmount = 0;
@@ -93,8 +160,6 @@ serve(async (req) => {
       });
 
       const html = await resp.text();
-      console.log("Tamanho do HTML retornado:", html.length);
-      console.log("Amostra do HTML (primeiros 500 chars):", html.substring(0, 500));
 
       // Extração do Nome do Estabelecimento
       const storeMatch =
@@ -106,23 +171,27 @@ serve(async (req) => {
         storeName = storeMatch[1].trim();
       }
 
-      // Extração do Valor Total Real
-      const totalMatch =
-        html.match(/Valor\s*a\s*pagar[^<]*<\/span>[^<]*<span[^>]*class="[^"]*totalNumb[^"]*"[^>]*>([\d,.]+)/i) ||
-        html.match(/<span[^>]*class="[^"]*totalNumb\s+txtMax[^"]*"[^>]*>([\d,.]+)<\/span>/i) ||
-        html.match(/<span[^>]*class="[^"]*txtMax[^"]*"[^>]*>([\d,.]+)<\/span>/i) ||
-        html.match(/Valor\s*Total[^<]*<span[^>]*class="[^"]*totalNumb[^"]*"[^>]*>([\d,.]+)/i);
+      // 1. Extração do "Valor a pagar" (valor líquido real final)
+      const payMatch =
+        html.match(/Valor\s*a\s*pagar.*?class="[^"]*totalNumb[^"]*"[^>]*>([\d,.]+)/is) ||
+        html.match(/class="[^"]*totalNumb\s+txtMax[^"]*"[^>]*>([\d,.]+)<\/span>/i) ||
+        html.match(/Valor\s*Total.*?class="[^"]*totalNumb[^"]*"[^>]*>([\d,.]+)/is);
 
-      if (totalMatch) {
-        totalAmount = parseFloat(totalMatch[1].replace(/\./g, "").replace(",", ".").trim());
+      if (payMatch) {
+        totalAmount = parseFloat(payMatch[1].replace(/\./g, "").replace(",", ".").trim());
       }
 
-      // Extração de Itens
+      // 2. Extração de Descontos (caso conste na nota)
+      const discountMatch = html.match(/Descontos?.*?class="[^"]*totalNumb[^"]*"[^>]*>([\d,.]+)/is);
+      const discountVal = discountMatch
+        ? parseFloat(discountMatch[1].replace(/\./g, "").replace(",", ".").trim())
+        : 0;
+
+      // 3. Extração dos Itens
       const rows = html.match(/<tr[^>]*id="Item \+ \d+"[\s\S]*?<\/tr>/gi) ||
                    html.match(/<tr[^>]*class="[^"]*linhaItem[^"]*"[\s\S]*?<\/tr>/gi);
 
       if (rows && rows.length > 0) {
-        console.log(`Encontradas ${rows.length} linhas de itens no HTML.`);
         for (const row of rows) {
           const nameMatch = row.match(/<span[^>]*class="[^"]*txtTit2[^"]*"[^>]*>([^<]+)<\/span>/i);
           const qtyMatch = row.match(/Qtde\.:?<\/strong>\s*([\d,.]+)/i) || row.match(/(\d+[,\.]\d+)\s*UN/i);
@@ -142,20 +211,22 @@ serve(async (req) => {
             });
           }
         }
-      } else {
-        console.log("Nenhuma linha no formato padrão de tabela foi encontrada.");
+      }
+
+      // 4. Fallback de segurança: só soma itens se a leitura do "Valor a pagar" estiver vazia ou zerada
+      if (isNaN(totalAmount) || totalAmount <= 0) {
+        const sumItems = items.reduce((acc, it) => acc + (it.total_price || 0), 0);
+        totalAmount = Math.max(0, sumItems - discountVal);
       }
     } catch (fetchErr: any) {
-      console.error("Erro no fetch/parse do HTML da SEFAZ:", fetchErr.message);
+      console.error("Erro no fetch/parse da SEFAZ:", fetchErr.message);
     }
-
-    console.log(`Resumo: Loja="${storeName}", Total=${totalAmount}, Qtd Itens=${items.length}`);
 
     if (isNaN(totalAmount) || totalAmount <= 0) {
       totalAmount = 50.0;
     }
 
-    // 4. Salvar na tabela purchases
+    // 4. Gravar na tabela purchases
     const { data: newPurchase, error: purchaseError } = await supabaseAdmin
       .from("purchases")
       .insert({
@@ -169,7 +240,6 @@ serve(async (req) => {
       .single();
 
     if (purchaseError) {
-      console.error("Erro ao salvar purchase:", purchaseError.message);
       return new Response(JSON.stringify({ error: purchaseError.message }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -186,81 +256,76 @@ serve(async (req) => {
         unit_price: it.unit_price,
         total_price: it.total_price,
       }));
-      const { error: itemsError } = await supabaseAdmin.from("purchase_items").insert(itemsPayload);
-      if (itemsError) {
-        console.error("Erro ao salvar purchase_items:", itemsError.message);
-      } else {
-        console.log(`Salvos com sucesso ${items.length} itens.`);
+      await supabaseAdmin.from("purchase_items").insert(itemsPayload);
+    }
+
+    // 6. Se for um evento, não cria transação no orçamento geral 50/30/20
+    if (!event_id) {
+      const { data: account } = await supabaseAdmin
+        .from("accounts")
+        .select("id")
+        .eq("user_id", user_id)
+        .limit(1)
+        .single();
+
+      const storeUpper = storeName.toUpperCase();
+      let targetCategory = "Supermercado";
+
+      if (
+        storeUpper.includes("MODA") ||
+        storeUpper.includes("C&A") ||
+        storeUpper.includes("CA ") ||
+        storeUpper.includes("RENNER") ||
+        storeUpper.includes("RIACHUELO") ||
+        storeUpper.includes("ZARA")
+      ) {
+        targetCategory = "Vestuário & Moda";
+      } else if (
+        storeUpper.includes("DROGA") ||
+        storeUpper.includes("FARMACIA") ||
+        storeUpper.includes("RAIA") ||
+        storeUpper.includes("PANVEL") ||
+        storeUpper.includes("NISSEI")
+      ) {
+        targetCategory = "Saúde & Farmácia";
+      } else if (
+        storeUpper.includes("RESTAURANTE") ||
+        storeUpper.includes("PIZZARIA") ||
+        storeUpper.includes("BURGER") ||
+        storeUpper.includes("BAR")
+      ) {
+        targetCategory = "Lazer & Restaurantes";
       }
-    }
 
-    // 6. Conta bancária do usuário
-    const { data: account } = await supabaseAdmin
-      .from("accounts")
-      .select("id")
-      .eq("user_id", user_id)
-      .limit(1)
-      .single();
-
-    // 7. Categorização inteligente
-    const storeUpper = storeName.toUpperCase();
-    let targetCategory = "Supermercado";
-
-    if (
-      storeUpper.includes("MODA") ||
-      storeUpper.includes("C&A") ||
-      storeUpper.includes("CA ") ||
-      storeUpper.includes("RENNER") ||
-      storeUpper.includes("RIACHUELO") ||
-      storeUpper.includes("ZARA")
-    ) {
-      targetCategory = "Vestuário & Moda";
-    } else if (
-      storeUpper.includes("DROGA") ||
-      storeUpper.includes("FARMACIA") ||
-      storeUpper.includes("RAIA") ||
-      storeUpper.includes("PANVEL") ||
-      storeUpper.includes("NISSEI")
-    ) {
-      targetCategory = "Saúde & Farmácia";
-    } else if (
-      storeUpper.includes("RESTAURANTE") ||
-      storeUpper.includes("PIZZARIA") ||
-      storeUpper.includes("BURGER") ||
-      storeUpper.includes("BAR")
-    ) {
-      targetCategory = "Lazer & Restaurantes";
-    }
-
-    let { data: category } = await supabaseAdmin
-      .from("categories")
-      .select("id")
-      .eq("user_id", user_id)
-      .ilike("name", `%${targetCategory}%`)
-      .maybeSingle();
-
-    if (!category) {
-      const { data: defaultCat } = await supabaseAdmin
+      let { data: category } = await supabaseAdmin
         .from("categories")
         .select("id")
         .eq("user_id", user_id)
-        .eq("name", "Supermercado")
+        .ilike("name", `%${targetCategory}%`)
         .maybeSingle();
-      category = defaultCat;
-    }
 
-    // 8. Criar transação financeira
-    await supabaseAdmin.from("transactions").insert({
-      user_id,
-      account_id: account?.id,
-      category_id: category?.id,
-      description: `NFC-e: ${storeName}`,
-      amount: totalAmount,
-      type: "expense",
-      date: new Date().toISOString().split("T")[0],
-      is_settled: true,
-      purchase_id: newPurchase?.id, // <-- Adicione esta linha se a coluna existir no seu schema
-    });
+      if (!category) {
+        const { data: defaultCat } = await supabaseAdmin
+          .from("categories")
+          .select("id")
+          .eq("user_id", user_id)
+          .eq("name", "Supermercado")
+          .maybeSingle();
+        category = defaultCat;
+      }
+
+      await supabaseAdmin.from("transactions").insert({
+        user_id,
+        account_id: account?.id,
+        category_id: category?.id,
+        description: `NFC-e: ${storeName}`,
+        amount: totalAmount,
+        type: "expense",
+        date: new Date().toISOString().split("T")[0],
+        is_settled: true,
+        purchase_id: newPurchase?.id,
+      });
+    }
 
     return new Response(
       JSON.stringify({
@@ -273,7 +338,6 @@ serve(async (req) => {
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err: any) {
-    console.error("Erro geral na Edge Function:", err.message);
     return new Response(JSON.stringify({ error: err.message }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
