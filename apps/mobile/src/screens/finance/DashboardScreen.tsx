@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { supabase } from '../../config/supabase';
 import { useAuth } from '../../context/AuthContext';
+import { useOfflineSync } from '../../hooks/useOfflineSync';
 import { NewTransactionModal } from './NewTransactionModal';
 import { ScannerScreen } from './ScannerScreen';
 import { PurchaseDetailsModal } from './PurchaseDetailsModal';
@@ -22,6 +23,8 @@ import { SettingsModal } from './SettingsModal';
 import { YieldCalculatorModal } from './YieldCalculatorModal';
 import { PriceSearchScreen } from './PriceSearchScreen';
 import { RecurringBillsModal } from './RecurringBillsModal';
+import { TravelEstimatorModal } from './TravelEstimatorModal';
+import { ReportsModal } from './ReportsModal';
 
 interface Transaction {
   id: string;
@@ -33,6 +36,7 @@ interface Transaction {
   repeats_monthly?: boolean;
   split_status?: 'none' | 'gift' | 'pending' | 'settled' | null;
   spent_for_name?: string | null;
+  budget_bucket?: 'needs' | 'wants' | 'savings' | null;
   categories?: { name: string; rule_group: string } | { name: string; rule_group: string }[] | null;
 }
 
@@ -50,6 +54,13 @@ export const DashboardScreen = ({ navigation }: any) => {
   const [recurringModalVisible, setRecurringModalVisible] = useState(false);
   const [toolsModalVisible, setToolsModalVisible] = useState(false);
   const [baseSalaryIncome, setBaseSalaryIncome] = useState(0);
+  const [estimatorVisible, setEstimatorVisible] = useState(false);
+  const [reportsModalVisible, setReportsModalVisible] = useState(false);
+
+  // Monitorização de conectividade e fila de sincronização offline
+  const { isOnline, pendingCount } = useOfflineSync(() => {
+    fetchTransactions();
+  });
 
   // Regras orçamentais da tabela profiles
   const [budgetRules, setBudgetRules] = useState({
@@ -127,21 +138,26 @@ export const DashboardScreen = ({ navigation }: any) => {
     const { startDate, endDate } = getMonthDateRange(currentDate);
 
     try {
-      // 1. Procura as transações já registadas para o mês selecionado (incluindo repeats_monthly)
+      // 1. Procura as transações registadas (incluindo budget_bucket)
       const { data: existingData } = await supabase
         .from('transactions')
-        .select('id, description, amount, type, date, is_settled, split_status, spent_for_name, repeats_monthly, categories(name, rule_group)')
+        .select('id, description, amount, type, date, is_settled, split_status, spent_for_name, repeats_monthly, budget_bucket, categories(name, rule_group)')
         .gte('date', startDate)
         .lte('date', endDate)
         .order('date', { ascending: false });
 
       let currentItems: Transaction[] = (existingData as unknown as Transaction[]) || [];
 
-      // 2. Procura todas as contas ativas na tabela recurring_bills
-      const { data: activeBills } = await supabase
+     // 2. Procura todas as contas/receitas ativas do usuário
+      const { data: activeBills, error: recError } = await supabase
         .from('recurring_bills')
-        .select('id, description, amount, due_day, category_id, type')
+        .select('id, description, amount, due_day, category_id, type, spent_for_name')
+        .eq('user_id', user.id)
         .eq('is_active', true);
+
+      if (recError) {
+        console.warn('Erro ao carregar recurring_bills:', recError.message);
+      }
 
       if (activeBills && activeBills.length > 0) {
         const existingDescriptions = new Set(
@@ -155,7 +171,7 @@ export const DashboardScreen = ({ navigation }: any) => {
         for (const bill of activeBills) {
           if (!existingDescriptions.has(bill.description.trim().toLowerCase())) {
             const lastDayOfMonth = new Date(year, month + 1, 0).getDate();
-            const validDay = Math.min(bill.due_day, lastDayOfMonth);
+            const validDay = Math.min(bill.due_day || 1, lastDayOfMonth);
             const targetDate = new Date(year, month, validDay).toISOString().split('T')[0];
 
             toAutoInsert.push({
@@ -163,10 +179,10 @@ export const DashboardScreen = ({ navigation }: any) => {
               description: bill.description.trim(),
               amount: bill.amount,
               type: bill.type || 'expense',
-              category_id: bill.category_id,
+              category_id: bill.category_id || null,
               date: targetDate,
               is_settled: false,
-              spent_for_name: (bill as any).spent_for_name || null,
+              spent_for_name: bill.spent_for_name || null,
               split_status: 'none',
               repeats_monthly: true,
             });
@@ -177,9 +193,11 @@ export const DashboardScreen = ({ navigation }: any) => {
           const { data: insertedData, error: insError } = await supabase
             .from('transactions')
             .insert(toAutoInsert)
-            .select('id, description, amount, type, date, is_settled, split_status, spent_for_name, repeats_monthly, categories(name, rule_group)');
+            .select('id, description, amount, type, date, is_settled, split_status, spent_for_name, repeats_monthly, budget_bucket, categories(name, rule_group)');
 
-          if (!insError && insertedData) {
+          if (insError) {
+            console.warn('Erro ao auto-inserir recorrentes no mês:', insError.message);
+          } else if (insertedData) {
             currentItems = [...(insertedData as unknown as Transaction[]), ...currentItems];
           }
         }
@@ -214,7 +232,6 @@ export const DashboardScreen = ({ navigation }: any) => {
       if (item.type === 'income') {
         income += val;
 
-        // Considera salário pelo título OU pela categoria selecionada
         const isSalary =
           desc.includes('salário') ||
           desc.includes('salario') ||
@@ -227,14 +244,23 @@ export const DashboardScreen = ({ navigation }: any) => {
       } else {
         if (item.split_status === 'settled') return;
         expense += val;
-        if (catObj?.rule_group === 'needs_50') needs += val;
-        else if (catObj?.rule_group === 'wants_30') wants += val;
-        else if (catObj?.rule_group === 'savings_20') savings += val;
+
+        if (item.budget_bucket === 'needs') {
+          needs += val;
+        } else if (item.budget_bucket === 'wants') {
+          wants += val;
+        } else if (item.budget_bucket === 'savings') {
+          savings += val;
+        } else {
+          if (catObj?.rule_group === 'needs_50') needs += val;
+          else if (catObj?.rule_group === 'wants_30') wants += val;
+          else if (catObj?.rule_group === 'savings_20') savings += val;
+          else needs += val;
+        }
       }
     });
 
     setTotalIncome(income);
-    // Se encontrou salário cadastrado, fixa nele; caso contrário, usa o total de receitas
     setBaseSalaryIncome(salaryBase > 0 ? salaryBase : income);
     setTotalExpense(expense);
     setSpentNeeds(needs);
@@ -287,33 +313,40 @@ export const DashboardScreen = ({ navigation }: any) => {
             },
           },
           {
-            text: 'Cancelar assinatura e apagar dos meses futuros',
-            style: 'destructive',
-            onPress: async () => {
-              await supabase
-                .from('recurring_bills')
-                .delete()
-                .ilike('description', item.description.trim());
+  text: 'Cancelar assinatura e apagar dos meses futuros',
+  style: 'destructive',
+  onPress: async () => {
+    // 1. Apaga a regra de recorrência para não gerar mais
+    await supabase
+      .from('recurring_bills')
+      .delete()
+      .ilike('description', item.description.trim());
 
-              await supabase
-                .from('transactions')
-                .update({ repeats_monthly: false })
-                .ilike('description', item.description.trim());
+    // 2. Apaga o lançamento atual (mesmo que já esteja efetivado)
+    await supabase
+      .from('transactions')
+      .delete()
+      .eq('id', item.id);
 
-              if (user) {
-                await supabase
-                  .from('transactions')
-                  .delete()
-                  .eq('user_id', user.id)
-                  .ilike('description', item.description.trim())
-                  .gte('date', item.date)
-                  .eq('is_settled', false);
-              }
+    // 3. Apaga os lançamentos futuros não efetivados
+    if (user) {
+      await supabase
+        .from('transactions')
+        .delete()
+        .eq('user_id', user.id)
+        .ilike('description', item.description.trim())
+        .gt('date', item.date)
+        .eq('is_settled', false);
+    }
 
-              fetchTransactions();
-              Alert.alert('Sucesso', 'Assinatura cancelada e removida dos meses atuais e futuros.');
-            },
-          },
+    // 4. Atualiza a lista visual imediatamente no mês corrente
+    const remaining = transactions.filter((tx) => tx.id !== item.id);
+    setTransactions(remaining);
+    calculateMetrics(remaining);
+
+    Alert.alert('Sucesso', 'Assinatura cancelada e removida dos meses atuais e futuros.');
+  },
+},
         ]
       );
       return;
@@ -397,24 +430,25 @@ export const DashboardScreen = ({ navigation }: any) => {
       const toInsert = [];
 
       for (const bill of bills) {
-        if (!existingNames.has(bill.description.trim().toLowerCase())) {
-          const lastDayOfMonth = new Date(year, month + 1, 0).getDate();
-          const validDay = Math.min(bill.due_day, lastDayOfMonth);
-          const billDate = new Date(year, month, validDay).toISOString().split('T')[0];
+  if (!existingNames.has(bill.description.trim().toLowerCase())) {
+    const lastDayOfMonth = new Date(year, month + 1, 0).getDate();
+    const validDay = Math.min(bill.due_day, lastDayOfMonth);
+    const billDate = new Date(year, month, validDay).toISOString().split('T')[0];
 
-          toInsert.push({
-            user_id: user.id,
-            description: bill.description.trim(),
-            amount: bill.amount,
-            type: bill.type || 'expense',
-            category_id: bill.category_id,
-            date: billDate,
-            is_settled: false,
-            split_status: 'none',
-            repeats_monthly: true,
-          });
-        }
-      }
+    toInsert.push({
+      user_id: user.id,
+      description: bill.description.trim(),
+      amount: bill.amount,
+      type: bill.type || 'expense',
+      category_id: bill.category_id,
+      date: billDate,
+      is_settled: false,
+      spent_for_name: (bill as any).spent_for_name || null, // <- Adicione esta linha
+      split_status: 'none',
+      repeats_monthly: true,
+    });
+  }
+}
 
       if (toInsert.length > 0) {
         const { error } = await supabase.from('transactions').insert(toInsert);
@@ -432,6 +466,15 @@ export const DashboardScreen = ({ navigation }: any) => {
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* Barra de Aviso de Modo Offline */}
+      {!isOnline && (
+        <View style={styles.offlineBanner}>
+          <Text style={styles.offlineBannerText}>
+            📡 Modo Offline ativo • {pendingCount} lançamento(s) pendente(s)
+          </Text>
+        </View>
+      )}
+
       <View style={styles.header}>
         <View>
           <Text style={styles.welcomeText}>ManaCost</Text>
@@ -526,7 +569,7 @@ export const DashboardScreen = ({ navigation }: any) => {
         </View>
       </View>
 
-      {/* Cabeçalho de Lançamentos Limpo e Direto */}
+      {/* Cabeçalho de Lançamentos */}
       <View style={styles.sectionHeaderRow}>
         <View>
           <Text style={styles.sectionTitle}>Lançamentos</Text>
@@ -552,7 +595,7 @@ export const DashboardScreen = ({ navigation }: any) => {
         </View>
       </View>
 
-      {/* Lista com resguardo inferior seguro para a barra de navegação do Android */}
+      {/* Lista com resguardo inferior seguro */}
       <FlatList
         data={transactions}
         keyExtractor={(item) => item.id}
@@ -653,6 +696,22 @@ export const DashboardScreen = ({ navigation }: any) => {
                 style={styles.toolItem}
                 onPress={() => {
                   setToolsModalVisible(false);
+                  setReportsModalVisible(true);
+                }}
+              >
+                <View style={[styles.toolIconBox, { backgroundColor: 'rgba(56, 189, 248, 0.15)' }]}>
+                  <Text style={styles.toolIcon}>📊</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.toolLabel}>Relatórios & Exportação</Text>
+                  <Text style={styles.toolSub}>CSV, acerto de contas e 50/30/20</Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.toolItem}
+                onPress={() => {
+                  setToolsModalVisible(false);
                   navigation.navigate('Events');
                 }}
               >
@@ -662,6 +721,22 @@ export const DashboardScreen = ({ navigation }: any) => {
                 <View style={{ flex: 1 }}>
                   <Text style={styles.toolLabel}>Viagens & Eventos</Text>
                   <Text style={styles.toolSub}>Orçamento fechado e isolado</Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.toolItem}
+                onPress={() => {
+                  setToolsModalVisible(false);
+                  setEstimatorVisible(true);
+                }}
+              >
+                <View style={[styles.toolIconBox, { backgroundColor: 'rgba(20, 184, 166, 0.15)' }]}>
+                  <Text style={styles.toolIcon}>🧭</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.toolLabel}>Estimativas de Viagem</Text>
+                  <Text style={styles.toolSub}>Distância, combustível, diárias e refeições</Text>
                 </View>
               </TouchableOpacity>
 
@@ -749,6 +824,18 @@ export const DashboardScreen = ({ navigation }: any) => {
         </TouchableOpacity>
       </Modal>
 
+      <ReportsModal
+  visible={reportsModalVisible}
+  onClose={() => setReportsModalVisible(false)}
+  currentMonthDate={currentDate}
+/>
+
+      <TravelEstimatorModal
+        visible={estimatorVisible}
+        onClose={() => setEstimatorVisible(false)}
+        onEventCreated={fetchTransactions}
+      />
+
       <NewTransactionModal
         visible={modalVisible}
         onClose={() => setModalVisible(false)}
@@ -819,6 +906,18 @@ const styles = StyleSheet.create({
   container: { 
     flex: 1, 
     backgroundColor: '#0F172A',
+  },
+  offlineBanner: {
+    backgroundColor: '#F59E0B',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  offlineBannerText: {
+    color: '#0F172A',
+    fontSize: 12,
+    fontWeight: 'bold',
   },
   header: {
     flexDirection: 'row',

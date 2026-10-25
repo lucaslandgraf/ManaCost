@@ -888,7 +888,7 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
                     style={styles.catalogLoadingMore}
                     color="#38BDF8"
                   />
-                ) : null
+                ) : undefined
               }
             />
           )}

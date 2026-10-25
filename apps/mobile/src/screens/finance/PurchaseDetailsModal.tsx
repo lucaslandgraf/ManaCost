@@ -27,6 +27,7 @@ interface Category {
   id: string;
   name: string;
   type: string;
+  rule_group?: string;
 }
 
 interface Props {
@@ -74,6 +75,7 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
   const [editDesc, setEditDesc] = useState(description);
   const [editAmount, setEditAmount] = useState(amount.toString());
   const [editRepeats, setEditRepeats] = useState(false);
+  const [selectedBucket, setSelectedBucket] = useState<'needs' | 'wants' | 'savings'>('needs');
   
   // Terceiros
   const [isForSomeone, setIsForSomeone] = useState(false);
@@ -99,7 +101,7 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
   const fetchCategories = async () => {
     const { data } = await supabase
       .from('categories')
-      .select('id, name, type')
+      .select('id, name, type, rule_group')
       .order('name');
     setCategories(data || []);
   };
@@ -109,7 +111,7 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
     try {
       const { data: txData, error: txError } = await supabase
         .from('transactions')
-        .select('*')
+        .select('*, categories(rule_group)')
         .eq('id', transactionId)
         .single();
 
@@ -124,6 +126,19 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
 
         setEditDesc(txData.description || description);
         setEditAmount(String(txData.amount || amount));
+
+        // Inicializa o bucket 50/30/20 (do banco ou da categoria associada)
+        if (txData.budget_bucket) {
+          setSelectedBucket(txData.budget_bucket);
+        } else if (txData.categories?.rule_group) {
+          const rule = txData.categories.rule_group;
+          if (rule === 'needs_50') setSelectedBucket('needs');
+          else if (rule === 'wants_30') setSelectedBucket('wants');
+          else if (rule === 'savings_20') setSelectedBucket('savings');
+          else setSelectedBucket('needs');
+        } else {
+          setSelectedBucket('needs');
+        }
 
         if (txData.spent_for_name) {
           setIsForSomeone(true);
@@ -273,6 +288,7 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
           spent_for_name: finalSpentFor,
           split_status: finalSplitStatus,
           repeats_monthly: editRepeats,
+          budget_bucket: currentType === 'expense' ? selectedBucket : null,
         })
         .eq('id', transactionId);
 
@@ -298,6 +314,7 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
               category_id: selectedCatId,
               spent_for_name: finalSpentFor,
               split_status: finalSplitStatus,
+              budget_bucket: currentType === 'expense' ? selectedBucket : null,
             })
             .eq('user_id', user.id)
             .ilike('description', currentDesc.trim())
@@ -312,7 +329,7 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
 
       setIsEditing(false);
       onUpdated();
-      Alert.alert('Sucesso', 'Lançamento e meses futuros atualizados!');
+      Alert.alert('Sucesso', 'Lançamento atualizado!');
     } catch (err: any) {
       Alert.alert('Erro ao atualizar', err.message);
     } finally {
@@ -440,13 +457,82 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
                   placeholderTextColor="#64748B"
                 />
 
+                {/* Seleção do Grupo Orçamental 50/30/20 */}
+                {!isIncome && (
+                  <View style={styles.bucketSection}>
+                    <Text style={styles.label}>Atribuir à regra orçamental (50/30/20):</Text>
+                    <View style={styles.bucketRow}>
+                      <TouchableOpacity
+                        style={[
+                          styles.bucketBtn,
+                          selectedBucket === 'needs' && styles.bucketNeedsActive,
+                        ]}
+                        onPress={() => setSelectedBucket('needs')}
+                        activeOpacity={0.7}
+                      >
+                        <Text
+                          style={[
+                            styles.bucketText,
+                            selectedBucket === 'needs' && styles.bucketTextActive,
+                          ]}
+                        >
+                          Necessidades{'\n'}(50%)
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[
+                          styles.bucketBtn,
+                          selectedBucket === 'wants' && styles.bucketWantsActive,
+                        ]}
+                        onPress={() => setSelectedBucket('wants')}
+                        activeOpacity={0.7}
+                      >
+                        <Text
+                          style={[
+                            styles.bucketText,
+                            selectedBucket === 'wants' && styles.bucketTextActive,
+                          ]}
+                        >
+                          Desejos{'\n'}(30%)
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[
+                          styles.bucketBtn,
+                          selectedBucket === 'savings' && styles.bucketSavingsActive,
+                        ]}
+                        onPress={() => setSelectedBucket('savings')}
+                        activeOpacity={0.7}
+                      >
+                        <Text
+                          style={[
+                            styles.bucketText,
+                            selectedBucket === 'savings' && styles.bucketTextActive,
+                          ]}
+                        >
+                          Reserva{'\n'}(20%)
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+
                 <Text style={styles.label}>Categoria no Orçamento:</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
                   {filteredCategories.map((c) => (
                     <TouchableOpacity
                       key={c.id}
                       style={[styles.catChip, selectedCatId === c.id && styles.catChipActive]}
-                      onPress={() => setSelectedCatId(c.id)}
+                      onPress={() => {
+                        setSelectedCatId(c.id);
+                        if (c.rule_group) {
+                          if (c.rule_group === 'needs_50') setSelectedBucket('needs');
+                          else if (c.rule_group === 'wants_30') setSelectedBucket('wants');
+                          else if (c.rule_group === 'savings_20') setSelectedBucket('savings');
+                        }
+                      }}
                     >
                       <Text style={[styles.catChipText, selectedCatId === c.id && styles.catChipTextActive]}>
                         {c.name}
@@ -782,6 +868,24 @@ const styles = StyleSheet.create({
   editContainer: { paddingVertical: 4 },
   label: { color: '#94A3B8', fontSize: 12, marginBottom: 6 },
   input: { backgroundColor: '#0F172A', color: '#F8FAFC', padding: 12, borderRadius: 8, fontSize: 15, marginBottom: 10, borderWidth: 1, borderColor: '#334155' },
+  bucketSection: { marginVertical: 4 },
+  bucketRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
+  bucketBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+    borderRadius: 8,
+    backgroundColor: '#0F172A',
+    borderWidth: 1,
+    borderColor: '#334155',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bucketNeedsActive: { backgroundColor: 'rgba(56, 189, 248, 0.2)', borderColor: '#38BDF8' },
+  bucketWantsActive: { backgroundColor: 'rgba(245, 158, 11, 0.2)', borderColor: '#F59E0B' },
+  bucketSavingsActive: { backgroundColor: 'rgba(16, 185, 129, 0.2)', borderColor: '#10B981' },
+  bucketText: { color: '#94A3B8', fontSize: 11, fontWeight: '600', textAlign: 'center' },
+  bucketTextActive: { color: '#F8FAFC', fontWeight: 'bold' },
   catChip: { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: '#0F172A', borderRadius: 16, marginRight: 6, borderWidth: 1, borderColor: '#334155' },
   catChipActive: { backgroundColor: '#38BDF8', borderColor: '#38BDF8' },
   catChipText: { color: '#94A3B8', fontSize: 12 },

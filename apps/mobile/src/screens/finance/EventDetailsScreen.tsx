@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { supabase } from '../../config/supabase';
 import { ScannerScreen } from './ScannerScreen';
+import { checkIsOnline, enqueueOfflineAction } from '../../services/offlineSync';
 
 interface Expense {
   id: string;
@@ -23,6 +24,7 @@ interface Expense {
   amount: number;
   category: string;
   expense_date: string;
+  is_offline_pending?: boolean;
 }
 
 interface PurchaseItem {
@@ -36,9 +38,11 @@ interface PurchaseItem {
 export function EventDetailsScreen({ route, navigation }: any) {
   const { eventId, title: initialTitle, currency = 'BRL', targetBudget: initialBudget = 0 } = route.params;
 
-  // Estados do evento (título e orçamento previsto editáveis)
+  // Estados do evento (título, orçamento previsto, simulação e arquivamento)
   const [currentEventTitle, setCurrentEventTitle] = useState(initialTitle);
   const [currentTargetBudget, setCurrentTargetBudget] = useState(Number(initialBudget) || 0);
+  const [eventDescription, setEventDescription] = useState<string | null>(null);
+  const [isArchived, setIsArchived] = useState(false);
 
   const [editEventModalVisible, setEditEventModalVisible] = useState(false);
   const [newEventTitleInput, setNewEventTitleInput] = useState(initialTitle);
@@ -73,6 +77,23 @@ export function EventDetailsScreen({ route, navigation }: any) {
 
   const fetchExpenses = async () => {
     try {
+      // 1. Carrega dados do evento (título, meta, simulação e status de arquivado)
+      const { data: eventData } = await supabase
+        .from('budget_events')
+        .select('title, target_budget, description, is_archived')
+        .eq('id', eventId)
+        .single();
+
+      if (eventData) {
+        if (eventData.title) setCurrentEventTitle(eventData.title);
+        if (eventData.target_budget !== undefined) {
+          setCurrentTargetBudget(Number(eventData.target_budget) || 0);
+        }
+        setEventDescription(eventData.description || null);
+        setIsArchived(Boolean(eventData.is_archived));
+      }
+
+      // 2. Carrega as despesas
       const { data, error } = await supabase
         .from('event_expenses')
         .select('*')
@@ -82,7 +103,7 @@ export function EventDetailsScreen({ route, navigation }: any) {
       if (error) throw error;
       setExpenses(data || []);
     } catch (err: any) {
-      Alert.alert('Erro', 'Não foi possível carregar as despesas do evento.');
+      console.warn('Aviso ao carregar despesas do evento:', err);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -98,7 +119,7 @@ export function EventDetailsScreen({ route, navigation }: any) {
     currentTargetBudget > 0 ? Math.min((totalSpent / currentTargetBudget) * 100, 100) : 0;
 
   // Atualizar título e orçamento na tabela budget_events
- const handleUpdateEvent = async () => {
+  const handleUpdateEvent = async () => {
     if (!newEventTitleInput.trim()) {
       Alert.alert('Atenção', 'Informe um nome para o evento.');
       return;
@@ -135,6 +156,57 @@ export function EventDetailsScreen({ route, navigation }: any) {
     }
   };
 
+  // Alternar entre Ativo e Arquivado
+  const handleToggleArchiveCurrentEvent = async () => {
+    const nextState = !isArchived;
+    try {
+      const { error } = await supabase
+        .from('budget_events')
+        .update({ is_archived: nextState })
+        .eq('id', eventId);
+
+      if (error) throw error;
+
+      setIsArchived(nextState);
+      setEditEventModalVisible(false);
+      Alert.alert(
+        nextState ? 'Viagem Concluída 📦' : 'Viagem Reativada ✈️',
+        nextState
+          ? 'O evento foi arquivado e agora está no histórico.'
+          : 'O evento voltou para a lista de viagens ativas.'
+      );
+    } catch (err: any) {
+      Alert.alert('Erro', err.message || 'Falha ao alterar status do evento.');
+    }
+  };
+
+  // Excluir o evento e todos os seus gastos
+  const handleDeleteWholeEvent = () => {
+    Alert.alert(
+      'Excluir Evento',
+      `Tem certeza de que deseja apagar "${currentEventTitle}" e todos os registros vinculados a ele?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Excluir Definitivamente',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await supabase.from('event_expenses').delete().eq('event_id', eventId);
+              const { error } = await supabase.from('budget_events').delete().eq('id', eventId);
+              if (error) throw error;
+
+              setEditEventModalVisible(false);
+              navigation.goBack();
+            } catch (err: any) {
+              Alert.alert('Erro', err.message || 'Falha ao remover evento.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const handleCreateExpense = async () => {
     if (!description.trim() || !amount.trim()) {
       Alert.alert('Atenção', 'Preencha a descrição e o valor da despesa.');
@@ -153,16 +225,46 @@ export function EventDetailsScreen({ route, navigation }: any) {
         return;
       }
 
-      const { error } = await supabase.from('event_expenses').insert([
-        {
-          event_id: eventId,
-          user_id: user.id,
-          description: description.trim(),
-          amount: numVal,
-          category,
-          expense_date: new Date().toISOString().split('T')[0],
-        },
-      ]);
+      const todayDate = new Date().toISOString().split('T')[0];
+      const payload = {
+        event_id: eventId,
+        user_id: user.id,
+        description: description.trim(),
+        amount: numVal,
+        category,
+        expense_date: todayDate,
+      };
+
+      const isOnline = await checkIsOnline();
+
+      if (!isOnline) {
+        const enqueued = await enqueueOfflineAction('event_expenses', payload);
+
+        setExpenses((prev) => [
+          {
+            id: enqueued.id,
+            description: payload.description,
+            amount: payload.amount,
+            category: payload.category,
+            expense_date: payload.expense_date,
+            is_offline_pending: true,
+          },
+          ...prev,
+        ]);
+
+        Alert.alert(
+          'Guardado Offline 📴',
+          'Está sem ligação à rede. A despesa ficou guardada no dispositivo e será sincronizada assim que a internet regressar.'
+        );
+
+        setModalVisible(false);
+        setDescription('');
+        setAmount('');
+        setCategory('Geral');
+        return;
+      }
+
+      const { error } = await supabase.from('event_expenses').insert([payload]);
 
       if (error) throw error;
 
@@ -172,6 +274,48 @@ export function EventDetailsScreen({ route, navigation }: any) {
       setCategory('Geral');
       fetchExpenses();
     } catch (err: any) {
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (user) {
+          const numVal = parseFloat(amount.replace(',', '.'));
+          const payload = {
+            event_id: eventId,
+            user_id: user.id,
+            description: description.trim(),
+            amount: numVal,
+            category,
+            expense_date: new Date().toISOString().split('T')[0],
+          };
+
+          const enqueued = await enqueueOfflineAction('event_expenses', payload);
+
+          setExpenses((prev) => [
+            {
+              id: enqueued.id,
+              description: payload.description,
+              amount: payload.amount,
+              category: payload.category,
+              expense_date: payload.expense_date,
+              is_offline_pending: true,
+            },
+            ...prev,
+          ]);
+
+          Alert.alert(
+            'Guardado Offline 📴',
+            'A ligação oscilou, mas a despesa foi guardada localmente e será sincronizada assim que possível.'
+          );
+
+          setModalVisible(false);
+          setDescription('');
+          setAmount('');
+          setCategory('Geral');
+          return;
+        }
+      } catch {}
+
       Alert.alert('Erro', err.message || 'Falha ao salvar o lançamento.');
     }
   };
@@ -281,7 +425,6 @@ export function EventDetailsScreen({ route, navigation }: any) {
           <Text style={styles.backButtonText}>‹</Text>
         </TouchableOpacity>
 
-        {/* Tocar no título abre o modal de edição do evento */}
         <TouchableOpacity
           style={styles.headerTitleContainer}
           onPress={() => {
@@ -295,9 +438,28 @@ export function EventDetailsScreen({ route, navigation }: any) {
             <Text style={styles.headerTitle} numberOfLines={1}>
               {currentEventTitle}
             </Text>
+            {isArchived && (
+              <View style={styles.archivedHeaderBadge}>
+                <Text style={styles.archivedHeaderBadgeText}>ARQUIVADO</Text>
+              </View>
+            )}
             <Text style={styles.editTitleIcon}>✏️</Text>
           </View>
           <Text style={styles.headerSub}>Despesas do evento ({currency}) • Toque p/ configurar</Text>
+        </TouchableOpacity>
+
+        {/* Botão de Checklist da Viagem */}
+        <TouchableOpacity
+          style={styles.checklistButton}
+          onPress={() =>
+            navigation.navigate('EventChecklist', {
+              eventId,
+              title: currentEventTitle,
+            })
+          }
+          activeOpacity={0.7}
+        >
+          <Text style={styles.checklistButtonIcon}>📋</Text>
         </TouchableOpacity>
 
         {/* Botão de Scanner NFC-e */}
@@ -319,7 +481,7 @@ export function EventDetailsScreen({ route, navigation }: any) {
         </TouchableOpacity>
       </View>
 
-      {/* Card de Resumo do Orçamento (Clicável para editar meta) */}
+      {/* Card de Resumo do Orçamento */}
       <TouchableOpacity
         style={styles.summaryCard}
         activeOpacity={0.7}
@@ -361,13 +523,27 @@ export function EventDetailsScreen({ route, navigation }: any) {
                 styles.progressBar,
                 {
                   width: `${progress}%`,
-                  backgroundColor: progress >= 100 ? '#EF4444' : '#38BDF8',
+                  backgroundColor: isArchived
+                    ? '#64748B'
+                    : progress >= 100
+                    ? '#EF4444'
+                    : '#38BDF8',
                 },
               ]}
             />
           </View>
         )}
       </TouchableOpacity>
+
+      {/* Memória de Cálculo / Estimativa Salva da Simulação */}
+      {eventDescription ? (
+        <View style={styles.simulationCard}>
+          <View style={styles.simulationHeader}>
+            <Text style={styles.simulationTitle}>🧭 Memória de Cálculo da Simulação</Text>
+          </View>
+          <Text style={styles.simulationBodyText}>{eventDescription}</Text>
+        </View>
+      ) : null}
 
       {/* Lista de Despesas */}
       <View style={styles.listHeaderRow}>
@@ -395,12 +571,19 @@ export function EventDetailsScreen({ route, navigation }: any) {
           contentContainerStyle={{ paddingBottom: 40 }}
           renderItem={({ item }: { item: Expense }) => (
             <TouchableOpacity
-              style={styles.expenseItem}
+              style={[styles.expenseItem, item.is_offline_pending && styles.expenseItemOffline]}
               activeOpacity={0.7}
               onPress={() => openExpenseDetail(item)}
             >
               <View style={{ flex: 1, paddingRight: 8 }}>
-                <Text style={styles.expenseDesc}>{item.description}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={styles.expenseDesc}>{item.description}</Text>
+                  {item.is_offline_pending && (
+                    <View style={styles.offlineTag}>
+                      <Text style={styles.offlineTagText}>📴 Pendente</Text>
+                    </View>
+                  )}
+                </View>
                 <Text style={styles.expenseSub}>
                   {item.category} • {item.expense_date}
                 </Text>
@@ -418,7 +601,7 @@ export function EventDetailsScreen({ route, navigation }: any) {
         />
       )}
 
-      {/* Modal para Editar Nome e Meta do Evento */}
+      {/* Modal para Editar Nome, Meta, Arquivar e Excluir */}
       <Modal visible={editEventModalVisible} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -446,6 +629,29 @@ export function EventDetailsScreen({ route, navigation }: any) {
             <Text style={styles.hintNotice}>
               💡 Se preenchido, exibirá uma barra de progresso. Deixe em branco para remover a meta.
             </Text>
+
+            {/* Botão de Arquivar / Reativar */}
+            <TouchableOpacity
+              style={[
+                styles.archiveEventBtn,
+                isArchived && styles.archiveEventBtnActive,
+              ]}
+              onPress={handleToggleArchiveCurrentEvent}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.archiveEventBtnText, isArchived && styles.archiveEventBtnTextActive]}>
+                {isArchived ? '🔄 Reativar Viagem (Tornar Ativa)' : '📦 Concluir e Arquivar Viagem'}
+              </Text>
+            </TouchableOpacity>
+
+            {/* Botão de Excluir Evento */}
+            <TouchableOpacity
+              style={styles.deleteEventBtn}
+              onPress={handleDeleteWholeEvent}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.deleteEventBtnText}>🗑️ Excluir este evento</Text>
+            </TouchableOpacity>
 
             <View style={styles.modalActions}>
               <TouchableOpacity
@@ -738,9 +944,31 @@ const styles = StyleSheet.create({
   },
   headerTitleContainer: { flex: 1 },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#F8FAFC', maxWidth: '85%' },
+  headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#F8FAFC', maxWidth: '75%' },
+  archivedHeaderBadge: {
+    backgroundColor: 'rgba(100, 116, 139, 0.25)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  archivedHeaderBadgeText: {
+    color: '#94A3B8',
+    fontSize: 9,
+    fontWeight: 'bold',
+  },
   editTitleIcon: { fontSize: 12 },
   headerSub: { fontSize: 11, color: '#64748B', marginTop: 1 },
+  checklistButton: {
+    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+    borderWidth: 1,
+    borderColor: '#38BDF8',
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  checklistButtonIcon: { fontSize: 16 },
   scanButton: {
     backgroundColor: 'rgba(56, 189, 248, 0.15)',
     borderWidth: 1,
@@ -763,7 +991,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#1E293B',
     borderRadius: 14,
     padding: 16,
-    marginBottom: 18,
+    marginBottom: 14,
     borderWidth: 1,
     borderColor: '#334155',
   },
@@ -796,6 +1024,29 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   progressBar: { height: '100%', borderRadius: 3 },
+  simulationCard: {
+    backgroundColor: 'rgba(30, 41, 59, 0.7)',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#334155',
+    borderLeftWidth: 4,
+    borderLeftColor: '#38BDF8',
+  },
+  simulationHeader: {
+    marginBottom: 6,
+  },
+  simulationTitle: {
+    color: '#38BDF8',
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  simulationBodyText: {
+    color: '#CBD5E1',
+    fontSize: 12,
+    lineHeight: 18,
+  },
   listHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -814,6 +1065,21 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     borderWidth: 1,
     borderColor: '#334155',
+  },
+  expenseItemOffline: {
+    borderColor: '#F59E0B',
+    borderStyle: 'dashed',
+  },
+  offlineTag: {
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  offlineTagText: {
+    color: '#F59E0B',
+    fontSize: 10,
+    fontWeight: 'bold',
   },
   expenseDesc: { color: '#F8FAFC', fontSize: 15, fontWeight: '500' },
   expenseSub: { color: '#64748B', fontSize: 12, marginTop: 2 },
@@ -850,6 +1116,28 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#334155',
   },
+  archiveEventBtn: {
+    borderWidth: 1,
+    borderColor: '#38BDF8',
+    backgroundColor: 'rgba(56, 189, 248, 0.1)',
+    paddingVertical: 11,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  archiveEventBtnActive: {
+    borderColor: '#F59E0B',
+    backgroundColor: 'rgba(245, 158, 11, 0.1)',
+  },
+  archiveEventBtnText: {
+    color: '#38BDF8',
+    fontWeight: 'bold',
+    fontSize: 13,
+  },
+  archiveEventBtnTextActive: {
+    color: '#F59E0B',
+  },
   categoryLabel: { color: '#94A3B8', fontSize: 12, marginBottom: 8 },
   categoryWrap: {
     flexDirection: 'row',
@@ -871,11 +1159,25 @@ const styles = StyleSheet.create({
   },
   catBadgeText: { color: '#94A3B8', fontSize: 12, fontWeight: '600' },
   catBadgeTextActive: { color: '#0F172A' },
+  deleteEventBtn: {
+    borderWidth: 1,
+    borderColor: '#EF4444',
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  deleteEventBtnText: {
+    color: '#EF4444',
+    fontWeight: 'bold',
+    fontSize: 13,
+  },
   modalActions: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
     gap: 12,
-    marginTop: 8,
+    marginTop: 4,
   },
   cancelBtn: { paddingVertical: 10, paddingHorizontal: 16 },
   cancelBtnText: { color: '#94A3B8', fontWeight: '600' },

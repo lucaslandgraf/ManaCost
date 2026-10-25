@@ -13,11 +13,13 @@ import {
 } from 'react-native';
 import { supabase } from '../../config/supabase';
 import { useAuth } from '../../context/AuthContext';
+import { checkIsOnline, enqueueOfflineAction } from '../../services/offlineSync';
 
 interface Category {
   id: string;
   name: string;
   type: string;
+  rule_group?: string;
 }
 
 interface Account {
@@ -46,11 +48,12 @@ export const NewTransactionModal: React.FC<Props> = ({
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedAccount, setSelectedAccount] = useState<string | null>(null);
+  const [selectedBucket, setSelectedBucket] = useState<'needs' | 'wants' | 'savings'>('needs');
   const [isSettled, setIsSettled] = useState(true);
   const [loading, setLoading] = useState(false);
   const [repeatsMonthly, setRepeatsMonthly] = useState(false);
 
-  // Terceiros
+  // Terceiros / Origem
   const [isForSomeone, setIsForSomeone] = useState(false);
   const [personName, setPersonName] = useState('');
   const [splitStatus, setSplitStatus] = useState<'gift' | 'pending' | 'settled'>('pending');
@@ -64,7 +67,7 @@ export const NewTransactionModal: React.FC<Props> = ({
   const loadFormData = async () => {
     const { data: catData } = await supabase
       .from('categories')
-      .select('id, name, type')
+      .select('id, name, type, rule_group')
       .order('name');
 
     const { data: accData } = await supabase
@@ -83,11 +86,21 @@ export const NewTransactionModal: React.FC<Props> = ({
     setDescription('');
     setAmount('');
     setSelectedCategory(null);
+    setSelectedBucket('needs');
     setIsForSomeone(false);
     setPersonName('');
     setSplitStatus('pending');
     setIsSettled(true);
     setRepeatsMonthly(false);
+  };
+
+  const handleCategorySelect = (cat: Category) => {
+    setSelectedCategory(cat.id);
+    if (cat.rule_group) {
+      if (cat.rule_group === 'needs_50') setSelectedBucket('needs');
+      else if (cat.rule_group === 'wants_30') setSelectedBucket('wants');
+      else if (cat.rule_group === 'savings_20') setSelectedBucket('savings');
+    }
   };
 
   const handleSave = async () => {
@@ -111,6 +124,8 @@ export const NewTransactionModal: React.FC<Props> = ({
     const validDay = Math.min(todayDay, lastDayOfMonth);
     const targetDate = new Date(year, month, validDay).toISOString().split('T')[0];
 
+    const finalSpentFor = isForSomeone ? personName.trim() : null;
+
     const payload: any = {
       user_id: user?.id,
       description: description.trim(),
@@ -118,69 +133,93 @@ export const NewTransactionModal: React.FC<Props> = ({
       type,
       category_id: selectedCategory,
       account_id: selectedAccount,
+      budget_bucket: type === 'expense' ? selectedBucket : null,
       is_settled: isSettled,
       date: targetDate,
-      spent_for_name: isForSomeone ? personName.trim() : null,
+      spent_for_name: finalSpentFor,
       split_status: isForSomeone ? (type === 'income' ? 'none' : splitStatus) : 'none',
       repeats_monthly: repeatsMonthly,
     };
 
-    const { data: newTx, error } = await supabase
-      .from('transactions')
-      .insert(payload)
-      .select()
-      .single();
+    const isOnline = await checkIsOnline();
 
-    if (error) {
+    // 📴 MODO OFFLINE: Se não houver internet, enfileira localmente
+    if (!isOnline) {
+      await enqueueOfflineAction('transactions', payload);
       setLoading(false);
-      Alert.alert('Erro ao salvar lançamento', error.message);
+      resetForm();
+      Alert.alert(
+        'Lançamento Offline 📴',
+        'Está sem ligação à rede. O lançamento foi gravado no telemóvel e será sincronizado assim que a internet regressar.'
+      );
+      onSuccess();
+      onClose();
       return;
     }
 
-    // Se marcou para repetir, registra na tabela recurring_bills (independente de ser receita ou despesa)
-    if (repeatsMonthly) {
-      // 1. Verifica se já existe uma conta fixa com este nome para este usuário
-      const { data: existingBill } = await supabase
-        .from('recurring_bills')
-        .select('id')
-        .eq('user_id', user?.id)
-        .ilike('description', description.trim())
-        .maybeSingle();
+    // 🌐 MODO ONLINE: Insere no Supabase
+    try {
+      const { error: txError } = await supabase
+        .from('transactions')
+        .insert(payload)
+        .select()
+        .single();
 
-      if (existingBill) {
-        await supabase
-          .from('recurring_bills')
-          .update({
-            amount: parsedAmount,
-            due_day: validDay,
-            category_id: selectedCategory,
-            type: type,
-            is_active: true,
-          })
-          .eq('id', existingBill.id);
-      } else {
-        const { error: insertBillError } = await supabase
-          .from('recurring_bills')
-          .insert({
-            user_id: user?.id,
-            description: description.trim(),
-            amount: parsedAmount,
-            due_day: validDay,
-            category_id: selectedCategory,
-            type: type,
-            is_active: true,
-          });
+      if (txError) throw txError;
 
-        if (insertBillError) {
-          console.error('Erro ao inserir em recurring_bills:', insertBillError.message);
+      // Se marcou para repetir, registra/atualiza na tabela recurring_bills
+      if (repeatsMonthly && user?.id) {
+        const billPayload = {
+          user_id: user.id,
+          description: description.trim(),
+          amount: parsedAmount,
+          due_day: validDay,
+          category_id: selectedCategory || null,
+          type: type,
+          spent_for_name: finalSpentFor,
+          is_active: true,
+        };
+
+        const { data: existingBill } = await supabase
+          .from('recurring_bills')
+          .select('id')
+          .eq('user_id', user.id)
+          .ilike('description', description.trim())
+          .maybeSingle();
+
+        if (existingBill) {
+          const { error: updErr } = await supabase
+            .from('recurring_bills')
+            .update(billPayload)
+            .eq('id', existingBill.id);
+          if (updErr) console.warn('Erro ao atualizar recurring_bills:', updErr.message);
+        } else {
+          const { error: insErr } = await supabase
+            .from('recurring_bills')
+            .insert(billPayload);
+          if (insErr) {
+            console.warn('Erro ao inserir em recurring_bills:', insErr.message);
+            Alert.alert('Aviso', `O lançamento foi criado, mas houve um erro ao registrar a repetição: ${insErr.message}`);
+          }
         }
       }
-    }
 
-    setLoading(false);
-    resetForm();
-    onSuccess();
-    onClose();
+      setLoading(false);
+      resetForm();
+      onSuccess();
+      onClose();
+    } catch (err: any) {
+      // Se a conexão oscilou durante a requisição, salva na fila offline
+      await enqueueOfflineAction('transactions', payload);
+      setLoading(false);
+      resetForm();
+      Alert.alert(
+        'Lançamento Offline 📴',
+        'A ligação oscilou no momento do envio, mas o registo foi guardado localmente e será sincronizado automaticamente.'
+      );
+      onSuccess();
+      onClose();
+    }
   };
 
   // Remove categorias com nomes repetidos
@@ -238,6 +277,68 @@ export const NewTransactionModal: React.FC<Props> = ({
               onChangeText={setAmount}
             />
 
+            {/* Atribuição da Regra 50/30/20 (Apenas para Despesas) */}
+            {type === 'expense' && (
+              <View style={styles.bucketSection}>
+                <Text style={styles.label}>Atribuir à regra orçamental (50/30/20):</Text>
+                <View style={styles.bucketRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.bucketBtn,
+                      selectedBucket === 'needs' && styles.bucketNeedsActive,
+                    ]}
+                    onPress={() => setSelectedBucket('needs')}
+                    activeOpacity={0.7}
+                  >
+                    <Text
+                      style={[
+                        styles.bucketText,
+                        selectedBucket === 'needs' && styles.bucketTextActive,
+                      ]}
+                    >
+                      Necessidades{'\n'}(50%)
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.bucketBtn,
+                      selectedBucket === 'wants' && styles.bucketWantsActive,
+                    ]}
+                    onPress={() => setSelectedBucket('wants')}
+                    activeOpacity={0.7}
+                  >
+                    <Text
+                      style={[
+                        styles.bucketText,
+                        selectedBucket === 'wants' && styles.bucketTextActive,
+                      ]}
+                    >
+                      Desejos{'\n'}(30%)
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.bucketBtn,
+                      selectedBucket === 'savings' && styles.bucketSavingsActive,
+                    ]}
+                    onPress={() => setSelectedBucket('savings')}
+                    activeOpacity={0.7}
+                  >
+                    <Text
+                      style={[
+                        styles.bucketText,
+                        selectedBucket === 'savings' && styles.bucketTextActive,
+                      ]}
+                    >
+                      Reserva{'\n'}(20%)
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
             {/* Seleção de Categoria */}
             <Text style={styles.label}>Categoria:</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.catScroll}>
@@ -248,7 +349,7 @@ export const NewTransactionModal: React.FC<Props> = ({
                     styles.catChip,
                     selectedCategory === c.id && styles.catChipActive,
                   ]}
-                  onPress={() => setSelectedCategory(c.id)}
+                  onPress={() => handleCategorySelect(c)}
                 >
                   <Text
                     style={[
@@ -380,7 +481,7 @@ export const NewTransactionModal: React.FC<Props> = ({
 
 const styles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
-  card: { backgroundColor: '#1E293B', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, maxHeight: '90%' },
+  card: { backgroundColor: '#1E293B', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, maxHeight: '92%' },
   title: { fontSize: 18, fontWeight: 'bold', color: '#F8FAFC', marginBottom: 14, textAlign: 'center' },
   typeSelector: { flexDirection: 'row', marginBottom: 14, backgroundColor: '#0F172A', borderRadius: 8, padding: 4 },
   typeBtn: { flex: 1, paddingVertical: 9, alignItems: 'center', borderRadius: 6 },
@@ -389,6 +490,24 @@ const styles = StyleSheet.create({
   typeText: { color: '#F8FAFC', fontWeight: 'bold', fontSize: 13 },
   input: { backgroundColor: '#0F172A', color: '#F8FAFC', padding: 12, borderRadius: 8, fontSize: 15, marginBottom: 10, borderWidth: 1, borderColor: '#334155' },
   label: { color: '#94A3B8', fontSize: 12, marginBottom: 6 },
+  bucketSection: { marginVertical: 4 },
+  bucketRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
+  bucketBtn: {
+    flex: 1,
+    paddingVertical: 9,
+    paddingHorizontal: 4,
+    borderRadius: 8,
+    backgroundColor: '#0F172A',
+    borderWidth: 1,
+    borderColor: '#334155',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bucketNeedsActive: { backgroundColor: 'rgba(56, 189, 248, 0.2)', borderColor: '#38BDF8' },
+  bucketWantsActive: { backgroundColor: 'rgba(245, 158, 11, 0.2)', borderColor: '#F59E0B' },
+  bucketSavingsActive: { backgroundColor: 'rgba(16, 185, 129, 0.2)', borderColor: '#10B981' },
+  bucketText: { color: '#94A3B8', fontSize: 11, fontWeight: '600', textAlign: 'center' },
+  bucketTextActive: { color: '#F8FAFC', fontWeight: 'bold' },
   catScroll: { marginBottom: 12 },
   catChip: { paddingHorizontal: 12, paddingVertical: 7, backgroundColor: '#0F172A', borderRadius: 18, marginRight: 6, borderWidth: 1, borderColor: '#334155' },
   catChipActive: { backgroundColor: '#38BDF8', borderColor: '#38BDF8' },
