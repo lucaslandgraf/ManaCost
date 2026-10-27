@@ -13,7 +13,11 @@ import {
   StatusBar,
   RefreshControl,
   ScrollView,
+  Share,
 } from 'react-native';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
+import * as XLSX from 'xlsx';
 import { supabase } from '../../config/supabase';
 import { ScannerScreen } from './ScannerScreen';
 import { checkIsOnline, enqueueOfflineAction } from '../../services/offlineSync';
@@ -38,7 +42,7 @@ interface PurchaseItem {
 export function EventDetailsScreen({ route, navigation }: any) {
   const { eventId, title: initialTitle, currency = 'BRL', targetBudget: initialBudget = 0 } = route.params;
 
-  // Estados do evento (título, orçamento previsto, simulação e arquivamento)
+  // Estados do evento
   const [currentEventTitle, setCurrentEventTitle] = useState(initialTitle);
   const [currentTargetBudget, setCurrentTargetBudget] = useState(Number(initialBudget) || 0);
   const [eventDescription, setEventDescription] = useState<string | null>(null);
@@ -57,6 +61,9 @@ export function EventDetailsScreen({ route, navigation }: any) {
   const [modalVisible, setModalVisible] = useState(false);
   const [scannerVisible, setScannerVisible] = useState(false);
 
+  // Modal de Relatórios da Viagem / Orçamento Isolado
+  const [reportModalVisible, setReportModalVisible] = useState(false);
+
   // Estados do formulário de criação de gastos
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
@@ -69,15 +76,56 @@ export function EventDetailsScreen({ route, navigation }: any) {
   const [editDesc, setEditDesc] = useState('');
   const [editAmount, setEditAmount] = useState('');
   const [editCategory, setEditCategory] = useState('');
+  const [editDate, setEditDate] = useState(''); // Estado para edição de data (DD/MM/AAAA)
   const [loadingItems, setLoadingItems] = useState(false);
   const [receiptItems, setReceiptItems] = useState<PurchaseItem[]>([]);
   const [savingEdit, setSavingEdit] = useState(false);
 
   const categories = ['Transporte', 'Hospedagem', 'Alimentação', 'Passeios', 'Compras', 'Geral'];
 
+  // Funções utilitárias de Data
+  const applyDateMask = (text: string) => {
+    const digits = text.replace(/\D/g, '').slice(0, 8);
+    if (digits.length <= 2) return digits;
+    if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+    return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+  };
+
+  const normalizeToISODate = (input: string): string => {
+    const clean = input.trim();
+    if (clean.includes('/')) {
+      const parts = clean.split('/');
+      if (parts.length === 3) {
+        const [d, m, y] = parts;
+        const year = y.length === 2 ? `20${y}` : y;
+        return `${year}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+      }
+    }
+    const digits = clean.replace(/\D/g, '');
+    if (digits.length === 8) {
+      return `${digits.slice(4, 8)}-${digits.slice(2, 4)}-${digits.slice(0, 2)}`;
+    }
+    if (clean.includes('-')) {
+      const parts = clean.split('-');
+      if (parts.length === 3 && parts[0].length === 4) return clean;
+    }
+    return '';
+  };
+
+  const isValidCalendarDate = (isoStr: string): boolean => {
+    const parts = isoStr.split('-');
+    if (parts.length !== 3) return false;
+    const year = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10);
+    const day = parseInt(parts[2], 10);
+    if (isNaN(year) || isNaN(month) || isNaN(day)) return false;
+    if (year < 1900 || year > 2100 || month < 1 || month > 12) return false;
+    const d = new Date(year, month - 1, day);
+    return d.getFullYear() === year && d.getMonth() === month - 1 && d.getDate() === day;
+  };
+
   const fetchExpenses = async () => {
     try {
-      // 1. Carrega dados do evento (título, meta, simulação e status de arquivado)
       const { data: eventData } = await supabase
         .from('budget_events')
         .select('title, target_budget, description, is_archived')
@@ -93,7 +141,6 @@ export function EventDetailsScreen({ route, navigation }: any) {
         setIsArchived(Boolean(eventData.is_archived));
       }
 
-      // 2. Carrega as despesas
       const { data, error } = await supabase
         .from('event_expenses')
         .select('*')
@@ -115,10 +162,148 @@ export function EventDetailsScreen({ route, navigation }: any) {
   }, []);
 
   const totalSpent = expenses.reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
+  const remainingBudget = currentTargetBudget - totalSpent;
   const progress =
     currentTargetBudget > 0 ? Math.min((totalSpent / currentTargetBudget) * 100, 100) : 0;
 
-  // Atualizar título e orçamento na tabela budget_events
+  // Compartilhamento via WhatsApp / Texto
+  const handleShareWhatsApp = async () => {
+    let text = `✈️ *RELATÓRIO DE VIAGEM: ${currentEventTitle.toUpperCase()}*\n`;
+    text += `Moeda: ${currency}\n\n`;
+
+    if (currentTargetBudget > 0) {
+      text += `🎯 *Meta Prevista:* ${currency} ${currentTargetBudget.toFixed(2)}\n`;
+    }
+    text += `💸 *Total Gasto:* ${currency} ${totalSpent.toFixed(2)}\n`;
+    if (currentTargetBudget > 0) {
+      text += `📊 *Saldo Disponível:* ${currency} ${remainingBudget.toFixed(2)} (${remainingBudget >= 0 ? 'Dentro da meta' : 'Meta estourada'})\n`;
+    }
+    text += `\n*Detalhamento dos Gastos (${expenses.length} lançamentos):*\n`;
+
+    if (expenses.length > 0) {
+      expenses.forEach((ex) => {
+        const dFormat = ex.expense_date ? ex.expense_date.split('-').reverse().join('/') : '';
+        text += `• ${dFormat} | ${ex.description} (${ex.category}): ${currency} ${Number(ex.amount).toFixed(2)}\n`;
+      });
+    } else {
+      text += `Nenhum lançamento registrado nesta viagem.\n`;
+    }
+
+    try {
+      await Share.share({ message: text });
+    } catch (err: any) {
+      Alert.alert('Erro ao compartilhar', err.message);
+    }
+  };
+
+  // Exportação em Planilha Excel (.xlsx) nativa
+  const handleExportExcel = async () => {
+    if (expenses.length === 0) {
+      Alert.alert('Aviso', 'Não existem despesas registradas nesta viagem para exportar.');
+      return;
+    }
+
+    try {
+      const dataRows: any[] = expenses.map((ex) => {
+        const dFormat = ex.expense_date ? ex.expense_date.split('-').reverse().join('/') : '';
+        return {
+          'Data': dFormat,
+          'Descrição': ex.description,
+          'Categoria': ex.category || 'Geral',
+          'Valor': Number(ex.amount) || 0,
+        };
+      });
+
+      // Linha em branco e Totais Consolidados no rodapé
+      dataRows.push(
+        { 'Data': '', 'Descrição': '', 'Categoria': '', 'Valor': '' },
+        { 'Data': 'RESUMO', 'Descrição': 'META ORÇAMENTÁRIA (TETO)', 'Categoria': '', 'Valor': currentTargetBudget },
+        { 'Data': 'RESUMO', 'Descrição': 'TOTAL REALIZADO / GASTO', 'Categoria': '', 'Valor': totalSpent },
+        { 'Data': 'RESUMO', 'Descrição': 'SALDO RESTANTE', 'Categoria': '', 'Valor': remainingBudget }
+      );
+
+      const worksheet = XLSX.utils.json_to_sheet(dataRows);
+
+      worksheet['!cols'] = [
+        { wch: 14 },
+        { wch: 34 },
+        { wch: 20 },
+        { wch: 18 },
+      ];
+
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Extrato da Viagem');
+
+      const base64Data = XLSX.write(workbook, {
+        type: 'base64',
+        bookType: 'xlsx',
+      });
+
+      const safeName = currentEventTitle.replace(/[^a-zA-Z0-9]/g, '_');
+      const fileName = `ManaCost_${safeName}_${Date.now()}.xlsx`;
+      const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
+
+      await FileSystem.writeAsStringAsync(fileUri, base64Data, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(fileUri, {
+          mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          dialogTitle: `Exportar Planilha - ${currentEventTitle}`,
+          UTI: 'com.microsoft.excel.xlsx',
+        });
+      } else {
+        Alert.alert('Sucesso', `Planilha guardada em: ${fileUri}`);
+      }
+    } catch (err: any) {
+      Alert.alert('Erro ao exportar Excel', err.message);
+    }
+  };
+
+  // Exportação em CSV (com UTF-8 BOM)
+  const handleExportCSV = async () => {
+    if (expenses.length === 0) {
+      Alert.alert('Aviso', 'Não existem despesas registradas nesta viagem para exportar.');
+      return;
+    }
+
+    try {
+      let csvContent = '\uFEFFData;Descrição;Categoria;Valor\n';
+
+      expenses.forEach((ex) => {
+        const dFormat = ex.expense_date ? ex.expense_date.split('-').reverse().join('/') : '';
+        const vFormat = `${currency} ${Number(ex.amount).toFixed(2).replace('.', ',')}`;
+        csvContent += `${dFormat};"${(ex.description || '').replace(/"/g, '""')}";"${ex.category || 'Geral'}";"${vFormat}"\n`;
+      });
+
+      csvContent += `;\n`;
+      csvContent += `RESUMO;"META ORÇAMENTÁRIA (TETO)";;"${currency} ${currentTargetBudget.toFixed(2).replace('.', ',')}"\n`;
+      csvContent += `RESUMO;"TOTAL REALIZADO / GASTO";;"${currency} ${totalSpent.toFixed(2).replace('.', ',')}"\n`;
+      csvContent += `RESUMO;"SALDO RESTANTE";;"${currency} ${remainingBudget.toFixed(2).replace('.', ',')}"\n`;
+
+      const safeName = currentEventTitle.replace(/[^a-zA-Z0-9]/g, '_');
+      const fileName = `ManaCost_${safeName}_${Date.now()}.csv`;
+      const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
+
+      await FileSystem.writeAsStringAsync(fileUri, csvContent, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(fileUri, {
+          mimeType: 'text/csv',
+          dialogTitle: `Exportar CSV - ${currentEventTitle}`,
+          UTI: 'public.comma-separated-values-text',
+        });
+      } else {
+        Alert.alert('Sucesso', `Ficheiro guardado em: ${fileUri}`);
+      }
+    } catch (err: any) {
+      Alert.alert('Erro ao exportar CSV', err.message);
+    }
+  };
+
   const handleUpdateEvent = async () => {
     if (!newEventTitleInput.trim()) {
       Alert.alert('Atenção', 'Informe um nome para o evento.');
@@ -156,7 +341,6 @@ export function EventDetailsScreen({ route, navigation }: any) {
     }
   };
 
-  // Alternar entre Ativo e Arquivado
   const handleToggleArchiveCurrentEvent = async () => {
     const nextState = !isArchived;
     try {
@@ -180,7 +364,6 @@ export function EventDetailsScreen({ route, navigation }: any) {
     }
   };
 
-  // Excluir o evento e todos os seus gastos
   const handleDeleteWholeEvent = () => {
     Alert.alert(
       'Excluir Evento',
@@ -325,6 +508,8 @@ export function EventDetailsScreen({ route, navigation }: any) {
     setEditDesc(item.description);
     setEditAmount(String(item.amount));
     setEditCategory(item.category);
+    // Transforma AAAA-MM-DD em DD/MM/AAAA para exibir no formulário de edição
+    setEditDate(item.expense_date ? item.expense_date.split('-').reverse().join('/') : '');
     setIsEditing(false);
     setReceiptItems([]);
     setDetailModalVisible(true);
@@ -364,6 +549,12 @@ export function EventDetailsScreen({ route, navigation }: any) {
       return;
     }
 
+    const isoDate = normalizeToISODate(editDate);
+    if (!isValidCalendarDate(isoDate)) {
+      Alert.alert('Data Inválida', 'Por favor, informe uma data válida no formato DD/MM/AAAA.');
+      return;
+    }
+
     setSavingEdit(true);
     try {
       const { error } = await supabase
@@ -372,6 +563,7 @@ export function EventDetailsScreen({ route, navigation }: any) {
           description: editDesc.trim(),
           amount: numVal,
           category: editCategory,
+          expense_date: isoDate, // Salva a data atualizada
         })
         .eq('id', selectedExpense.id);
 
@@ -382,6 +574,7 @@ export function EventDetailsScreen({ route, navigation }: any) {
         description: editDesc.trim(),
         amount: numVal,
         category: editCategory,
+        expense_date: isoDate,
       });
 
       setIsEditing(false);
@@ -446,6 +639,15 @@ export function EventDetailsScreen({ route, navigation }: any) {
             <Text style={styles.editTitleIcon}>✏️</Text>
           </View>
           <Text style={styles.headerSub}>Despesas do evento ({currency}) • Toque p/ configurar</Text>
+        </TouchableOpacity>
+
+        {/* Botão de Relatórios & Exportação */}
+        <TouchableOpacity
+          style={styles.reportButton}
+          onPress={() => setReportModalVisible(true)}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.reportButtonIcon}>📊</Text>
         </TouchableOpacity>
 
         {/* Botão de Checklist da Viagem */}
@@ -568,7 +770,7 @@ export function EventDetailsScreen({ route, navigation }: any) {
             />
           }
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 40 }}
+          contentContainerStyle={{ paddingBottom: 100 }}
           renderItem={({ item }: { item: Expense }) => (
             <TouchableOpacity
               style={[styles.expenseItem, item.is_offline_pending && styles.expenseItemOffline]}
@@ -600,6 +802,84 @@ export function EventDetailsScreen({ route, navigation }: any) {
           }
         />
       )}
+      <View style={styles.bottomBarBarrier} />
+
+      {/* Modal de Relatórios da Viagem / Orçamento Isolado */}
+      <Modal visible={reportModalVisible} transparent animationType="slide" onRequestClose={() => setReportModalVisible(false)}>
+        <View style={styles.bottomModalOverlay}>
+          <View style={styles.bottomModalCard}>
+            <View style={styles.bottomModalHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalTitle} numberOfLines={1}>📊 Relatório: {currentEventTitle}</Text>
+                <Text style={styles.reportSubtitle}>Consolidação e fechamento de gastos</Text>
+              </View>
+              <TouchableOpacity onPress={() => setReportModalVisible(false)}>
+                <Text style={styles.closeBtnText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {/* Card de Indicadores do Relatório */}
+              <View style={styles.reportMetricsCard}>
+                <View style={styles.reportMetricBox}>
+                  <Text style={styles.reportMetricLabel}>Meta Prevista</Text>
+                  <Text style={[styles.reportMetricVal, { color: '#38BDF8' }]}>
+                    {currency} {currentTargetBudget.toFixed(2)}
+                  </Text>
+                </View>
+                <View style={styles.reportMetricBox}>
+                  <Text style={styles.reportMetricLabel}>Total Realizado</Text>
+                  <Text style={[styles.reportMetricVal, { color: '#EF4444' }]}>
+                    {currency} {totalSpent.toFixed(2)}
+                  </Text>
+                </View>
+                <View style={styles.reportMetricBox}>
+                  <Text style={styles.reportMetricLabel}>Saldo Restante</Text>
+                  <Text style={[styles.reportMetricVal, { color: remainingBudget >= 0 ? '#10B981' : '#F59E0B' }]}>
+                    {currency} {remainingBudget.toFixed(2)}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Botões de Ação para Exportação */}
+              <View style={styles.reportActionsContainer}>
+                <TouchableOpacity
+                  style={styles.exportExcelBtn}
+                  onPress={handleExportExcel}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.exportExcelBtnText}>📊 Exportar Planilha Excel (.xlsx)</Text>
+                </TouchableOpacity>
+
+                <View style={styles.secondaryExportRow}>
+                  <TouchableOpacity
+                    style={styles.shareWhatsAppBtn}
+                    onPress={handleShareWhatsApp}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.shareWhatsAppBtnText}>💬 WhatsApp / Texto</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.exportCsvBtn}
+                    onPress={handleExportCSV}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.exportCsvBtnText}>📄 Exportar CSV</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                style={styles.closeFullBtn}
+                onPress={() => setReportModalVisible(false)}
+              >
+                <Text style={styles.closeFullBtnText}>Fechar</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       {/* Modal para Editar Nome, Meta, Arquivar e Excluir */}
       <Modal visible={editEventModalVisible} transparent animationType="fade">
@@ -763,6 +1043,18 @@ export function EventDetailsScreen({ route, navigation }: any) {
                     placeholderTextColor="#64748B"
                   />
 
+                  {/* Campo de Edição da Data da Compra */}
+                  <Text style={styles.label}>Data da Compra (DD/MM/AAAA)</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={editDate}
+                    onChangeText={(txt) => setEditDate(applyDateMask(txt))}
+                    keyboardType="numeric"
+                    maxLength={10}
+                    placeholder="Ex: 25/10/2026"
+                    placeholderTextColor="#64748B"
+                  />
+
                   <Text style={styles.label}>Categoria:</Text>
                   <View style={styles.categoryWrap}>
                     {categories.map((cat) => (
@@ -805,7 +1097,7 @@ export function EventDetailsScreen({ route, navigation }: any) {
               ) : (
                 <View>
                   <Text style={styles.detailDesc}>{selectedExpense?.description}</Text>
-                  <Text style={styles.detailDate}>Data: {selectedExpense?.expense_date}</Text>
+                  <Text style={styles.detailDate}>Data: {selectedExpense?.expense_date ? selectedExpense.expense_date.split('-').reverse().join('/') : ''}</Text>
 
                   <View style={styles.detailAmountCard}>
                     <Text style={styles.detailAmountLabel}>Valor Pago</Text>
@@ -920,6 +1212,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 28) + 16 : 48,
   },
+  bottomBarBarrier: {
+    height: Platform.OS === 'android' ? 68 : 0,
+    backgroundColor: '#0F172A',
+    width: '100%',
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -958,6 +1255,17 @@ const styles = StyleSheet.create({
   },
   editTitleIcon: { fontSize: 12 },
   headerSub: { fontSize: 11, color: '#64748B', marginTop: 1 },
+  reportButton: {
+    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+    borderWidth: 1,
+    borderColor: '#38BDF8',
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  reportButtonIcon: { fontSize: 16 },
   checklistButton: {
     backgroundColor: 'rgba(56, 189, 248, 0.15)',
     borderWidth: 1,
@@ -1104,7 +1412,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#334155',
   },
-  modalTitle: { fontSize: 18, fontWeight: 'bold', color: '#F8FAFC', marginBottom: 14 },
+  modalTitle: { fontSize: 18, fontWeight: 'bold', color: '#F8FAFC', marginBottom: 4 },
+  reportSubtitle: { fontSize: 11, color: '#64748B', marginBottom: 14 },
   label: { color: '#94A3B8', fontSize: 12, marginBottom: 6 },
   hintNotice: { color: '#64748B', fontSize: 11, marginBottom: 12, lineHeight: 15 },
   input: {
@@ -1302,7 +1611,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 10,
     alignItems: 'center',
-    marginTop: 4,
+    marginTop: 8,
     marginBottom: 8,
   },
   closeFullBtnText: { color: '#F8FAFC', fontWeight: 'bold', fontSize: 14 },
@@ -1314,5 +1623,73 @@ const styles = StyleSheet.create({
   },
   editMetaIcon: {
     fontSize: 10,
+  },
+  reportMetricsCard: {
+    flexDirection: 'row',
+    backgroundColor: '#0F172A',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  reportMetricBox: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  reportMetricLabel: {
+    color: '#94A3B8',
+    fontSize: 11,
+    marginBottom: 3,
+  },
+  reportMetricVal: {
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  reportActionsContainer: {
+    flexDirection: 'column',
+    gap: 8,
+    marginBottom: 8,
+  },
+  exportExcelBtn: {
+    backgroundColor: '#10B981',
+    paddingVertical: 13,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  exportExcelBtnText: {
+    color: '#0F172A',
+    fontWeight: 'bold',
+    fontSize: 14,
+  },
+  secondaryExportRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  shareWhatsAppBtn: {
+    flex: 1,
+    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+    borderWidth: 1,
+    borderColor: '#38BDF8',
+    paddingVertical: 11,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  shareWhatsAppBtnText: {
+    color: '#38BDF8',
+    fontWeight: 'bold',
+    fontSize: 12,
+  },
+  exportCsvBtn: {
+    flex: 1,
+    backgroundColor: '#334155',
+    paddingVertical: 11,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  exportCsvBtnText: {
+    color: '#F8FAFC',
+    fontWeight: '600',
+    fontSize: 12,
   },
 });

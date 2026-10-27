@@ -341,6 +341,7 @@ export function EventsScreen({ navigation }: any) {
           }
         />
       )}
+      <View style={styles.bottomBarBarrier} />
 
       {/* Modal Criar Evento */}
       <Modal visible={modalVisible} transparent animationType="fade">
@@ -416,6 +417,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#0F172A',
     paddingHorizontal: 20,
     paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 28) + 16 : 48,
+  },
+  bottomBarBarrier: {
+    height: Platform.OS === 'android' ? 68 : 0,
+    backgroundColor: '#0F172A',
+    width: '100%',
   },
   header: {
     flexDirection: 'row',
