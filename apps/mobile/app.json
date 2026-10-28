@@ -1,15 +1,18 @@
 {
   "expo": {
-    "name": "mobile",
-    "slug": "mobile",
+    "name": "ManaCost",
+    "slug": "manacost",
+    "scheme": "manacost",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.manacost.app"
     },
     "android": {
+      "package": "com.manacost.app",
       "backgroundColor": "#0F172A",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",

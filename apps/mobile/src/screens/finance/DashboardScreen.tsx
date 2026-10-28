@@ -25,6 +25,7 @@ import { PriceSearchScreen } from './PriceSearchScreen';
 import { RecurringBillsModal } from './RecurringBillsModal';
 import { TravelEstimatorModal } from './TravelEstimatorModal';
 import { ReportsModal } from './ReportsModal';
+import { BillsToPayModal } from './BillsToPayModal';
 
 interface Transaction {
   id: string;
@@ -56,6 +57,7 @@ export const DashboardScreen = ({ navigation }: any) => {
   const [baseSalaryIncome, setBaseSalaryIncome] = useState(0);
   const [estimatorVisible, setEstimatorVisible] = useState(false);
   const [reportsModalVisible, setReportsModalVisible] = useState(false);
+  const [billsToPayVisible, setBillsToPayVisible] = useState(false);
 
   // Monitorização de conectividade e fila de sincronização offline
   const { isOnline, pendingCount } = useOfflineSync(() => {
@@ -148,7 +150,7 @@ export const DashboardScreen = ({ navigation }: any) => {
 
       let currentItems: Transaction[] = (existingData as unknown as Transaction[]) || [];
 
-     // 2. Procura todas as contas/receitas ativas do usuário
+      // 2. Procura todas as contas/receitas ativas do utilizador
       const { data: activeBills, error: recError } = await supabase
         .from('recurring_bills')
         .select('id, description, amount, due_day, category_id, type, spent_for_name')
@@ -313,40 +315,40 @@ export const DashboardScreen = ({ navigation }: any) => {
             },
           },
           {
-  text: 'Cancelar assinatura e apagar dos meses futuros',
-  style: 'destructive',
-  onPress: async () => {
-    // 1. Apaga a regra de recorrência para não gerar mais
-    await supabase
-      .from('recurring_bills')
-      .delete()
-      .ilike('description', item.description.trim());
+            text: 'Cancelar assinatura e apagar dos meses futuros',
+            style: 'destructive',
+            onPress: async () => {
+              // 1. Apaga a regra de recorrência para não gerar mais
+              await supabase
+                .from('recurring_bills')
+                .delete()
+                .ilike('description', item.description.trim());
 
-    // 2. Apaga o lançamento atual (mesmo que já esteja efetivado)
-    await supabase
-      .from('transactions')
-      .delete()
-      .eq('id', item.id);
+              // 2. Apaga o lançamento atual (mesmo que já esteja efetivado)
+              await supabase
+                .from('transactions')
+                .delete()
+                .eq('id', item.id);
 
-    // 3. Apaga os lançamentos futuros não efetivados
-    if (user) {
-      await supabase
-        .from('transactions')
-        .delete()
-        .eq('user_id', user.id)
-        .ilike('description', item.description.trim())
-        .gt('date', item.date)
-        .eq('is_settled', false);
-    }
+              // 3. Apaga os lançamentos futuros não efetivados
+              if (user) {
+                await supabase
+                  .from('transactions')
+                  .delete()
+                  .eq('user_id', user.id)
+                  .ilike('description', item.description.trim())
+                  .gt('date', item.date)
+                  .eq('is_settled', false);
+              }
 
-    // 4. Atualiza a lista visual imediatamente no mês corrente
-    const remaining = transactions.filter((tx) => tx.id !== item.id);
-    setTransactions(remaining);
-    calculateMetrics(remaining);
+              // 4. Atualiza a lista visual imediatamente no mês corrente
+              const remaining = transactions.filter((tx) => tx.id !== item.id);
+              setTransactions(remaining);
+              calculateMetrics(remaining);
 
-    Alert.alert('Sucesso', 'Assinatura cancelada e removida dos meses atuais e futuros.');
-  },
-},
+              Alert.alert('Sucesso', 'Assinatura cancelada e removida dos meses atuais e futuros.');
+            },
+          },
         ]
       );
       return;
@@ -391,6 +393,8 @@ export const DashboardScreen = ({ navigation }: any) => {
     ? budgetRules.fixedSavings
     : totalIncome * (budgetRules.savingsPct / 100);
 
+  const currentBalance = totalIncome - totalExpense;
+
   const renderProgressBar = (spent: number, budget: number, color: string) => {
     const ratio = budget > 0 ? Math.min((spent / budget) * 100, 100) : 0;
     return (
@@ -430,25 +434,25 @@ export const DashboardScreen = ({ navigation }: any) => {
       const toInsert = [];
 
       for (const bill of bills) {
-  if (!existingNames.has(bill.description.trim().toLowerCase())) {
-    const lastDayOfMonth = new Date(year, month + 1, 0).getDate();
-    const validDay = Math.min(bill.due_day, lastDayOfMonth);
-    const billDate = new Date(year, month, validDay).toISOString().split('T')[0];
+        if (!existingNames.has(bill.description.trim().toLowerCase())) {
+          const lastDayOfMonth = new Date(year, month + 1, 0).getDate();
+          const validDay = Math.min(bill.due_day, lastDayOfMonth);
+          const billDate = new Date(year, month, validDay).toISOString().split('T')[0];
 
-    toInsert.push({
-      user_id: user.id,
-      description: bill.description.trim(),
-      amount: bill.amount,
-      type: bill.type || 'expense',
-      category_id: bill.category_id,
-      date: billDate,
-      is_settled: false,
-      spent_for_name: (bill as any).spent_for_name || null, // <- Adicione esta linha
-      split_status: 'none',
-      repeats_monthly: true,
-    });
-  }
-}
+          toInsert.push({
+            user_id: user.id,
+            description: bill.description.trim(),
+            amount: bill.amount,
+            type: bill.type || 'expense',
+            category_id: bill.category_id,
+            date: billDate,
+            is_settled: false,
+            spent_for_name: (bill as any).spent_for_name || null,
+            split_status: 'none',
+            repeats_monthly: true,
+          });
+        }
+      }
 
       if (toInsert.length > 0) {
         const { error } = await supabase.from('transactions').insert(toInsert);
@@ -507,7 +511,7 @@ export const DashboardScreen = ({ navigation }: any) => {
         </TouchableOpacity>
       </View>
 
-      {/* Resumo Financeiro */}
+      {/* Resumo Financeiro com 3 Colunas: Receitas, Despesas e Saldo */}
       <View style={styles.summaryCard}>
         <View style={styles.summaryCol}>
           <Text style={styles.summaryLabel}>Receitas</Text>
@@ -515,11 +519,27 @@ export const DashboardScreen = ({ navigation }: any) => {
             R$ {totalIncome.toFixed(2)}
           </Text>
         </View>
+
         <View style={styles.divider} />
+
         <View style={styles.summaryCol}>
           <Text style={styles.summaryLabel}>Despesas</Text>
           <Text style={[styles.summaryVal, { color: '#EF4444' }]}>
             R$ {totalExpense.toFixed(2)}
+          </Text>
+        </View>
+
+        <View style={styles.divider} />
+
+        <View style={styles.summaryCol}>
+          <Text style={styles.summaryLabel}>Saldo</Text>
+          <Text
+            style={[
+              styles.summaryVal,
+              { color: currentBalance >= 0 ? '#38BDF8' : '#F59E0B' },
+            ]}
+          >
+            R$ {currentBalance.toFixed(2)}
           </Text>
         </View>
       </View>
@@ -595,7 +615,7 @@ export const DashboardScreen = ({ navigation }: any) => {
         </View>
       </View>
 
-      {/* Lista com resguardo inferior seguro */}
+      {/* Lista de Transações */}
       <FlatList
         data={transactions}
         keyExtractor={(item) => item.id}
@@ -705,6 +725,23 @@ export const DashboardScreen = ({ navigation }: any) => {
                 <View style={{ flex: 1 }}>
                   <Text style={styles.toolLabel}>Relatórios & Exportação</Text>
                   <Text style={styles.toolSub}>CSV, acerto de contas e 50/30/20</Text>
+                </View>
+              </TouchableOpacity>
+
+              {/* Botão de Contas a Pagar & Lembretes */}
+              <TouchableOpacity
+                style={styles.toolItem}
+                onPress={() => {
+                  setToolsModalVisible(false);
+                  setBillsToPayVisible(true);
+                }}
+              >
+                <View style={[styles.toolIconBox, { backgroundColor: 'rgba(239, 68, 68, 0.15)' }]}>
+                  <Text style={styles.toolIcon}>📑</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.toolLabel}>Contas a Pagar</Text>
+                  <Text style={styles.toolSub}>Lembretes de boletos e faturas</Text>
                 </View>
               </TouchableOpacity>
 
@@ -825,9 +862,16 @@ export const DashboardScreen = ({ navigation }: any) => {
       </Modal>
 
       <ReportsModal
-  visible={reportsModalVisible}
-  onClose={() => setReportsModalVisible(false)}
+        visible={reportsModalVisible}
+        onClose={() => setReportsModalVisible(false)}
+        currentMonthDate={currentDate}
+      />
+
+      <BillsToPayModal
+  visible={billsToPayVisible}
+  onClose={() => setBillsToPayVisible(false)}
   currentMonthDate={currentDate}
+  onBillSettled={fetchTransactions}
 />
 
       <TravelEstimatorModal
@@ -981,12 +1025,31 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     marginTop: 6,
     borderRadius: 12,
-    padding: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  summaryCol: { flex: 1, alignItems: 'center' },
-  divider: { width: 1, backgroundColor: '#334155' },
-  summaryLabel: { color: '#94A3B8', fontSize: 12, marginBottom: 4 },
-  summaryVal: { fontSize: 18, fontWeight: 'bold' },
+  summaryCol: { 
+    flex: 1, 
+    alignItems: 'center',
+    paddingHorizontal: 4,
+  },
+  divider: { 
+    width: 1, 
+    height: 28, 
+    backgroundColor: '#334155' 
+  },
+  summaryLabel: { 
+    color: '#94A3B8', 
+    fontSize: 11, 
+    marginBottom: 4,
+    fontWeight: '600',
+  },
+  summaryVal: { 
+    fontSize: 15, 
+    fontWeight: 'bold',
+  },
   budgetCard: {
     backgroundColor: '#1E293B',
     marginHorizontal: 20,

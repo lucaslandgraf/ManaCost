@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { supabase } from '../../config/supabase';
 import { useAuth } from '../../context/AuthContext';
+import { exportFullDataBackup } from '../../services/backupService';
 
 interface SettingsModalProps {
   visible: boolean;
@@ -27,7 +28,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ visible, onClose, 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // Estados dos limites
+  // Estados dos limites orçamentários
   const [useFixed, setUseFixed] = useState(false);
   const [needsPct, setNeedsPct] = useState('50');
   const [wantsPct, setWantsPct] = useState('30');
@@ -37,9 +38,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ visible, onClose, 
   const [fixedWants, setFixedWants] = useState('0');
   const [fixedSavings, setFixedSavings] = useState('0');
 
+  // Estados de Segurança e Backup
+  const [newPassword, setNewPassword] = useState('');
+  const [updatingPassword, setUpdatingPassword] = useState(false);
+  const [generatingBackup, setGeneratingBackup] = useState(false);
+
   useEffect(() => {
     if (visible && user) {
       loadProfileSettings();
+      setNewPassword('');
     }
   }, [visible, user]);
 
@@ -112,6 +119,41 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ visible, onClose, 
     }
   };
 
+  const handleUpdatePassword = async () => {
+    if (newPassword.trim().length < 6) {
+      Alert.alert('Atenção', 'A nova senha deve ter no mínimo 6 caracteres.');
+      return;
+    }
+
+    setUpdatingPassword(true);
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword.trim(),
+      });
+
+      if (error) throw error;
+
+      Alert.alert('Sucesso 🎉', 'Sua senha foi alterada com sucesso!');
+      setNewPassword('');
+    } catch (err: any) {
+      Alert.alert('Erro', err.message || 'Falha ao atualizar senha.');
+    } finally {
+      setUpdatingPassword(false);
+    }
+  };
+
+  const handleBackup = async () => {
+    if (!user?.id) return;
+    setGeneratingBackup(true);
+    try {
+      await exportFullDataBackup(user.id);
+    } catch (err: any) {
+      Alert.alert('Erro', err.message || 'Falha ao gerar cópia de segurança.');
+    } finally {
+      setGeneratingBackup(false);
+    }
+  };
+
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <KeyboardAvoidingView
@@ -120,7 +162,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ visible, onClose, 
       >
         <View style={styles.modalContent}>
           <View style={styles.headerRow}>
-            <Text style={styles.title}>Configurar Metas de Gastos</Text>
+            <Text style={styles.title}>Configurações & Preferências</Text>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
               <Text style={styles.closeBtnText}>✕</Text>
             </TouchableOpacity>
@@ -129,8 +171,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ visible, onClose, 
           {loading ? (
             <ActivityIndicator size="large" color="#38BDF8" style={{ marginVertical: 30 }} />
           ) : (
-            <ScrollView showsVerticalScrollIndicator={false}>
-              {/* Modo de Cálculo: Porcentagem ou R$ Fixo */}
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
+              {/* SEÇÃO 1: METAS ORÇAMENTÁRIAS */}
+              <Text style={styles.sectionHeaderTitle}>🎯 Metas & Tetos de Gastos</Text>
+
               <View style={styles.switchRow}>
                 <View style={{ flex: 1, paddingRight: 8 }}>
                   <Text style={styles.switchTitle}>Definir limites em R$ fixos</Text>
@@ -149,7 +193,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ visible, onClose, 
               </View>
 
               {!useFixed ? (
-                /* Formulário Proporcional (%) */
                 <View style={styles.formSection}>
                   <Text style={styles.sectionSubtitle}>
                     Distribuição da Regra Orçamentária (Total: 100%)
@@ -192,7 +235,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ visible, onClose, 
                   </View>
                 </View>
               ) : (
-                /* Formulário em R$ Fixo */
                 <View style={styles.formSection}>
                   <Text style={styles.sectionSubtitle}>Valores Máximos Fixados no Mês</Text>
 
@@ -234,20 +276,55 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ visible, onClose, 
                 </View>
               )}
 
-              {/* Botões */}
-              <View style={styles.btnRow}>
-                <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>
-                  <Text style={styles.cancelBtnText}>Cancelar</Text>
-                </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.saveBtn, saving && { opacity: 0.7 }]}
+                onPress={handleSave}
+                disabled={saving}
+              >
+                <Text style={styles.saveBtnText}>{saving ? 'Salvando...' : 'Salvar Metas Orçamentárias'}</Text>
+              </TouchableOpacity>
 
+              {/* SEÇÃO 2: SEGURANÇA DA CONTA */}
+              <View style={styles.divider} />
+              <Text style={styles.sectionHeaderTitle}>🔒 Segurança da Conta</Text>
+              <Text style={styles.sectionSubtitle}>Altere a senha provisória para sua senha definitiva</Text>
+
+              <View style={styles.passwordRow}>
+                <TextInput
+                  style={[styles.input, { flex: 1, marginBottom: 0 }]}
+                  placeholder="Nova senha (mín. 6 dígitos)"
+                  placeholderTextColor="#64748B"
+                  secureTextEntry
+                  value={newPassword}
+                  onChangeText={setNewPassword}
+                />
                 <TouchableOpacity
-                  style={[styles.saveBtn, saving && { opacity: 0.7 }]}
-                  onPress={handleSave}
-                  disabled={saving}
+                  style={[styles.btnActionSecondary, updatingPassword && { opacity: 0.7 }]}
+                  onPress={handleUpdatePassword}
+                  disabled={updatingPassword}
                 >
-                  <Text style={styles.saveBtnText}>{saving ? 'Salvando...' : 'Salvar Metas'}</Text>
+                  <Text style={styles.btnActionSecondaryText}>
+                    {updatingPassword ? '...' : 'Atualizar'}
+                  </Text>
                 </TouchableOpacity>
               </View>
+
+              {/* SEÇÃO 3: CÓPIA DE SEGURANÇA */}
+              <View style={styles.divider} />
+              <Text style={styles.sectionHeaderTitle}>📦 Exportação & Cópia de Segurança</Text>
+              <Text style={styles.sectionSubtitle}>
+                Baixe uma planilha consolidada com todos os lançamentos, contas a pagar e eventos
+              </Text>
+
+              <TouchableOpacity
+                style={[styles.backupBtn, generatingBackup && { opacity: 0.7 }]}
+                onPress={handleBackup}
+                disabled={generatingBackup}
+              >
+                <Text style={styles.backupBtnText}>
+                  {generatingBackup ? 'Gerando Planilha...' : '📊 Gerar Backup Completo (.xlsx)'}
+                </Text>
+              </TouchableOpacity>
             </ScrollView>
           )}
         </View>
@@ -267,7 +344,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     padding: 20,
-    maxHeight: '85%',
+    maxHeight: '90%',
   },
   headerRow: {
     flexDirection: 'row',
@@ -288,6 +365,17 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
   },
+  sectionHeaderTitle: {
+    color: '#F8FAFC',
+    fontSize: 15,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#334155',
+    marginVertical: 18,
+  },
   switchRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -295,7 +383,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#0F172A',
     padding: 14,
     borderRadius: 10,
-    marginBottom: 16,
+    marginVertical: 10,
+    borderWidth: 1,
+    borderColor: '#334155',
   },
   switchTitle: {
     color: '#F8FAFC',
@@ -308,15 +398,15 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   formSection: {
-    marginBottom: 16,
+    marginBottom: 12,
   },
   sectionSubtitle: {
     color: '#94A3B8',
     fontSize: 12,
-    marginBottom: 12,
+    marginBottom: 10,
   },
   inputGroup: {
-    marginBottom: 12,
+    marginBottom: 10,
   },
   label: {
     fontSize: 13,
@@ -333,34 +423,48 @@ const styles = StyleSheet.create({
     color: '#F8FAFC',
     fontSize: 15,
   },
-  btnRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 8,
-    marginBottom: 12,
-  },
-  cancelBtn: {
-    flex: 1,
-    backgroundColor: '#334155',
-    paddingVertical: 14,
-    borderRadius: 10,
-    alignItems: 'center',
-  },
-  cancelBtnText: {
-    color: '#F8FAFC',
-    fontWeight: 'bold',
-    fontSize: 14,
-  },
   saveBtn: {
-    flex: 1,
     backgroundColor: '#10B981',
-    paddingVertical: 14,
-    borderRadius: 10,
+    paddingVertical: 13,
+    borderRadius: 8,
     alignItems: 'center',
+    marginTop: 6,
   },
   saveBtnText: {
-    color: '#FFFFFF',
+    color: '#0F172A',
     fontWeight: 'bold',
     fontSize: 14,
+  },
+  passwordRow: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+  },
+  btnActionSecondary: {
+    backgroundColor: '#38BDF8',
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  btnActionSecondaryText: {
+    color: '#0F172A',
+    fontWeight: 'bold',
+    fontSize: 13,
+  },
+  backupBtn: {
+    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+    borderWidth: 1,
+    borderColor: '#38BDF8',
+    paddingVertical: 13,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  backupBtnText: {
+    color: '#38BDF8',
+    fontWeight: 'bold',
+    fontSize: 13,
   },
 });
