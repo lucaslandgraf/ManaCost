@@ -13,7 +13,9 @@ import {
   StatusBar,
   ScrollView,
   Share,
+  KeyboardAvoidingView,
 } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as XLSX from 'xlsx';
@@ -43,13 +45,11 @@ export function EventChecklistScreen({ route, navigation }: any) {
   const [items, setItems] = useState<ChecklistItem[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Modal de adicionar/editar
   const [modalVisible, setModalVisible] = useState(false);
   const [itemTitleInput, setItemTitleInput] = useState('');
   const [itemDescInput, setItemDescInput] = useState('');
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
 
-  // Modal de Relatório do Checklist
   const [reportModalVisible, setReportModalVisible] = useState(false);
 
   const fetchChecklist = async () => {
@@ -170,15 +170,14 @@ export function EventChecklistScreen({ route, navigation }: any) {
   const pendingCount = items.length - completedCount;
   const progressPercent = items.length > 0 ? (completedCount / items.length) * 100 : 0;
 
-  // Compartilhamento via WhatsApp / Texto
   const handleShareWhatsApp = async () => {
-    let text = `📋 *CHECKLIST DE BAGAGEM & VIAGEM: ${title.toUpperCase()}*\n`;
+    let text = `*CHECKLIST DE BAGAGEM & VIAGEM: ${title.toUpperCase()}*\n`;
     text += `Progresso: ${completedCount} de ${items.length} itens prontos (${Math.round(progressPercent)}%)\n\n`;
 
     if (items.length > 0) {
       text += `*ITENS DO CHECKLIST:*\n`;
       items.forEach((it) => {
-        const icon = it.is_completed ? '✅' : '⬜';
+        const icon = it.is_completed ? '[OK]' : '[ ]';
         text += `${icon} *${it.title}*`;
         if (it.description) {
           text += `\n   └ Observação: ${it.description}`;
@@ -196,7 +195,6 @@ export function EventChecklistScreen({ route, navigation }: any) {
     }
   };
 
-  // Exportação em Excel (.xlsx)
   const handleExportExcel = async () => {
     if (items.length === 0) {
       Alert.alert('Aviso', 'Não há itens no checklist para exportar.');
@@ -210,7 +208,6 @@ export function EventChecklistScreen({ route, navigation }: any) {
         'Descrição / Observações': it.description || '—',
       }));
 
-      // Linha em branco e Totais Consolidados no rodapé
       dataRows.push(
         { 'Status': '', 'Item': '', 'Descrição / Observações': '' },
         { 'Status': 'RESUMO', 'Item': 'TOTAL DE ITENS', 'Descrição / Observações': items.length },
@@ -222,9 +219,9 @@ export function EventChecklistScreen({ route, navigation }: any) {
       const worksheet = XLSX.utils.json_to_sheet(dataRows);
 
       worksheet['!cols'] = [
-        { wch: 16 }, // Status
-        { wch: 36 }, // Item
-        { wch: 48 }, // Descrição / Observações
+        { wch: 16 },
+        { wch: 36 },
+        { wch: 48 },
       ];
 
       const workbook = XLSX.utils.book_new();
@@ -253,7 +250,6 @@ export function EventChecklistScreen({ route, navigation }: any) {
     }
   };
 
-  // Exportação em CSV (com UTF-8 BOM)
   const handleExportCSV = async () => {
     if (items.length === 0) {
       Alert.alert('Aviso', 'Não há itens no checklist para exportar.');
@@ -298,6 +294,8 @@ export function EventChecklistScreen({ route, navigation }: any) {
 
   return (
     <View style={styles.container}>
+      <StatusBar barStyle="light-content" />
+
       {/* Cabeçalho */}
       <View style={styles.header}>
         <TouchableOpacity
@@ -305,21 +303,20 @@ export function EventChecklistScreen({ route, navigation }: any) {
           style={styles.backButton}
           activeOpacity={0.7}
         >
-          <Text style={styles.backButtonText}>‹</Text>
+          <Feather name="chevron-left" size={20} color="#10B981" />
         </TouchableOpacity>
 
         <View style={styles.headerTitleContainer}>
-          <Text style={styles.headerTitle}>Checklist de Viagem</Text>
-          <Text style={styles.headerSub}>{title}</Text>
+          <Text style={styles.headerTitle}>Checklist de Bagagem</Text>
+          <Text style={styles.headerSub} numberOfLines={1}>{title}</Text>
         </View>
 
-        {/* Botão de Relatório do Checklist */}
         <TouchableOpacity
           style={styles.reportButton}
           onPress={() => setReportModalVisible(true)}
           activeOpacity={0.7}
         >
-          <Text style={styles.reportButtonIcon}>📊</Text>
+          <Feather name="bar-chart-2" size={15} color="#38BDF8" />
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -330,16 +327,17 @@ export function EventChecklistScreen({ route, navigation }: any) {
             setItemDescInput('');
             setModalVisible(true);
           }}
-          activeOpacity={0.7}
+          activeOpacity={0.8}
         >
-          <Text style={styles.addButtonText}>+ Item</Text>
+          <Feather name="plus" size={12} color="#0B0F19" style={{ marginRight: 3 }} />
+          <Text style={styles.addButtonText}>Item</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Card de Progresso */}
+      {/* Cartão de Progresso da Bagagem */}
       <View style={styles.progressCard}>
         <View style={styles.progressHeader}>
-          <Text style={styles.progressTitle}>Itens Prontos</Text>
+          <Text style={styles.progressTitle}>ITENS PREPARADOS</Text>
           <Text style={styles.progressCount}>
             {completedCount} de {items.length} ({Math.round(progressPercent)}%)
           </Text>
@@ -349,25 +347,29 @@ export function EventChecklistScreen({ route, navigation }: any) {
         </View>
       </View>
 
+      {/* Lista de Itens */}
       {loading ? (
-        <ActivityIndicator size="large" color="#38BDF8" style={{ marginTop: 40 }} />
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color="#10B981" />
+        </View>
       ) : (
         <FlatList
           data={items}
           keyExtractor={(item) => item.id}
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 100 }}
+          contentContainerStyle={{ paddingBottom: Platform.OS === 'android' ? 100 : 80 }}
           renderItem={({ item }) => (
-            <View style={styles.itemRow}>
+            <View style={[styles.itemCard, item.is_completed && styles.itemCardCompleted]}>
               <TouchableOpacity
-                style={styles.checkboxContainer}
+                style={styles.checkboxTouchArea}
                 activeOpacity={0.7}
                 onPress={() => toggleItem(item)}
               >
                 <View style={[styles.checkbox, item.is_completed && styles.checkboxChecked]}>
-                  {item.is_completed && <Text style={styles.checkmark}>✓</Text>}
+                  {item.is_completed && <Feather name="check" size={12} color="#0B0F19" />}
                 </View>
-                <View style={{ flex: 1, paddingRight: 8 }}>
+
+                <View style={{ flex: 1, paddingRight: 6 }}>
                   <Text
                     style={[
                       styles.itemTitle,
@@ -399,27 +401,31 @@ export function EventChecklistScreen({ route, navigation }: any) {
                     setModalVisible(true);
                   }}
                   style={styles.actionBtn}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
-                  <Text style={styles.actionIcon}>✏️</Text>
+                  <Feather name="edit-2" size={13} color="#64748B" />
                 </TouchableOpacity>
 
                 <TouchableOpacity
                   onPress={() => handleDeleteItem(item.id, item.title)}
                   style={styles.actionBtn}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
-                  <Text style={styles.actionIcon}>🗑️</Text>
+                  <Feather name="trash-2" size={13} color="#F87171" />
                 </TouchableOpacity>
               </View>
             </View>
           )}
           ListEmptyComponent={
-            <Text style={styles.emptyText}>Nenhum item no checklist.</Text>
+            <View style={styles.emptyContainer}>
+              <Feather name="check-square" size={30} color="#64748B" style={{ marginBottom: 6 }} />
+              <Text style={styles.emptyText}>Nenhum item registado no checklist da mala.</Text>
+            </View>
           }
         />
       )}
-      <View style={styles.bottomBarBarrier} />
 
-      {/* Modal de Relatório e Exportação do Checklist */}
+      {/* Modal de Relatório do Checklist */}
       <Modal
         visible={reportModalVisible}
         transparent
@@ -428,53 +434,62 @@ export function EventChecklistScreen({ route, navigation }: any) {
       >
         <View style={styles.bottomModalOverlay}>
           <View style={styles.bottomModalCard}>
+            <View style={styles.dragHandleBox}>
+              <View style={styles.dragHandle} />
+            </View>
+
             <View style={styles.bottomModalHeader}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.modalTitle} numberOfLines={1}>📊 Relatório: Checklist</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Feather name="bar-chart-2" size={15} color="#38BDF8" />
+                  <Text style={styles.modalTitle} numberOfLines={1}>Relatório: Checklist</Text>
+                </View>
                 <Text style={styles.reportSubtitle}>Auditoria de bagagem para {title}</Text>
               </View>
-              <TouchableOpacity onPress={() => setReportModalVisible(false)}>
-                <Text style={styles.closeBtnText}>✕</Text>
+              <TouchableOpacity onPress={() => setReportModalVisible(false)} style={styles.closeBtn}>
+                <Feather name="x" size={16} color="#94A3B8" />
               </TouchableOpacity>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false}>
-              {/* Card de Indicadores do Checklist */}
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 20 }}>
               <View style={styles.reportMetricsCard}>
                 <View style={styles.reportMetricBox}>
-                  <Text style={styles.reportMetricLabel}>Total de Itens</Text>
+                  <Text style={styles.reportMetricLabel}>Total</Text>
                   <Text style={[styles.reportMetricVal, { color: '#38BDF8' }]}>
                     {items.length}
                   </Text>
                 </View>
+                <View style={styles.reportMetricDivider} />
                 <View style={styles.reportMetricBox}>
                   <Text style={styles.reportMetricLabel}>Prontos</Text>
-                  <Text style={[styles.reportMetricVal, { color: '#10B981' }]}>
+                  <Text style={[styles.reportMetricVal, { color: '#34D399' }]}>
                     {completedCount}
                   </Text>
                 </View>
+                <View style={styles.reportMetricDivider} />
                 <View style={styles.reportMetricBox}>
                   <Text style={styles.reportMetricLabel}>Pendentes</Text>
                   <Text style={[styles.reportMetricVal, { color: pendingCount > 0 ? '#F59E0B' : '#64748B' }]}>
                     {pendingCount}
                   </Text>
                 </View>
+                <View style={styles.reportMetricDivider} />
                 <View style={styles.reportMetricBox}>
                   <Text style={styles.reportMetricLabel}>Concluído</Text>
-                  <Text style={[styles.reportMetricVal, { color: progressPercent === 100 ? '#10B981' : '#38BDF8' }]}>
+                  <Text style={[styles.reportMetricVal, { color: progressPercent === 100 ? '#34D399' : '#38BDF8' }]}>
                     {Math.round(progressPercent)}%
                   </Text>
                 </View>
               </View>
 
-              {/* Botões de Exportação */}
               <View style={styles.reportActionsContainer}>
                 <TouchableOpacity
                   style={styles.exportExcelBtn}
                   onPress={handleExportExcel}
-                  activeOpacity={0.7}
+                  activeOpacity={0.8}
                 >
-                  <Text style={styles.exportExcelBtnText}>📊 Exportar Planilha Excel (.xlsx)</Text>
+                  <Feather name="file-text" size={14} color="#0B0F19" style={{ marginRight: 6 }} />
+                  <Text style={styles.exportExcelBtnText}>Exportar Planilha Excel (.xlsx)</Text>
                 </TouchableOpacity>
 
                 <View style={styles.secondaryExportRow}>
@@ -483,7 +498,8 @@ export function EventChecklistScreen({ route, navigation }: any) {
                     onPress={handleShareWhatsApp}
                     activeOpacity={0.7}
                   >
-                    <Text style={styles.shareWhatsAppBtnText}>💬 WhatsApp / Texto</Text>
+                    <Feather name="share-2" size={12} color="#38BDF8" style={{ marginRight: 4 }} />
+                    <Text style={styles.shareWhatsAppBtnText}>Partilhar Texto</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
@@ -491,7 +507,8 @@ export function EventChecklistScreen({ route, navigation }: any) {
                     onPress={handleExportCSV}
                     activeOpacity={0.7}
                   >
-                    <Text style={styles.exportCsvBtnText}>📄 Exportar CSV</Text>
+                    <Feather name="download" size={12} color="#F8FAFC" style={{ marginRight: 6 }} />
+                    <Text style={styles.exportCsvBtnText}>Exportar CSV</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -499,8 +516,9 @@ export function EventChecklistScreen({ route, navigation }: any) {
               <TouchableOpacity
                 style={styles.closeFullBtn}
                 onPress={() => setReportModalVisible(false)}
+                activeOpacity={0.7}
               >
-                <Text style={styles.closeFullBtnText}>Fechar</Text>
+                <Text style={styles.closeFullBtnText}>Concluído</Text>
               </TouchableOpacity>
             </ScrollView>
           </View>
@@ -508,26 +526,38 @@ export function EventChecklistScreen({ route, navigation }: any) {
       </Modal>
 
       {/* Modal Adicionar / Editar Item */}
-      <Modal visible={modalVisible} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>
-              {editingItemId ? 'Editar Item' : 'Novo Item do Checklist'}
-            </Text>
+      <Modal visible={modalVisible} transparent animationType="slide" onRequestClose={() => setModalVisible(false)}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.bottomModalOverlay}
+        >
+          <View style={styles.bottomModalCard}>
+            <View style={styles.dragHandleBox}>
+              <View style={styles.dragHandle} />
+            </View>
 
-            <Text style={styles.inputLabel}>Título:</Text>
+            <View style={styles.bottomModalHeader}>
+              <Text style={styles.modalTitle}>
+                {editingItemId ? 'Editar Item' : 'Novo Item do Checklist'}
+              </Text>
+              <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.closeBtn}>
+                <Feather name="x" size={16} color="#94A3B8" />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.fieldLabel}>TÍTULO DO ITEM</Text>
             <TextInput
               style={styles.input}
-              placeholder="Ex: Medicamentos básicos"
+              placeholder="Ex: Medicamentos básicos, Casaco térmico"
               placeholderTextColor="#64748B"
               value={itemTitleInput}
               onChangeText={setItemTitleInput}
             />
 
-            <Text style={styles.inputLabel}>Descrição / Itens específicos (opcional):</Text>
+            <Text style={styles.fieldLabel}>OBSERVAÇÕES / DETALHES (OPCIONAL)</Text>
             <TextInput
               style={[styles.input, styles.textArea]}
-              placeholder="Ex: Dipirona, Antialérgico, Band-aid, Curativos"
+              placeholder="Ex: Levar na mala de mão, verificar validade"
               placeholderTextColor="#64748B"
               value={itemDescInput}
               onChangeText={setItemDescInput}
@@ -539,15 +569,22 @@ export function EventChecklistScreen({ route, navigation }: any) {
               <TouchableOpacity
                 style={styles.cancelBtn}
                 onPress={() => setModalVisible(false)}
+                activeOpacity={0.7}
               >
                 <Text style={styles.cancelBtnText}>Cancelar</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.saveBtn} onPress={handleSaveItem}>
-                <Text style={styles.saveBtnText}>Salvar</Text>
+              <TouchableOpacity
+                style={styles.saveBtn}
+                onPress={handleSaveItem}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.saveBtnText}>
+                  {editingItemId ? 'Atualizar' : 'Adicionar Item'}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -556,137 +593,152 @@ export function EventChecklistScreen({ route, navigation }: any) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0F172A',
-    paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 28) + 16 : 48,
-  },
-  bottomBarBarrier: {
-    height: Platform.OS === 'android' ? 68 : 0,
-    backgroundColor: '#0F172A',
-    width: '100%',
+    backgroundColor: '#0B0F19',
+    paddingHorizontal: 16,
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 28) + 12 : 44,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 14,
     gap: 8,
   },
   backButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-    backgroundColor: '#1E293B',
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#131927',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
-  backButtonText: {
-    color: '#38BDF8',
-    fontSize: 26,
-    fontWeight: 'bold',
-    lineHeight: 28,
+  headerTitleContainer: {
+    flex: 1,
+    paddingLeft: 4,
   },
-  headerTitleContainer: { flex: 1 },
-  headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#F8FAFC' },
-  headerSub: { fontSize: 12, color: '#64748B', marginTop: 1 },
+  headerTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#F8FAFC',
+    letterSpacing: -0.3,
+  },
+  headerSub: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 1,
+  },
   reportButton: {
-    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+    backgroundColor: '#131927',
     borderWidth: 1,
-    borderColor: '#38BDF8',
-    width: 36,
-    height: 36,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+    width: 34,
+    height: 34,
     borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  reportButtonIcon: { fontSize: 16 },
   addButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#10B981',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+    paddingVertical: 7,
+    paddingHorizontal: 14,
+    borderRadius: 18,
   },
-  addButtonText: { color: '#F8FAFC', fontWeight: 'bold', fontSize: 13 },
+  addButtonText: {
+    color: '#0B0F19',
+    fontWeight: '800',
+    fontSize: 12,
+  },
   progressCard: {
-    backgroundColor: '#1E293B',
+    backgroundColor: '#131927',
     borderRadius: 14,
-    padding: 16,
-    marginBottom: 16,
+    padding: 14,
+    marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.05)',
   },
   progressHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 8,
   },
-  progressTitle: { color: '#94A3B8', fontSize: 13, fontWeight: '600' },
-  progressCount: { color: '#38BDF8', fontSize: 13, fontWeight: 'bold' },
+  progressTitle: {
+    color: '#64748B',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+  },
+  progressCount: {
+    color: '#34D399',
+    fontSize: 12,
+    fontWeight: '700',
+  },
   progressTrack: {
-    height: 6,
-    backgroundColor: '#0F172A',
-    borderRadius: 3,
+    height: 4,
+    backgroundColor: '#0B0F19',
+    borderRadius: 2,
     overflow: 'hidden',
   },
   progressBar: {
     height: '100%',
     backgroundColor: '#10B981',
-    borderRadius: 3,
+    borderRadius: 2,
   },
-  itemRow: {
+  itemCard: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#1E293B',
+    backgroundColor: '#131927',
     paddingVertical: 12,
     paddingHorizontal: 14,
-    borderRadius: 10,
+    borderRadius: 12,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.04)',
   },
-  checkboxContainer: {
+  itemCardCompleted: {
+    backgroundColor: 'rgba(19, 25, 39, 0.5)',
+    borderColor: 'rgba(255, 255, 255, 0.02)',
+  },
+  checkboxTouchArea: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     flex: 1,
     paddingRight: 6,
   },
   checkbox: {
-    width: 22,
-    height: 22,
+    width: 20,
+    height: 20,
     borderRadius: 6,
-    borderWidth: 2,
+    borderWidth: 1.5,
     borderColor: '#64748B',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginRight: 10,
     marginTop: 2,
+    backgroundColor: '#0B0F19',
   },
   checkboxChecked: {
     backgroundColor: '#10B981',
     borderColor: '#10B981',
   },
-  checkmark: {
-    color: '#0F172A',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
   itemTitle: {
     color: '#F8FAFC',
-    fontSize: 14,
-    fontWeight: '500',
+    fontSize: 13,
+    fontWeight: '600',
   },
   itemTitleCompleted: {
     color: '#64748B',
     textDecorationLine: 'line-through',
   },
   itemDesc: {
-    color: '#94A3B8',
-    fontSize: 12,
-    marginTop: 3,
-    lineHeight: 16,
+    color: '#64748B',
+    fontSize: 11,
+    marginTop: 2,
+    lineHeight: 15,
   },
   itemDescCompleted: {
     color: '#475569',
@@ -698,74 +750,50 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   actionBtn: {
-    padding: 4,
+    padding: 6,
+    borderRadius: 6,
+    backgroundColor: '#0B0F19',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.04)',
   },
-  actionIcon: {
-    fontSize: 14,
+  emptyContainer: {
+    alignItems: 'center',
+    paddingVertical: 40,
   },
   emptyText: {
     color: '#64748B',
     textAlign: 'center',
-    marginTop: 40,
-    fontSize: 14,
+    fontSize: 12,
   },
-  modalOverlay: {
+  center: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.75)',
     justifyContent: 'center',
-    padding: 20,
+    alignItems: 'center',
   },
-  modalContent: {
-    backgroundColor: '#1E293B',
-    borderRadius: 16,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  modalTitle: { fontSize: 18, fontWeight: 'bold', color: '#F8FAFC', marginBottom: 4 },
-  reportSubtitle: { fontSize: 11, color: '#64748B', marginBottom: 14 },
-  inputLabel: { color: '#94A3B8', fontSize: 12, marginBottom: 6 },
-  input: {
-    backgroundColor: '#0F172A',
-    color: '#F8FAFC',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#334155',
-    fontSize: 14,
-  },
-  textArea: {
-    height: 70,
-    textAlignVertical: 'top',
-    paddingTop: 10,
-  },
-  modalActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 12,
-    marginTop: 6,
-  },
-  cancelBtn: { paddingVertical: 10, paddingHorizontal: 16 },
-  cancelBtnText: { color: '#94A3B8', fontWeight: '600' },
-  saveBtn: {
-    backgroundColor: '#10B981',
-    paddingVertical: 10,
-    paddingHorizontal: 18,
-    borderRadius: 8,
-  },
-  saveBtnText: { color: '#F8FAFC', fontWeight: 'bold' },
   bottomModalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.75)',
     justifyContent: 'flex-end',
   },
   bottomModalCard: {
-    backgroundColor: '#1E293B',
+    backgroundColor: '#0B0F19',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingBottom: Platform.OS === 'android' ? 24 : 36,
     maxHeight: '90%',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  dragHandleBox: {
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  dragHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
   bottomModalHeader: {
     flexDirection: 'row',
@@ -773,44 +801,126 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
-  closeBtnText: { color: '#94A3B8', fontSize: 18, fontWeight: 'bold', padding: 4 },
+  modalTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#F8FAFC',
+    letterSpacing: -0.3,
+  },
+  reportSubtitle: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 1,
+  },
+  closeBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#131927',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fieldLabel: {
+    color: '#64748B',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    marginBottom: 6,
+    marginTop: 4,
+  },
+  input: {
+    backgroundColor: '#131927',
+    color: '#F8FAFC',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+    fontSize: 13,
+  },
+  textArea: {
+    height: 72,
+    textAlignVertical: 'top',
+    paddingTop: 8,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 6,
+  },
+  cancelBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: '#131927',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  cancelBtnText: {
+    color: '#94A3B8',
+    fontWeight: '600',
+    fontSize: 13,
+  },
+  saveBtn: {
+    flex: 2,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: '#10B981',
+    alignItems: 'center',
+  },
+  saveBtnText: {
+    color: '#0B0F19',
+    fontWeight: '800',
+    fontSize: 13,
+  },
   reportMetricsCard: {
     flexDirection: 'row',
-    backgroundColor: '#0F172A',
+    backgroundColor: '#131927',
     borderRadius: 12,
     padding: 12,
-    marginBottom: 14,
+    marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.05)',
   },
   reportMetricBox: {
     flex: 1,
     alignItems: 'center',
   },
+  reportMetricDivider: {
+    width: 1,
+    height: 24,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+  },
   reportMetricLabel: {
-    color: '#94A3B8',
+    color: '#64748B',
     fontSize: 10,
-    marginBottom: 3,
+    fontWeight: '600',
   },
   reportMetricVal: {
     fontSize: 14,
-    fontWeight: 'bold',
+    fontWeight: '800',
+    marginTop: 2,
+    letterSpacing: -0.3,
   },
   reportActionsContainer: {
     flexDirection: 'column',
     gap: 8,
-    marginBottom: 8,
+    marginBottom: 10,
   },
   exportExcelBtn: {
+    flexDirection: 'row',
     backgroundColor: '#10B981',
-    paddingVertical: 13,
-    borderRadius: 8,
+    paddingVertical: 12,
+    borderRadius: 10,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   exportExcelBtnText: {
-    color: '#0F172A',
-    fontWeight: 'bold',
-    fontSize: 14,
+    color: '#0B0F19',
+    fontWeight: '800',
+    fontSize: 13,
   },
   secondaryExportRow: {
     flexDirection: 'row',
@@ -818,24 +928,30 @@ const styles = StyleSheet.create({
   },
   shareWhatsAppBtn: {
     flex: 1,
-    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+    flexDirection: 'row',
+    backgroundColor: '#131927',
     borderWidth: 1,
-    borderColor: '#38BDF8',
+    borderColor: 'rgba(56, 189, 248, 0.3)',
     paddingVertical: 11,
-    borderRadius: 8,
+    borderRadius: 10,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   shareWhatsAppBtnText: {
     color: '#38BDF8',
-    fontWeight: 'bold',
+    fontWeight: '700',
     fontSize: 12,
   },
   exportCsvBtn: {
     flex: 1,
-    backgroundColor: '#334155',
+    flexDirection: 'row',
+    backgroundColor: '#131927',
     paddingVertical: 11,
-    borderRadius: 8,
+    borderRadius: 10,
     alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
   exportCsvBtnText: {
     color: '#F8FAFC',
@@ -843,12 +959,16 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   closeFullBtn: {
-    backgroundColor: '#334155',
+    backgroundColor: '#131927',
     paddingVertical: 12,
     borderRadius: 10,
     alignItems: 'center',
-    marginTop: 8,
-    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
-  closeFullBtnText: { color: '#F8FAFC', fontWeight: 'bold', fontSize: 14 },
+  closeFullBtnText: {
+    color: '#F8FAFC',
+    fontWeight: '700',
+    fontSize: 13,
+  },
 });

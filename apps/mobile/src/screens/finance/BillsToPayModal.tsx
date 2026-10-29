@@ -10,7 +10,9 @@ import {
   ActivityIndicator,
   Alert,
   Share,
+  Platform,
 } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as XLSX from 'xlsx';
@@ -30,7 +32,7 @@ export interface BillToPay {
 interface Props {
   visible: boolean;
   onClose: () => void;
-  currentMonthDate?: Date; // Mês selecionado no Dashboard
+  currentMonthDate?: Date;
   onBillSettled?: () => void;
 }
 
@@ -44,11 +46,9 @@ export const BillsToPayModal: React.FC<Props> = ({
   const [bills, setBills] = useState<BillToPay[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // Controle de Mês e Filtro
   const [selectedDate, setSelectedDate] = useState<Date>(new Date(currentMonthDate));
   const [showAllPending, setShowAllPending] = useState(false);
 
-  // Estados de criação/edição
   const [formModalVisible, setFormModalVisible] = useState(false);
   const [editingBillId, setEditingBillId] = useState<string | null>(null);
   const [titleInput, setTitleInput] = useState('');
@@ -134,7 +134,6 @@ export const BillsToPayModal: React.FC<Props> = ({
       const loadedBills = data || [];
       setBills(loadedBills);
 
-      // Reagenda automaticamente os alertas de contas futuras no telemóvel
       if (loadedBills.length > 0) {
         syncAllPendingBillsReminders(loadedBills);
       }
@@ -161,9 +160,8 @@ export const BillsToPayModal: React.FC<Props> = ({
 
       if (nextStatus) {
         const dFormat = item.due_date ? item.due_date.split('-').reverse().join('/') : '';
-
         Alert.alert(
-          'Conta Paga 🎉',
+          'Conta Paga',
           `Pretende registar "- R$ ${Number(item.amount).toFixed(2)}" no extrato do mês de vencimento (${dFormat})?`,
           [
             {
@@ -176,7 +174,6 @@ export const BillsToPayModal: React.FC<Props> = ({
               style: 'default',
               onPress: async () => {
                 const targetDate = item.due_date || new Date().toISOString().split('T')[0];
-
                 await supabase.from('transactions').insert([
                   {
                     user_id: user?.id,
@@ -257,7 +254,7 @@ export const BillsToPayModal: React.FC<Props> = ({
   };
 
   const handleDeleteBill = (item: BillToPay) => {
-    Alert.alert('Excluir Conta', `Como deseja remover "${item.title}"?`, [
+    Alert.alert('Remover Conta', `Como deseja remover "${item.title}"?`, [
       { text: 'Cancelar', style: 'cancel' },
       {
         text: 'Apenas do Checklist',
@@ -272,7 +269,6 @@ export const BillsToPayModal: React.FC<Props> = ({
         style: 'destructive',
         onPress: async () => {
           await supabase.from('bills_to_pay').delete().eq('id', item.id);
-
           if (user?.id) {
             await supabase
               .from('transactions')
@@ -281,7 +277,6 @@ export const BillsToPayModal: React.FC<Props> = ({
               .ilike('description', item.title.trim())
               .eq('date', item.due_date);
           }
-
           fetchBills();
           if (onBillSettled) onBillSettled();
         },
@@ -289,7 +284,6 @@ export const BillsToPayModal: React.FC<Props> = ({
     ]);
   };
 
-  // Lógica de Filtragem por Mês ou Todas Pendentes
   const targetYear = selectedDate.getFullYear();
   const targetMonth = selectedDate.getMonth();
 
@@ -318,15 +312,15 @@ export const BillsToPayModal: React.FC<Props> = ({
       ? 'TODAS AS CONTAS PENDENTES'
       : `CONTAS DE ${formatMonthTitle(selectedDate).toUpperCase()}`;
 
-    let text = `📑 *LEMBRETE: CONTAS A PAGAR - ${labelHeader}*\n`;
-    text += `⏳ *Pendente:* R$ ${totalPending.toFixed(2)}\n`;
-    text += `✅ *Pago:* R$ ${totalPaid.toFixed(2)}\n\n`;
+    let text = `*LEMBRETE: CONTAS A PAGAR - ${labelHeader}*\n`;
+    text += `Pendente: R$ ${totalPending.toFixed(2)}\n`;
+    text += `Pago: R$ ${totalPaid.toFixed(2)}\n\n`;
 
     if (filteredBills.length > 0) {
       text += `*Discriminação das Contas:*\n`;
       filteredBills.forEach((b) => {
         const dFormat = b.due_date ? b.due_date.split('-').reverse().join('/') : '';
-        const icon = b.is_paid ? '✅' : '⏳';
+        const icon = b.is_paid ? '[OK]' : '[PENDENTE]';
         text += `${icon} *${b.title}* - R$ ${Number(b.amount).toFixed(2)} (Venc: ${dFormat})\n`;
         if (b.barcode_or_pix) text += `   └ Pix/Cód: ${b.barcode_or_pix}\n`;
       });
@@ -398,32 +392,39 @@ export const BillsToPayModal: React.FC<Props> = ({
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={styles.card}>
+          <View style={styles.dragHandleBox}>
+            <View style={styles.dragHandle} />
+          </View>
+
           {/* Cabeçalho */}
           <View style={styles.headerRow}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.title}>📑 Contas a Pagar & Lembretes</Text>
-              <Text style={styles.sub}>Checklist e prazos de boletos e faturas</Text>
+              <Text style={styles.title}>Contas a Pagar</Text>
+              <Text style={styles.sub}>Prazos de boletos e faturas</Text>
             </View>
-            <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-              <Text style={styles.closeBtnText}>✕</Text>
+            <TouchableOpacity onPress={onClose} style={styles.closeBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Feather name="x" size={16} color="#94A3B8" />
             </TouchableOpacity>
           </View>
 
-          {/* Seletor de Mês & Botão "Todas Pendentes" */}
+          {/* Seletor de Mês e Filtro de Pendentes */}
           <View style={styles.filterControlsRow}>
             {!showAllPending ? (
               <View style={styles.monthNav}>
                 <TouchableOpacity style={styles.monthArrowBtn} onPress={() => changeMonth(-1)}>
-                  <Text style={styles.monthArrowText}>‹</Text>
+                  <Feather name="chevron-left" size={16} color="#94A3B8" />
                 </TouchableOpacity>
                 <Text style={styles.monthTitleText}>{formatMonthTitle(selectedDate)}</Text>
                 <TouchableOpacity style={styles.monthArrowBtn} onPress={() => changeMonth(1)}>
-                  <Text style={styles.monthArrowText}>›</Text>
+                  <Feather name="chevron-right" size={16} color="#94A3B8" />
                 </TouchableOpacity>
               </View>
             ) : (
               <View style={styles.allPendingLabelBox}>
-                <Text style={styles.allPendingLabelText}>⏳ Todas as Contas Pendentes</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Feather name="clock" size={13} color="#F59E0B" />
+                  <Text style={styles.allPendingLabelText}>Todas as Pendentes</Text>
+                </View>
               </View>
             )}
 
@@ -438,24 +439,24 @@ export const BillsToPayModal: React.FC<Props> = ({
             </TouchableOpacity>
           </View>
 
-          {/* Resumo Pendente vs Pago */}
+          {/* Resumo Consolidado */}
           <View style={styles.summaryBox}>
             <View style={styles.summaryCol}>
-              <Text style={styles.summaryLabel}>Total Pendente</Text>
-              <Text style={[styles.summaryVal, { color: '#EF4444' }]}>
+              <Text style={styles.summaryLabel}>PENDENTE</Text>
+              <Text style={[styles.summaryVal, { color: '#F87171' }]}>
                 R$ {totalPending.toFixed(2)}
               </Text>
             </View>
             <View style={styles.divider} />
             <View style={styles.summaryCol}>
-              <Text style={styles.summaryLabel}>Total Pago</Text>
-              <Text style={[styles.summaryVal, { color: '#10B981' }]}>
+              <Text style={styles.summaryLabel}>PAGO</Text>
+              <Text style={[styles.summaryVal, { color: '#34D399' }]}>
                 R$ {totalPaid.toFixed(2)}
               </Text>
             </View>
           </View>
 
-          {/* Botões de Ação Topo */}
+          {/* Ações Topo */}
           <View style={styles.topActionsRow}>
             <TouchableOpacity
               style={styles.btnAdd}
@@ -469,128 +470,151 @@ export const BillsToPayModal: React.FC<Props> = ({
                 setNotesInput('');
                 setFormModalVisible(true);
               }}
-              activeOpacity={0.7}
+              activeOpacity={0.8}
             >
-              <Text style={styles.btnAddText}>+ Nova Conta</Text>
+              <Feather name="plus" size={14} color="#0B0F19" style={{ marginRight: 4 }} />
+              <Text style={styles.btnAddText}>Nova Conta</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.btnExportMini} onPress={handleShareWhatsApp}>
-              <Text style={styles.btnExportMiniText}>💬 Enviar</Text>
+            <TouchableOpacity style={styles.btnExportMini} onPress={handleShareWhatsApp} activeOpacity={0.7}>
+              <Feather name="share-2" size={12} color="#94A3B8" style={{ marginRight: 4 }} />
+              <Text style={styles.btnExportMiniText}>Enviar</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.btnExportMini} onPress={handleExportExcel}>
-              <Text style={styles.btnExportMiniText}>📊 Excel</Text>
+            <TouchableOpacity style={styles.btnExportMini} onPress={handleExportExcel} activeOpacity={0.7}>
+              <Feather name="download" size={12} color="#94A3B8" style={{ marginRight: 4 }} />
+              <Text style={styles.btnExportMiniText}>Excel</Text>
             </TouchableOpacity>
           </View>
 
           {/* Lista de Contas */}
           {loading ? (
-            <ActivityIndicator size="large" color="#38BDF8" style={{ marginVertical: 30 }} />
+            <ActivityIndicator size="large" color="#10B981" style={{ marginVertical: 32 }} />
           ) : (
             <FlatList
               data={filteredBills}
               keyExtractor={(item) => item.id}
               showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ paddingBottom: 24 }}
+              contentContainerStyle={{ paddingBottom: 28 }}
               renderItem={({ item }) => {
                 const dFormat = item.due_date ? item.due_date.split('-').reverse().join('/') : '';
                 return (
-                  <View style={styles.itemRow}>
-                    <TouchableOpacity
-                      style={styles.checkArea}
-                      activeOpacity={0.7}
-                      onPress={() => toggleBillStatus(item)}
-                    >
-                      <View style={[styles.checkbox, item.is_paid && styles.checkboxChecked]}>
-                        {item.is_paid && <Text style={styles.checkmark}>✓</Text>}
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={[styles.itemTitle, item.is_paid && styles.itemTitlePaid]}>
-                          {item.title}
-                        </Text>
-                        <Text style={styles.itemDate}>Vencimento: {dFormat}</Text>
-                        {item.barcode_or_pix ? (
-                          <Text style={styles.itemNotes} numberOfLines={1}>
-                            Pix/Cód: {item.barcode_or_pix}
-                          </Text>
-                        ) : null}
-                      </View>
-                    </TouchableOpacity>
-
-                    <View style={styles.rightActions}>
-                      <Text
-                        style={[
-                          styles.itemAmount,
-                          { color: item.is_paid ? '#10B981' : '#EF4444' },
-                        ]}
+                  <View style={[styles.itemCard, item.is_paid && styles.itemCardPaid]}>
+                    <View style={styles.itemCardTop}>
+                      <TouchableOpacity
+                        style={styles.checkArea}
+                        activeOpacity={0.7}
+                        onPress={() => toggleBillStatus(item)}
                       >
-                        R$ {Number(item.amount).toFixed(2)}
-                      </Text>
-                      <View style={styles.iconsRow}>
-                        <TouchableOpacity
-                          style={styles.iconBtn}
-                          onPress={() => {
-                            setEditingBillId(item.id);
-                            setTitleInput(item.title);
-                            setAmountInput(String(item.amount));
-                            setDateInput(dFormat);
-                            setNotesInput(item.barcode_or_pix || '');
-                            setFormModalVisible(true);
-                          }}
+                        <View style={[styles.checkbox, item.is_paid && styles.checkboxChecked]}>
+                          {item.is_paid && <Feather name="check" size={12} color="#0B0F19" />}
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.itemTitle, item.is_paid && styles.itemTitlePaid]} numberOfLines={1}>
+                            {item.title}
+                          </Text>
+                          <Text style={styles.itemDate}>Vence {dFormat}</Text>
+                        </View>
+                      </TouchableOpacity>
+
+                      <View style={styles.rightActions}>
+                        <Text
+                          style={[
+                            styles.itemAmount,
+                            { color: item.is_paid ? '#34D399' : '#F8FAFC' },
+                          ]}
                         >
-                          <Text style={styles.iconAction}>✏️</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={styles.iconBtn}
-                          onPress={() => handleDeleteBill(item)}
-                        >
-                          <Text style={styles.iconAction}>🗑️</Text>
-                        </TouchableOpacity>
+                          R$ {Number(item.amount).toFixed(2)}
+                        </Text>
+                        <View style={styles.iconsRow}>
+                          <TouchableOpacity
+                            style={styles.iconBtn}
+                            onPress={() => {
+                              setEditingBillId(item.id);
+                              setTitleInput(item.title);
+                              setAmountInput(String(item.amount));
+                              setDateInput(dFormat);
+                              setNotesInput(item.barcode_or_pix || '');
+                              setFormModalVisible(true);
+                            }}
+                          >
+                            <Feather name="edit-2" size={12} color="#64748B" />
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={styles.iconBtn}
+                            onPress={() => handleDeleteBill(item)}
+                          >
+                            <Feather name="trash-2" size={12} color="#F87171" />
+                          </TouchableOpacity>
+                        </View>
                       </View>
                     </View>
+
+                    {item.barcode_or_pix ? (
+                      <View style={styles.pixSnippetRow}>
+                        <Text style={styles.pixSnippetText} numberOfLines={1}>
+                          {item.barcode_or_pix}
+                        </Text>
+                        <TouchableOpacity
+                          style={styles.copyPixBtn}
+                          onPress={() => Alert.alert('Chave / Código', item.barcode_or_pix || '')}
+                          activeOpacity={0.7}
+                        >
+                          <Feather name="copy" size={11} color="#38BDF8" style={{ marginRight: 4 }} />
+                          <Text style={styles.copyPixBtnText}>Ver chave</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ) : null}
                   </View>
                 );
               }}
               ListEmptyComponent={
-                <Text style={styles.emptyText}>
-                  {showAllPending
-                    ? '🎉 Não há contas pendentes no momento!'
-                    : `Nenhuma conta encontrada em ${formatMonthTitle(selectedDate)}.\nToque em "+ Nova Conta" para adicionar.`}
-                </Text>
+                <View style={styles.emptyContainer}>
+                  <Feather name="check-circle" size={28} color="#64748B" style={{ marginBottom: 6 }} />
+                  <Text style={styles.emptyText}>
+                    {showAllPending
+                      ? 'Nenhuma conta pendente no momento!'
+                      : `Nenhuma conta encontrada em ${formatMonthTitle(selectedDate)}.\nToque em "+ Nova Conta" para adicionar.`}
+                  </Text>
+                </View>
               }
             />
           )}
         </View>
       </View>
 
-      {/* Modal de Criação / Edição de Conta */}
-      <Modal visible={formModalVisible} transparent animationType="fade">
+      {/* Modal Adicionar / Editar Conta */}
+      <Modal visible={formModalVisible} transparent animationType="slide" onRequestClose={() => setFormModalVisible(false)}>
         <View style={styles.innerModalOverlay}>
           <View style={styles.innerCard}>
+            <View style={styles.dragHandleBox}>
+              <View style={styles.dragHandle} />
+            </View>
+
             <Text style={styles.innerTitle}>
               {editingBillId ? 'Editar Conta' : 'Nova Conta a Pagar'}
             </Text>
 
-            <Text style={styles.inputLabel}>Descrição da Conta:</Text>
+            <Text style={styles.inputLabel}>DESCRIÇÃO</Text>
             <TextInput
               style={styles.input}
-              placeholder="Ex: Fatura Cartão, Conta de Luz"
+              placeholder="Ex: Aluguer, Luz (Copel), Fatura Cartão"
               placeholderTextColor="#64748B"
               value={titleInput}
               onChangeText={setTitleInput}
             />
 
-            <Text style={styles.inputLabel}>Valor (R$):</Text>
+            <Text style={styles.inputLabel}>VALOR (R$)</Text>
             <TextInput
-              style={styles.input}
-              placeholder="0.00"
+              style={[styles.input, styles.inputBold]}
+              placeholder="0,00"
               placeholderTextColor="#64748B"
-              keyboardType="numeric"
+              keyboardType="decimal-pad"
               value={amountInput}
               onChangeText={setAmountInput}
             />
 
-            <Text style={styles.inputLabel}>Data de Vencimento (DD/MM/AAAA):</Text>
+            <Text style={styles.inputLabel}>VENCIMENTO (DD/MM/AAAA)</Text>
             <TextInput
               style={styles.input}
               placeholder="Ex: 10/11/2026"
@@ -601,10 +625,10 @@ export const BillsToPayModal: React.FC<Props> = ({
               onChangeText={(txt) => setDateInput(applyDateMask(txt))}
             />
 
-            <Text style={styles.inputLabel}>Chave Pix ou Código de Barras (opcional):</Text>
+            <Text style={styles.inputLabel}>PIX OU CÓDIGO DE BARRAS (OPCIONAL)</Text>
             <TextInput
               style={styles.input}
-              placeholder="Cole a chave Pix ou linha digitável"
+              placeholder="Cole o código ou chave Pix"
               placeholderTextColor="#64748B"
               value={notesInput}
               onChangeText={setNotesInput}
@@ -615,6 +639,7 @@ export const BillsToPayModal: React.FC<Props> = ({
                 style={styles.cancelBtn}
                 onPress={() => setFormModalVisible(false)}
                 disabled={saving}
+                activeOpacity={0.7}
               >
                 <Text style={styles.cancelBtnText}>Cancelar</Text>
               </TouchableOpacity>
@@ -622,9 +647,10 @@ export const BillsToPayModal: React.FC<Props> = ({
                 style={styles.saveBtn}
                 onPress={handleSaveBill}
                 disabled={saving}
+                activeOpacity={0.8}
               >
                 <Text style={styles.saveBtnText}>
-                  {saving ? 'A guardar...' : 'Guardar'}
+                  {saving ? 'A guardar...' : 'Gravar Conta'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -638,15 +664,28 @@ export const BillsToPayModal: React.FC<Props> = ({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.75)',
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
     justifyContent: 'flex-end',
   },
   card: {
-    backgroundColor: '#1E293B',
+    backgroundColor: '#0B0F19',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingBottom: Platform.OS === 'android' ? 24 : 36,
     maxHeight: '92%',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  dragHandleBox: {
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  dragHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
   headerRow: {
     flexDirection: 'row',
@@ -654,21 +693,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 8,
   },
-  title: { fontSize: 17, fontWeight: 'bold', color: '#F8FAFC' },
-  sub: { fontSize: 11, color: '#64748B', marginTop: 2 },
-  closeBtn: { padding: 4 },
-  closeBtnText: { color: '#94A3B8', fontSize: 18, fontWeight: 'bold' },
+  title: { fontSize: 17, fontWeight: '800', color: '#F8FAFC', letterSpacing: -0.3 },
+  sub: { fontSize: 11, color: '#64748B', marginTop: 1 },
+  closeBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#131927',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   filterControlsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#0F172A',
+    backgroundColor: '#131927',
     borderRadius: 10,
-    padding: 6,
-    marginTop: 8,
-    marginBottom: 4,
+    padding: 4,
+    marginTop: 6,
+    marginBottom: 8,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.05)',
   },
   monthNav: {
     flexDirection: 'row',
@@ -676,18 +721,13 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   monthArrowBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 2,
-  },
-  monthArrowText: {
-    color: '#38BDF8',
-    fontSize: 22,
-    fontWeight: 'bold',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
   monthTitleText: {
     color: '#F8FAFC',
-    fontSize: 13,
-    fontWeight: 'bold',
+    fontSize: 12,
+    fontWeight: '700',
   },
   allPendingLabelBox: {
     paddingHorizontal: 8,
@@ -695,20 +735,20 @@ const styles = StyleSheet.create({
   },
   allPendingLabelText: {
     color: '#F59E0B',
-    fontSize: 13,
-    fontWeight: 'bold',
+    fontSize: 12,
+    fontWeight: '700',
   },
   filterToggleBtn: {
-    backgroundColor: '#1E293B',
+    backgroundColor: '#0B0F19',
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 6,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.05)',
   },
   filterToggleBtnActive: {
-    backgroundColor: 'rgba(56, 189, 248, 0.15)',
-    borderColor: '#38BDF8',
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    borderColor: '#10B981',
   },
   filterToggleText: {
     color: '#94A3B8',
@@ -716,22 +756,23 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   filterToggleTextActive: {
-    color: '#38BDF8',
-    fontWeight: 'bold',
+    color: '#10B981',
+    fontWeight: '700',
   },
   summaryBox: {
     flexDirection: 'row',
-    backgroundColor: '#0F172A',
+    backgroundColor: '#131927',
     borderRadius: 12,
-    padding: 12,
-    marginVertical: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 10,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.05)',
   },
   summaryCol: { flex: 1, alignItems: 'center' },
-  divider: { width: 1, backgroundColor: '#334155' },
-  summaryLabel: { color: '#94A3B8', fontSize: 11, marginBottom: 3 },
-  summaryVal: { fontSize: 15, fontWeight: 'bold' },
+  divider: { width: 1, backgroundColor: 'rgba(255, 255, 255, 0.06)' },
+  summaryLabel: { color: '#64748B', fontSize: 10, fontWeight: '700', letterSpacing: 0.6, marginBottom: 2 },
+  summaryVal: { fontSize: 14, fontWeight: '800' },
   topActionsRow: {
     flexDirection: 'row',
     gap: 8,
@@ -739,32 +780,41 @@ const styles = StyleSheet.create({
   },
   btnAdd: {
     flex: 2,
+    flexDirection: 'row',
     backgroundColor: '#10B981',
     paddingVertical: 9,
-    borderRadius: 8,
+    borderRadius: 10,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  btnAddText: { color: '#F8FAFC', fontWeight: 'bold', fontSize: 13 },
+  btnAddText: { color: '#0B0F19', fontWeight: '800', fontSize: 12 },
   btnExportMini: {
     flex: 1,
-    backgroundColor: '#0F172A',
+    flexDirection: 'row',
+    backgroundColor: '#131927',
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.06)',
     paddingVertical: 9,
-    borderRadius: 8,
+    borderRadius: 10,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  btnExportMiniText: { color: '#38BDF8', fontWeight: '600', fontSize: 12 },
-  itemRow: {
+  btnExportMiniText: { color: '#94A3B8', fontWeight: '600', fontSize: 11 },
+  itemCard: {
+    backgroundColor: '#131927',
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.04)',
+  },
+  itemCardPaid: {
+    opacity: 0.6,
+  },
+  itemCardTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#0F172A',
-    padding: 12,
-    borderRadius: 10,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#334155',
   },
   checkArea: {
     flexDirection: 'row',
@@ -773,63 +823,103 @@ const styles = StyleSheet.create({
     paddingRight: 8,
   },
   checkbox: {
-    width: 22,
-    height: 22,
+    width: 20,
+    height: 20,
     borderRadius: 6,
-    borderWidth: 2,
+    borderWidth: 1.5,
     borderColor: '#64748B',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 10,
+    backgroundColor: '#0B0F19',
   },
   checkboxChecked: {
     backgroundColor: '#10B981',
     borderColor: '#10B981',
   },
-  checkmark: { color: '#0F172A', fontSize: 13, fontWeight: 'bold' },
-  itemTitle: { color: '#F8FAFC', fontSize: 14, fontWeight: '500' },
+  itemTitle: { color: '#F8FAFC', fontSize: 13, fontWeight: '600' },
   itemTitlePaid: { color: '#64748B', textDecorationLine: 'line-through' },
-  itemDate: { color: '#94A3B8', fontSize: 11, marginTop: 2 },
-  itemNotes: { color: '#38BDF8', fontSize: 10, marginTop: 2 },
+  itemDate: { color: '#64748B', fontSize: 10, marginTop: 1 },
   rightActions: { alignItems: 'flex-end' },
-  itemAmount: { fontSize: 14, fontWeight: 'bold' },
-  iconsRow: { flexDirection: 'row', gap: 10, marginTop: 6 },
-  iconBtn: { padding: 2 },
-  iconAction: { fontSize: 13 },
-  emptyText: { color: '#64748B', textAlign: 'center', marginVertical: 30, fontSize: 13, lineHeight: 18 },
+  itemAmount: { fontSize: 13, fontWeight: '700' },
+  iconsRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
+  iconBtn: { padding: 4 },
+  pixSnippetRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#0B0F19',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.03)',
+  },
+  pixSnippetText: {
+    color: '#64748B',
+    fontSize: 10,
+    flex: 1,
+    paddingRight: 6,
+  },
+  copyPixBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#131927',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  copyPixBtnText: {
+    color: '#38BDF8',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: 30,
+  },
+  emptyText: { color: '#64748B', textAlign: 'center', fontSize: 12, lineHeight: 18 },
   innerModalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.75)',
-    justifyContent: 'center',
-    padding: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'flex-end',
   },
   innerCard: {
-    backgroundColor: '#1E293B',
-    borderRadius: 16,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: '#334155',
+    backgroundColor: '#0B0F19',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 20,
+    paddingBottom: Platform.OS === 'android' ? 24 : 36,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.08)',
   },
-  innerTitle: { fontSize: 17, fontWeight: 'bold', color: '#F8FAFC', marginBottom: 12 },
-  inputLabel: { color: '#94A3B8', fontSize: 12, marginBottom: 5 },
+  innerTitle: { fontSize: 16, fontWeight: '800', color: '#F8FAFC', marginBottom: 12 },
+  inputLabel: { color: '#64748B', fontSize: 10, fontWeight: '700', letterSpacing: 0.6, marginBottom: 5, marginTop: 4 },
   input: {
-    backgroundColor: '#0F172A',
+    backgroundColor: '#131927',
     color: '#F8FAFC',
-    borderRadius: 8,
-    padding: 11,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: '#334155',
-    fontSize: 14,
-  },
-  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 6 },
-  cancelBtn: { paddingVertical: 9, paddingHorizontal: 14 },
-  cancelBtnText: { color: '#94A3B8', fontWeight: '600' },
-  saveBtn: {
-    backgroundColor: '#10B981',
+    borderRadius: 10,
+    paddingHorizontal: 12,
     paddingVertical: 9,
-    paddingHorizontal: 16,
-    borderRadius: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+    fontSize: 13,
   },
-  saveBtnText: { color: '#F8FAFC', fontWeight: 'bold' },
+  inputBold: {
+    fontWeight: '700',
+  },
+  modalActions: { flexDirection: 'row', gap: 10, marginTop: 12 },
+  cancelBtn: { flex: 1, paddingVertical: 12, borderRadius: 10, backgroundColor: '#131927', alignItems: 'center' },
+  cancelBtnText: { color: '#94A3B8', fontWeight: '600', fontSize: 13 },
+  saveBtn: {
+    flex: 2,
+    backgroundColor: '#10B981',
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  saveBtnText: { color: '#0B0F19', fontWeight: '800', fontSize: 13 },
 });

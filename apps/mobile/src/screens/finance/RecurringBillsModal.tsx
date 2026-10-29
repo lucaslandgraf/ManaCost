@@ -12,6 +12,7 @@ import {
   Platform,
   ScrollView,
 } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { supabase } from '../../config/supabase';
 import { useAuth } from '../../context/AuthContext';
 
@@ -36,7 +37,7 @@ interface Props {
   visible: boolean;
   onClose: () => void;
   onSyncMonth: () => void;
-  currentMonthDate?: Date; // Mês selecionado no Dashboard
+  currentMonthDate?: Date;
 }
 
 export const RecurringBillsModal: React.FC<Props> = ({
@@ -50,7 +51,6 @@ export const RecurringBillsModal: React.FC<Props> = ({
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // Controle de formulário (Criação e Edição)
   const [showForm, setShowForm] = useState(false);
   const [editingBillId, setEditingBillId] = useState<string | null>(null);
   const [desc, setDesc] = useState('');
@@ -119,7 +119,7 @@ export const RecurringBillsModal: React.FC<Props> = ({
     }
 
     if (isNaN(parsedDay) || parsedDay < 1 || parsedDay > 31) {
-      Alert.alert('Atenção', 'O dia de vencimento deve estar entre 1 e 31.');
+      Alert.alert('Atenção', 'O dia de vencimento deve situar-se entre 1 e 31.');
       return;
     }
 
@@ -138,7 +138,6 @@ export const RecurringBillsModal: React.FC<Props> = ({
 
         if (error) throw error;
 
-        // Atualiza todas as linhas pendentes nos meses seguintes que partilham a descrição anterior
         if (user) {
           const year = currentMonthDate.getFullYear();
           const month = currentMonthDate.getMonth();
@@ -164,7 +163,7 @@ export const RecurringBillsModal: React.FC<Props> = ({
       loadData();
       onSyncMonth();
     } catch (err: any) {
-      Alert.alert('Erro ao salvar', err.message);
+      Alert.alert('Erro ao guardar', err.message);
     }
   };
 
@@ -172,7 +171,6 @@ export const RecurringBillsModal: React.FC<Props> = ({
     try {
       const nextStatus = !bill.is_active;
 
-      // 1. Atualiza na tabela recurring_bills
       const { error: billError } = await supabase
         .from('recurring_bills')
         .update({ is_active: nextStatus })
@@ -180,13 +178,11 @@ export const RecurringBillsModal: React.FC<Props> = ({
 
       if (billError) throw billError;
 
-      // 2. Atualiza repeats_monthly nas transações correspondentes
       await supabase
         .from('transactions')
         .update({ repeats_monthly: nextStatus })
         .ilike('description', bill.description.trim());
 
-      // 3. Ao pausar, remove de imediato os lançamentos pendentes posteriores ao mês visível no Dashboard
       if (!nextStatus && user) {
         const year = currentMonthDate.getFullYear();
         const month = currentMonthDate.getMonth();
@@ -211,7 +207,7 @@ export const RecurringBillsModal: React.FC<Props> = ({
         'Assinatura Atualizada',
         nextStatus
           ? `"${bill.description}" foi reativada para os próximos meses.`
-          : `"${bill.description}" foi pausada e os registos pendentes futuros foram removidos.`
+          : `"${bill.description}" foi pausada e os registos pendentes futuros foram eliminados.`
       );
     } catch (err: any) {
       console.warn('Erro ao alternar assinatura:', err);
@@ -268,23 +264,27 @@ export const RecurringBillsModal: React.FC<Props> = ({
         style={styles.overlay}
       >
         <View style={styles.card}>
+          <View style={styles.dragHandleBox}>
+            <View style={styles.dragHandle} />
+          </View>
+
           <View style={styles.headerRow}>
             <View>
               <Text style={styles.title}>Assinaturas & Contas Fixas</Text>
               <Text style={styles.subtitle}>Despesas e receitas automáticas mensais</Text>
             </View>
-            <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-              <Text style={styles.closeBtnText}>✕</Text>
+            <TouchableOpacity onPress={onClose} style={styles.closeBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Feather name="x" size={16} color="#94A3B8" />
             </TouchableOpacity>
           </View>
 
           {showForm ? (
             <ScrollView showsVerticalScrollIndicator={false} style={styles.formContainer}>
               <Text style={styles.formTitle}>
-                {editingBillId ? 'Editar Conta Fixa' : 'Nova Conta / Assinatura'}
+                {editingBillId ? 'Editar Conta Recorrente' : 'Nova Assinatura Fixa'}
               </Text>
 
-              {/* Seletor Tipo: Despesa vs Receita */}
+              {/* Seletor Despesa vs Receita */}
               <View style={styles.typeSelector}>
                 <TouchableOpacity
                   style={[styles.typeBtn, billType === 'expense' && styles.typeBtnActiveExpense]}
@@ -292,8 +292,12 @@ export const RecurringBillsModal: React.FC<Props> = ({
                     setBillType('expense');
                     setSelectedCat(null);
                   }}
+                  activeOpacity={0.7}
                 >
-                  <Text style={styles.typeBtnText}>Despesa</Text>
+                  <Feather name="minus" size={13} color={billType === 'expense' ? '#F87171' : '#64748B'} style={{ marginRight: 4 }} />
+                  <Text style={[styles.typeBtnText, billType === 'expense' && styles.typeBtnTextActive]}>
+                    Despesa
+                  </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.typeBtn, billType === 'income' && styles.typeBtnActiveIncome]}
@@ -301,13 +305,18 @@ export const RecurringBillsModal: React.FC<Props> = ({
                     setBillType('income');
                     setSelectedCat(null);
                   }}
+                  activeOpacity={0.7}
                 >
-                  <Text style={styles.typeBtnText}>Receita</Text>
+                  <Feather name="plus" size={13} color={billType === 'income' ? '#10B981' : '#64748B'} style={{ marginRight: 4 }} />
+                  <Text style={[styles.typeBtnText, billType === 'income' && styles.typeBtnTextActive]}>
+                    Receita
+                  </Text>
                 </TouchableOpacity>
               </View>
 
+              <Text style={styles.fieldLabel}>DESCRIÇÃO</Text>
               <TextInput
-                placeholder="Descrição (ex: Academia, Netflix, Salário)"
+                placeholder="Ex: Aluguer, Ginásio, Internet, Salário"
                 placeholderTextColor="#64748B"
                 style={styles.input}
                 value={desc}
@@ -316,19 +325,19 @@ export const RecurringBillsModal: React.FC<Props> = ({
 
               <View style={styles.row}>
                 <View style={{ flex: 1.2, marginRight: 8 }}>
-                  <Text style={styles.label}>Valor (R$)</Text>
+                  <Text style={styles.fieldLabel}>VALOR (R$)</Text>
                   <TextInput
                     placeholder="0,00"
                     placeholderTextColor="#64748B"
                     keyboardType="decimal-pad"
-                    style={styles.input}
+                    style={[styles.input, styles.inputBold]}
                     value={amountStr}
                     onChangeText={setAmountStr}
                   />
                 </View>
 
                 <View style={{ flex: 0.8 }}>
-                  <Text style={styles.label}>Dia Vencimento</Text>
+                  <Text style={styles.fieldLabel}>DIA VENCIMENTO</Text>
                   <TextInput
                     placeholder="10"
                     placeholderTextColor="#64748B"
@@ -341,26 +350,30 @@ export const RecurringBillsModal: React.FC<Props> = ({
                 </View>
               </View>
 
-              <Text style={styles.label}>Categoria no Orçamento:</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
-                {uniqueCategories.map((c) => (
-                  <TouchableOpacity
-                    key={c.id}
-                    style={[styles.catChip, selectedCat === c.id && styles.catChipActive]}
-                    onPress={() => setSelectedCat(c.id)}
-                  >
-                    <Text style={[styles.catChipText, selectedCat === c.id && styles.catChipTextActive]}>
-                      {c.name}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
+              <Text style={styles.fieldLabel}>CATEGORIA NO ORÇAMENTO</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
+                {uniqueCategories.map((c) => {
+                  const isSelected = selectedCat === c.id;
+                  return (
+                    <TouchableOpacity
+                      key={c.id}
+                      style={[styles.catChip, isSelected && styles.catChipActive]}
+                      onPress={() => setSelectedCat(c.id)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.catChipText, isSelected && styles.catChipTextActive]}>
+                        {c.name}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </ScrollView>
 
               <View style={styles.formActions}>
-                <TouchableOpacity style={styles.cancelFormBtn} onPress={resetForm}>
+                <TouchableOpacity style={styles.cancelFormBtn} onPress={resetForm} activeOpacity={0.7}>
                   <Text style={styles.cancelFormText}>Voltar</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.saveFormBtn} onPress={handleSave}>
+                <TouchableOpacity style={styles.saveFormBtn} onPress={handleSave} activeOpacity={0.8}>
                   <Text style={styles.saveFormText}>
                     {editingBillId ? 'Atualizar' : 'Adicionar'}
                   </Text>
@@ -372,26 +385,30 @@ export const RecurringBillsModal: React.FC<Props> = ({
               <FlatList
                 data={bills}
                 keyExtractor={(item) => item.id}
+                showsVerticalScrollIndicator={false}
                 style={styles.list}
                 renderItem={({ item }) => (
-                  <View style={[styles.billItem, !item.is_active && styles.billItemInactive]}>
+                  <View style={[styles.billCard, !item.is_active && styles.billCardInactive]}>
                     <TouchableOpacity
                       style={{ flex: 1, paddingRight: 8 }}
                       onPress={() => openEdit(item)}
                       activeOpacity={0.7}
                     >
-                      <Text style={[styles.billDesc, !item.is_active && styles.textInactive]}>
-                        {item.description}
-                      </Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text style={[styles.billDesc, !item.is_active && styles.textInactive]} numberOfLines={1}>
+                          {item.description}
+                        </Text>
+                        <Feather name="edit-2" size={11} color="#64748B" />
+                      </View>
                       <Text style={styles.billSub}>
-                        Todo dia {item.due_day} • {item.categories?.name || 'Geral'} ✏️
+                        Todo dia {item.due_day} • {item.categories?.name || 'Geral'}
                       </Text>
                     </TouchableOpacity>
 
                     <View style={styles.billRight}>
                       <Text style={[
                         styles.billAmount,
-                        { color: item.type === 'income' ? '#10B981' : '#EF4444' },
+                        { color: item.type === 'income' ? '#34D399' : '#F8FAFC' },
                         !item.is_active && styles.textInactive
                       ]}>
                         {item.type === 'income' ? '+ ' : '- '}R$ {Number(item.amount).toFixed(2).replace('.', ',')}
@@ -401,7 +418,14 @@ export const RecurringBillsModal: React.FC<Props> = ({
                         <TouchableOpacity
                           style={[styles.statusToggle, item.is_active ? styles.statusActive : styles.statusDisabled]}
                           onPress={() => toggleActive(item)}
+                          activeOpacity={0.7}
                         >
+                          <Feather 
+                            name={item.is_active ? 'check' : 'pause'} 
+                            size={10} 
+                            color={item.is_active ? '#34D399' : '#94A3B8'} 
+                            style={{ marginRight: 3 }} 
+                          />
                           <Text style={[styles.statusToggleText, item.is_active ? styles.textActive : styles.textDisabled]}>
                             {item.is_active ? 'Ativa' : 'Pausada'}
                           </Text>
@@ -410,8 +434,9 @@ export const RecurringBillsModal: React.FC<Props> = ({
                         <TouchableOpacity
                           style={styles.deleteBtn}
                           onPress={() => deleteBill(item.id, item.description)}
+                          hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                         >
-                          <Text style={styles.deleteBtnText}>🗑️</Text>
+                          <Feather name="trash-2" size={13} color="#F87171" />
                         </TouchableOpacity>
                       </View>
                     </View>
@@ -419,7 +444,8 @@ export const RecurringBillsModal: React.FC<Props> = ({
                 )}
                 ListEmptyComponent={
                   <View style={styles.emptyContainer}>
-                    <Text style={styles.emptyText}>Nenhuma conta fixa cadastrada.</Text>
+                    <Feather name="repeat" size={28} color="#64748B" style={{ marginBottom: 6 }} />
+                    <Text style={styles.emptyText}>Nenhuma conta fixa registada.</Text>
                     <Text style={styles.emptySubText}>
                       Cadastre assinaturas e contas que se repetem todos os meses para entrar no extrato automaticamente.
                     </Text>
@@ -434,8 +460,10 @@ export const RecurringBillsModal: React.FC<Props> = ({
                     resetForm();
                     setShowForm(true);
                   }}
+                  activeOpacity={0.8}
                 >
-                  <Text style={styles.newBillBtnText}>+ Adicionar Assinatura</Text>
+                  <Feather name="plus" size={14} color="#0B0F19" style={{ marginRight: 4 }} />
+                  <Text style={styles.newBillBtnText}>Nova Assinatura</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -444,8 +472,10 @@ export const RecurringBillsModal: React.FC<Props> = ({
                     onSyncMonth();
                     onClose();
                   }}
+                  activeOpacity={0.7}
                 >
-                  <Text style={styles.syncBtnText}>⚡ Sincronizar Mês</Text>
+                  <Feather name="zap" size={13} color="#38BDF8" style={{ marginRight: 4 }} />
+                  <Text style={styles.syncBtnText}>Sincronizar Mês</Text>
                 </TouchableOpacity>
               </View>
             </>
@@ -459,15 +489,28 @@ export const RecurringBillsModal: React.FC<Props> = ({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.75)',
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
     justifyContent: 'flex-end',
   },
   card: {
-    backgroundColor: '#1E293B',
+    backgroundColor: '#0B0F19',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingBottom: Platform.OS === 'android' ? 24 : 36,
     maxHeight: '90%',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  dragHandleBox: {
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  dragHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
   headerRow: {
     flexDirection: 'row',
@@ -476,127 +519,266 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   title: {
+    fontSize: 17,
+    fontWeight: '800',
     color: '#F8FAFC',
-    fontSize: 18,
-    fontWeight: 'bold',
+    letterSpacing: -0.3,
   },
   subtitle: {
-    color: '#94A3B8',
-    fontSize: 12,
+    fontSize: 11,
+    color: '#64748B',
     marginTop: 2,
   },
-  closeBtn: { padding: 6 },
-  closeBtnText: { color: '#94A3B8', fontSize: 18, fontWeight: 'bold' },
-  list: { maxHeight: 380, marginBottom: 12 },
-  billItem: {
+  closeBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#131927',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  list: {
+    maxHeight: 380,
+    marginBottom: 12,
+  },
+  billCard: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#0F172A',
+    backgroundColor: '#131927',
     padding: 12,
-    borderRadius: 10,
+    borderRadius: 12,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.04)',
   },
-  billItemInactive: { opacity: 0.5 },
-  billDesc: { color: '#F8FAFC', fontSize: 14, fontWeight: 'bold' },
-  billSub: { color: '#64748B', fontSize: 11, marginTop: 2 },
-  billRight: { alignItems: 'flex-end' },
-  billAmount: { fontSize: 14, fontWeight: 'bold' },
-  billActionsRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
+  billCardInactive: {
+    opacity: 0.5,
+  },
+  billDesc: {
+    color: '#F8FAFC',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  billSub: {
+    color: '#64748B',
+    fontSize: 11,
+    marginTop: 2,
+  },
+  billRight: {
+    alignItems: 'flex-end',
+  },
+  billAmount: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  billActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 4,
+  },
   statusToggle: {
-    paddingHorizontal: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 7,
     paddingVertical: 2,
     borderRadius: 4,
   },
-  statusActive: { backgroundColor: 'rgba(16, 185, 129, 0.15)' },
-  statusDisabled: { backgroundColor: 'rgba(100, 116, 139, 0.2)' },
-  statusToggleText: { fontSize: 10, fontWeight: '700' },
-  textActive: { color: '#34D399' },
-  textDisabled: { color: '#94A3B8' },
-  deleteBtn: { padding: 4 },
-  deleteBtnText: { fontSize: 12 },
-  textInactive: { color: '#64748B' },
-  emptyContainer: { paddingVertical: 24, alignItems: 'center' },
-  emptyText: { color: '#94A3B8', fontSize: 14, fontWeight: 'bold' },
-  emptySubText: { color: '#64748B', fontSize: 12, textAlign: 'center', marginTop: 4, paddingHorizontal: 16 },
-  footerRow: { flexDirection: 'row', gap: 10, marginTop: 4 },
+  statusActive: {
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+  },
+  statusDisabled: {
+    backgroundColor: 'rgba(100, 116, 139, 0.15)',
+  },
+  statusToggleText: {
+    fontSize: 9,
+    fontWeight: '700',
+  },
+  textActive: {
+    color: '#34D399',
+  },
+  textDisabled: {
+    color: '#94A3B8',
+  },
+  deleteBtn: {
+    padding: 4,
+    borderRadius: 4,
+    backgroundColor: 'rgba(248, 113, 113, 0.1)',
+  },
+  textInactive: {
+    color: '#64748B',
+  },
+  emptyContainer: {
+    paddingVertical: 28,
+    alignItems: 'center',
+  },
+  emptyText: {
+    color: '#94A3B8',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  emptySubText: {
+    color: '#64748B',
+    fontSize: 11,
+    textAlign: 'center',
+    marginTop: 4,
+    paddingHorizontal: 20,
+    lineHeight: 16,
+  },
+  footerRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 4,
+  },
   newBillBtn: {
     flex: 1.2,
-    backgroundColor: '#0284C7',
+    flexDirection: 'row',
+    backgroundColor: '#10B981',
     paddingVertical: 12,
-    borderRadius: 8,
+    borderRadius: 10,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  newBillBtnText: { color: '#F8FAFC', fontWeight: 'bold', fontSize: 13 },
+  newBillBtnText: {
+    color: '#0B0F19',
+    fontWeight: '800',
+    fontSize: 13,
+  },
   syncBtn: {
     flex: 1,
-    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    flexDirection: 'row',
+    backgroundColor: '#131927',
     borderWidth: 1,
-    borderColor: '#10B981',
+    borderColor: 'rgba(255, 255, 255, 0.08)',
     paddingVertical: 12,
-    borderRadius: 8,
+    borderRadius: 10,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  syncBtnText: { color: '#34D399', fontWeight: 'bold', fontSize: 13 },
-  formContainer: { paddingVertical: 6 },
-  formTitle: { color: '#F8FAFC', fontSize: 15, fontWeight: 'bold', marginBottom: 12 },
+  syncBtnText: {
+    color: '#38BDF8',
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  formContainer: {
+    paddingVertical: 4,
+  },
+  formTitle: {
+    color: '#F8FAFC',
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 12,
+  },
   typeSelector: {
     flexDirection: 'row',
     marginBottom: 12,
-    backgroundColor: '#0F172A',
-    borderRadius: 8,
+    backgroundColor: '#131927',
+    borderRadius: 10,
     padding: 3,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
   },
   typeBtn: {
     flex: 1,
+    flexDirection: 'row',
     paddingVertical: 8,
     alignItems: 'center',
-    borderRadius: 6,
-  },
-  typeBtnActiveExpense: { backgroundColor: '#EF4444' },
-  typeBtnActiveIncome: { backgroundColor: '#10B981' },
-  typeBtnText: { color: '#F8FAFC', fontWeight: 'bold', fontSize: 12 },
-  input: {
-    backgroundColor: '#0F172A',
-    color: '#F8FAFC',
-    padding: 10,
+    justifyContent: 'center',
     borderRadius: 8,
-    fontSize: 14,
+  },
+  typeBtnActiveExpense: {
+    backgroundColor: 'rgba(248, 113, 113, 0.15)',
+  },
+  typeBtnActiveIncome: {
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+  },
+  typeBtnText: {
+    color: '#64748B',
+    fontWeight: '600',
+    fontSize: 12,
+  },
+  typeBtnTextActive: {
+    color: '#F8FAFC',
+    fontWeight: '700',
+  },
+  fieldLabel: {
+    color: '#64748B',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    marginBottom: 6,
+    marginTop: 4,
+  },
+  input: {
+    backgroundColor: '#131927',
+    color: '#F8FAFC',
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 10,
+    fontSize: 13,
     marginBottom: 10,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
-  row: { flexDirection: 'row' },
-  label: { color: '#94A3B8', fontSize: 12, marginBottom: 6 },
+  inputBold: {
+    fontWeight: '700',
+  },
+  row: {
+    flexDirection: 'row',
+  },
   catChip: {
     paddingHorizontal: 12,
     paddingVertical: 6,
-    backgroundColor: '#0F172A',
+    backgroundColor: '#131927',
     borderRadius: 16,
     marginRight: 6,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
-  catChipActive: { backgroundColor: '#38BDF8', borderColor: '#38BDF8' },
-  catChipText: { color: '#94A3B8', fontSize: 12 },
-  catChipTextActive: { color: '#0F172A', fontWeight: 'bold' },
-  formActions: { flexDirection: 'row', gap: 10, marginTop: 12, marginBottom: 8 },
+  catChipActive: {
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    borderColor: '#10B981',
+  },
+  catChipText: {
+    color: '#94A3B8',
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  catChipTextActive: {
+    color: '#10B981',
+    fontWeight: '700',
+  },
+  formActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 12,
+    marginBottom: 8,
+  },
   cancelFormBtn: {
     flex: 1,
-    paddingVertical: 10,
-    borderRadius: 8,
-    backgroundColor: '#334155',
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: '#131927',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
-  cancelFormText: { color: '#F8FAFC', fontWeight: 'bold' },
+  cancelFormText: {
+    color: '#94A3B8',
+    fontWeight: '600',
+    fontSize: 13,
+  },
   saveFormBtn: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 8,
+    flex: 2,
+    paddingVertical: 12,
+    borderRadius: 10,
     backgroundColor: '#10B981',
     alignItems: 'center',
   },
-  saveFormText: { color: '#F8FAFC', fontWeight: 'bold' },
+  saveFormText: {
+    color: '#0B0F19',
+    fontWeight: '800',
+    fontSize: 13,
+  },
 });

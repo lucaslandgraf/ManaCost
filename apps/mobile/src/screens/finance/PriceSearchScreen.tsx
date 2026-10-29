@@ -9,7 +9,9 @@ import {
   ActivityIndicator,
   Linking,
   Platform,
+  StatusBar,
 } from 'react-native';
+import { Feather, Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { useBasket } from '../../context/BasketContext';
 import { BasketModal } from './BasketModal';
@@ -124,13 +126,10 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack }) 
   const [loading, setLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
 
-  // Integração com a Cesta Inteligente
   const { addItem, totalItems } = useBasket();
   const [basketVisible, setBasketVisible] = useState(false);
-
   const [sortBy, setSortBy] = useState<'distancia' | 'preco'>('distancia');
 
-  // Coordenadas dinâmicas do GPS com fallback para Londrina
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number }>({
     lat: -23.3045,
     lng: -51.1696,
@@ -174,7 +173,6 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack }) 
           'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
       };
 
-      // 1. Obter Categoria
       let catId = '';
       try {
         const catRes = await fetch(
@@ -190,7 +188,6 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack }) 
         }
       } catch (_) {}
 
-      // 2. Obter Produtos
       const prodParams = new URLSearchParams({
         local: localGeohash,
         termo: term,
@@ -220,10 +217,8 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack }) 
         .map((item: any) => {
           const est = item.estabelecimento || {};
           const nomeEstabelecimento = (est.nm_fan || est.nm_emp || 'Mercado').trim();
-
           const logr = [est.tp_logr, est.nm_logr].filter(Boolean).join(' ').trim();
           const enderecoCompleto = logr ? `${logr}, ${est.nr_logr || 's/n'}` : '';
-
           const coords = decodeGeohash(item.local || localGeohash);
 
           return {
@@ -244,18 +239,15 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack }) 
             },
           };
         })
-        // Filtra endereços de zona rural ou sem número que distorcem o raio urbano
         .filter((prod: ProdutoPreco) => {
           const endereco = (prod.estabelecimento.endereco || '').toUpperCase();
           const bairro = (prod.estabelecimento.bairro || '').toUpperCase();
-          
           const isRural =
             endereco.includes('ZONA RURAL') ||
             endereco.includes('COL NOVA') ||
             endereco.includes('ASSENTAMENTO') ||
             bairro.includes('ZONA RURAL') ||
             bairro.includes('RURAL');
-
           return !isRural;
         });
 
@@ -288,7 +280,6 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack }) 
       .trim();
 
     let searchQuery = '';
-
     if (item.estabelecimento.endereco) {
       searchQuery = `${cleanName}, ${item.estabelecimento.endereco}, ${item.estabelecimento.bairro || ''}, ${item.estabelecimento.municipio || 'Londrina'}`;
     } else {
@@ -298,7 +289,6 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack }) 
     }
 
     const encodedQuery = encodeURIComponent(searchQuery.replace(/\s{2,}/g, ' ').trim());
-
     const url = Platform.select({
       ios: `maps:0,0?q=${encodedQuery}`,
       android: `geo:0,0?q=${encodedQuery}`,
@@ -310,38 +300,44 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack }) 
 
   return (
     <View style={styles.container}>
-      {/* Cabeçalho */}
+      <StatusBar barStyle="light-content" />
+
+      {/* Top Bar / Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} style={styles.backBtn}>
-          <Text style={styles.backBtnText}>‹ Voltar</Text>
+        <TouchableOpacity onPress={onBack} style={styles.backBtn} activeOpacity={0.7}>
+          <Feather name="chevron-left" size={18} color="#10B981" />
+          <Text style={styles.backBtnText}>Voltar</Text>
         </TouchableOpacity>
         <Text style={styles.title}>Menor Preço Paraná</Text>
 
-        {/* Botão Ver Cesta */}
         <TouchableOpacity
           style={styles.basketTopBtn}
           onPress={() => setBasketVisible(true)}
           activeOpacity={0.7}
         >
-          <Text style={styles.basketTopBtnText}>
-            🛒 {totalItems > 0 ? `(${totalItems})` : ''}
-          </Text>
+          <Feather name="shopping-bag" size={13} color="#10B981" />
+          {totalItems > 0 && (
+            <Text style={styles.basketTopBtnText}>({totalItems})</Text>
+          )}
         </TouchableOpacity>
       </View>
 
-      {/* Barra de Busca */}
+      {/* Caixa de Pesquisa */}
       <View style={styles.searchBar}>
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Ex: Gasolina Comum, Leite, Arroz..."
-          placeholderTextColor="#64748B"
-          value={searchTerm}
-          onChangeText={setSearchTerm}
-          onSubmitEditing={() => handleSearch()}
-          returnKeyType="search"
-        />
-        <TouchableOpacity style={styles.searchBtn} onPress={() => handleSearch()}>
-          <Text style={styles.searchBtnText}>🔍</Text>
+        <View style={styles.searchBox}>
+          <Feather name="search" size={14} color="#64748B" style={{ marginRight: 6 }} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Ex: Gasolina, Leite Integral, Café..."
+            placeholderTextColor="#64748B"
+            value={searchTerm}
+            onChangeText={setSearchTerm}
+            onSubmitEditing={() => handleSearch()}
+            returnKeyType="search"
+          />
+        </View>
+        <TouchableOpacity style={styles.searchBtn} onPress={() => handleSearch()} activeOpacity={0.8}>
+          <Text style={styles.searchBtnText}>Buscar</Text>
         </TouchableOpacity>
       </View>
 
@@ -360,6 +356,7 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack }) 
                 setSearchTerm(item);
                 handleSearch(item);
               }}
+              activeOpacity={0.7}
             >
               <Text style={styles.presetChipText}>{item}</Text>
             </TouchableOpacity>
@@ -379,6 +376,7 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack }) 
                 setRadius(r);
                 if (searchTerm.trim()) handleSearch();
               }}
+              activeOpacity={0.7}
             >
               <Text style={[styles.radiusText, radius === r && styles.radiusTextActive]}>
                 {r} km
@@ -396,18 +394,32 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack }) 
             <TouchableOpacity
               style={[styles.sortBtn, sortBy === 'distancia' && styles.sortBtnActive]}
               onPress={() => setSortBy('distancia')}
+              activeOpacity={0.7}
             >
+              <Ionicons
+                name="car-outline"
+                size={13}
+                color={sortBy === 'distancia' ? '#34D399' : '#64748B'}
+                style={{ marginRight: 4 }}
+              />
               <Text style={[styles.sortBtnText, sortBy === 'distancia' && styles.sortBtnTextActive]}>
-                🚗 Mais Próximos
+                Mais Próximos
               </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={[styles.sortBtn, sortBy === 'preco' && styles.sortBtnActive]}
               onPress={() => setSortBy('preco')}
+              activeOpacity={0.7}
             >
+              <Feather
+                name="dollar-sign"
+                size={12}
+                color={sortBy === 'preco' ? '#34D399' : '#64748B'}
+                style={{ marginRight: 2 }}
+              />
               <Text style={[styles.sortBtnText, sortBy === 'preco' && styles.sortBtnTextActive]}>
-                💰 Menor Preço
+                Menor Preço
               </Text>
             </TouchableOpacity>
           </View>
@@ -417,14 +429,15 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack }) 
       {/* Lista de Resultados */}
       {loading ? (
         <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color="#38BDF8" />
-          <Text style={styles.loadingText}>Consultando notas fiscais recentes na SEFAZ-PR...</Text>
+          <ActivityIndicator size="large" color="#10B981" />
+          <Text style={styles.loadingText}>A consultar notas fiscais recentes na SEFAZ-PR...</Text>
         </View>
       ) : (
         <FlatList
           data={sortedResults}
           keyExtractor={(item, index) => item.id || String(index)}
           contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
           renderItem={({ item }) => (
             <View style={styles.card}>
               <View style={styles.cardHeader}>
@@ -433,14 +446,20 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack }) 
                     {item.descricao}
                   </Text>
 
-                  <Text style={styles.cardEstablishment} numberOfLines={1}>
-                    🏪 {item.estabelecimento.nome}
-                  </Text>
+                  <View style={styles.establishmentRow}>
+                    <Feather name="shopping-bag" size={11} color="#94A3B8" style={{ marginRight: 4 }} />
+                    <Text style={styles.cardEstablishment} numberOfLines={1}>
+                      {item.estabelecimento.nome}
+                    </Text>
+                  </View>
 
                   {item.estabelecimento.endereco || item.estabelecimento.bairro ? (
-                    <Text style={styles.cardAddress} numberOfLines={1}>
-                      📍 {[item.estabelecimento.endereco, item.estabelecimento.bairro].filter(Boolean).join(' - ')}
-                    </Text>
+                    <View style={styles.addressRow}>
+                      <Feather name="map-pin" size={10} color="#64748B" style={{ marginRight: 4 }} />
+                      <Text style={styles.cardAddress} numberOfLines={1}>
+                        {[item.estabelecimento.endereco, item.estabelecimento.bairro].filter(Boolean).join(' - ')}
+                      </Text>
+                    </View>
                   ) : null}
                 </View>
 
@@ -449,7 +468,10 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack }) 
                     R$ {item.valor.toFixed(2).replace('.', ',')}
                   </Text>
                   {item.distanciaKm && (
-                    <Text style={styles.cardDistance}>🚗 {item.distanciaKm} km</Text>
+                    <View style={styles.distanceBadgeRow}>
+                      <Ionicons name="car-outline" size={11} color="#38BDF8" style={{ marginRight: 3 }} />
+                      <Text style={styles.cardDistance}>{item.distanciaKm} km</Text>
+                    </View>
                   )}
                 </View>
               </View>
@@ -457,10 +479,12 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack }) 
               <View style={styles.divider} />
 
               <View style={styles.cardFooter}>
-                <Text style={styles.timeTag}>🕒 Emitido {item.tempoRelativo}</Text>
+                <View style={styles.timeTagRow}>
+                  <Feather name="clock" size={10} color="#64748B" style={{ marginRight: 4 }} />
+                  <Text style={styles.timeTag}>Emitido {item.tempoRelativo}</Text>
+                </View>
                 
-                <View style={{ flexDirection: 'row', gap: 8 }}>
-                  {/* Botão Adicionar à Cesta Inteligente */}
+                <View style={{ flexDirection: 'row', gap: 6 }}>
                   <TouchableOpacity
                     style={styles.addBasketBtn}
                     onPress={() => {
@@ -476,11 +500,13 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack }) 
                     }}
                     activeOpacity={0.7}
                   >
-                    <Text style={styles.addBasketBtnText}>+ Cesta</Text>
+                    <Feather name="plus" size={11} color="#34D399" style={{ marginRight: 3 }} />
+                    <Text style={styles.addBasketBtnText}>Cesta</Text>
                   </TouchableOpacity>
 
-                  <TouchableOpacity style={styles.routeBtn} onPress={() => openInMaps(item)}>
-                    <Text style={styles.routeBtnText}>Abrir no Mapa ↗</Text>
+                  <TouchableOpacity style={styles.routeBtn} onPress={() => openInMaps(item)} activeOpacity={0.7}>
+                    <Text style={styles.routeBtnText}>Mapa</Text>
+                    <Feather name="external-link" size={10} color="#94A3B8" style={{ marginLeft: 3 }} />
                   </TouchableOpacity>
                 </View>
               </View>
@@ -489,20 +515,19 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack }) 
           ListEmptyComponent={
             hasSearched ? (
               <View style={styles.centerContainer}>
-                <Text style={styles.emptyText}>Nenhum preço registrado no raio de {radius} km.</Text>
-                <Text style={styles.emptySubText}>Tente aumentar o raio ou simplificar o termo de busca.</Text>
+                <Text style={styles.emptyText}>Nenhum preço registado no raio de {radius} km.</Text>
+                <Text style={styles.emptySubText}>Tente ampliar o raio ou simplificar o termo pesquisado.</Text>
               </View>
             ) : (
               <View style={styles.centerContainer}>
-                <Text style={styles.emptyText}>Digite um produto ou toque num atalho acima.</Text>
-                <Text style={styles.emptySubText}>Pesquisa em tempo real via notas fiscais (NFC-e) do Paraná.</Text>
+                <Text style={styles.emptyText}>Indique um item ou selecione um atalho acima.</Text>
+                <Text style={styles.emptySubText}>Pesquisa em tempo real com base nas notas fiscais (NFC-e) do Paraná.</Text>
               </View>
             )
           }
         />
       )}
 
-      {/* Modal da Cesta Inteligente */}
       <BasketModal
         visible={basketVisible}
         onClose={() => setBasketVisible(false)}
@@ -512,7 +537,11 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack }) 
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0F172A', paddingTop: 20 },
+  container: { 
+    flex: 1, 
+    backgroundColor: '#0B0F19', 
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 28) + 12 : 44 
+  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -520,95 +549,113 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 12,
   },
-  backBtn: { paddingVertical: 4 },
-  backBtnText: { color: '#38BDF8', fontSize: 16, fontWeight: 'bold' },
-  title: { color: '#F8FAFC', fontSize: 17, fontWeight: 'bold' },
+  backBtn: { flexDirection: 'row', alignItems: 'center', paddingVertical: 4 },
+  backBtnText: { color: '#10B981', fontSize: 14, fontWeight: '700', marginLeft: 2 },
+  title: { color: '#F8FAFC', fontSize: 16, fontWeight: '800', letterSpacing: -0.3 },
   basketTopBtn: {
-    backgroundColor: '#1E293B',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#131927',
     borderWidth: 1,
-    borderColor: '#38BDF8',
+    borderColor: 'rgba(16, 185, 129, 0.4)',
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 14,
+    gap: 4,
   },
-  basketTopBtnText: { color: '#38BDF8', fontWeight: 'bold', fontSize: 13 },
+  basketTopBtnText: { color: '#10B981', fontWeight: 'bold', fontSize: 12 },
   searchBar: {
     flexDirection: 'row',
     paddingHorizontal: 16,
     gap: 8,
     marginBottom: 10,
   },
+  searchBox: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#131927',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+  },
   searchInput: {
     flex: 1,
-    backgroundColor: '#1E293B',
-    borderWidth: 1,
-    borderColor: '#334155',
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingVertical: 9,
     color: '#F8FAFC',
-    fontSize: 14,
+    fontSize: 13,
   },
   searchBtn: {
-    backgroundColor: '#0284C7',
-    paddingHorizontal: 16,
+    backgroundColor: '#10B981',
+    paddingHorizontal: 14,
     borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  searchBtnText: { fontSize: 16 },
-  presetsWrapper: { marginBottom: 12 },
+  searchBtnText: {
+    color: '#0B0F19',
+    fontWeight: '800',
+    fontSize: 12,
+  },
+  presetsWrapper: { marginBottom: 10 },
   presetChip: {
-    backgroundColor: '#1E293B',
+    backgroundColor: '#131927',
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.05)',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 16,
   },
-  presetChipText: { color: '#94A3B8', fontSize: 12, fontWeight: '500' },
+  presetChipText: { color: '#94A3B8', fontSize: 11, fontWeight: '600' },
   radiusRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    marginBottom: 8,
+  },
+  radiusLabel: { color: '#64748B', fontSize: 11, fontWeight: '600' },
+  radiusChips: { flexDirection: 'row', gap: 6 },
+  radiusChip: {
+    backgroundColor: '#131927',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  radiusChipActive: { 
+    backgroundColor: 'rgba(16, 185, 129, 0.15)', 
+    borderColor: '#10B981' 
+  },
+  radiusText: { color: '#64748B', fontSize: 11, fontWeight: '600' },
+  radiusTextActive: { color: '#10B981', fontWeight: '700' },
+  sortBar: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
     marginBottom: 10,
   },
-  radiusLabel: { color: '#94A3B8', fontSize: 12 },
-  radiusChips: { flexDirection: 'row', gap: 6 },
-  radiusChip: {
-    backgroundColor: '#1E293B',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  radiusChipActive: { backgroundColor: 'rgba(56, 189, 248, 0.2)', borderColor: '#38BDF8' },
-  radiusText: { color: '#64748B', fontSize: 11, fontWeight: '600' },
-  radiusTextActive: { color: '#38BDF8', fontWeight: 'bold' },
-  sortBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    marginBottom: 12,
-  },
   sortLabel: {
-    color: '#94A3B8',
-    fontSize: 12,
+    color: '#64748B',
+    fontSize: 11,
+    fontWeight: '600',
   },
   sortButtonsRow: {
     flexDirection: 'row',
     gap: 6,
   },
   sortBtn: {
-    backgroundColor: '#1E293B',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#131927',
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.05)',
   },
   sortBtnActive: {
     backgroundColor: 'rgba(16, 185, 129, 0.15)',
@@ -621,53 +668,74 @@ const styles = StyleSheet.create({
   },
   sortBtnTextActive: {
     color: '#34D399',
-    fontWeight: 'bold',
+    fontWeight: '700',
   },
   listContent: { paddingHorizontal: 16, paddingBottom: 40 },
   card: {
-    backgroundColor: '#1E293B',
+    backgroundColor: '#131927',
     borderRadius: 12,
-    padding: 14,
-    marginBottom: 10,
+    padding: 12,
+    marginBottom: 8,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.05)',
   },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  cardDesc: { color: '#F8FAFC', fontSize: 14, fontWeight: 'bold', marginBottom: 4 },
-  cardEstablishment: { color: '#94A3B8', fontSize: 12 },
-  cardAddress: {
-    color: '#64748B',
-    fontSize: 11,
+  cardDesc: { color: '#F8FAFC', fontSize: 13, fontWeight: '700', marginBottom: 2 },
+  establishmentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginTop: 2,
   },
+  cardEstablishment: { color: '#94A3B8', fontSize: 11 },
+  addressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2,
+  },
+  cardAddress: {
+    color: '#64748B',
+    fontSize: 10,
+  },
   priceContainer: { alignItems: 'flex-end' },
-  cardPrice: { color: '#10B981', fontSize: 18, fontWeight: 'bold' },
-  cardDistance: { color: '#38BDF8', fontSize: 11, fontWeight: '600', marginTop: 2 },
-  divider: { height: 1, backgroundColor: '#334155', marginVertical: 10 },
+  cardPrice: { color: '#34D399', fontSize: 16, fontWeight: '800' },
+  distanceBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2,
+  },
+  cardDistance: { color: '#38BDF8', fontSize: 10, fontWeight: '600' },
+  divider: { height: 1, backgroundColor: 'rgba(255, 255, 255, 0.04)', marginVertical: 8 },
   cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  timeTag: { color: '#64748B', fontSize: 11 },
+  timeTagRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  timeTag: { color: '#64748B', fontSize: 10 },
   addBasketBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: 'rgba(16, 185, 129, 0.15)',
     borderWidth: 1,
     borderColor: '#10B981',
     paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingVertical: 5,
     borderRadius: 6,
     justifyContent: 'center',
-    alignItems: 'center',
   },
-  addBasketBtnText: { color: '#34D399', fontSize: 11, fontWeight: 'bold' },
+  addBasketBtnText: { color: '#34D399', fontSize: 10, fontWeight: '700' },
   routeBtn: {
-    backgroundColor: 'rgba(2, 132, 199, 0.15)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#131927',
     paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingVertical: 5,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: '#0284C7',
+    borderColor: 'rgba(255, 255, 255, 0.08)',
   },
-  routeBtnText: { color: '#38BDF8', fontSize: 11, fontWeight: '600' },
+  routeBtnText: { color: '#94A3B8', fontSize: 10, fontWeight: '600' },
   centerContainer: { alignItems: 'center', marginTop: 40, paddingHorizontal: 20 },
-  loadingText: { color: '#94A3B8', marginTop: 12, fontSize: 13, textAlign: 'center' },
-  emptyText: { color: '#94A3B8', fontSize: 15, fontWeight: '600', textAlign: 'center' },
-  emptySubText: { color: '#64748B', fontSize: 12, textAlign: 'center', marginTop: 6 },
+  loadingText: { color: '#64748B', marginTop: 10, fontSize: 12, textAlign: 'center' },
+  emptyText: { color: '#94A3B8', fontSize: 14, fontWeight: '700', textAlign: 'center' },
+  emptySubText: { color: '#64748B', fontSize: 11, textAlign: 'center', marginTop: 4 },
 });

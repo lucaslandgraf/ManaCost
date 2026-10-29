@@ -12,6 +12,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { supabase } from '../../config/supabase';
 import { useAuth } from '../../context/AuthContext';
 
@@ -30,6 +31,13 @@ interface Category {
   rule_group?: string;
 }
 
+interface BudgetRules {
+  useFixed: boolean;
+  needs: number;
+  wants: number;
+  savings: number;
+}
+
 interface Props {
   visible: boolean;
   onClose: () => void;
@@ -40,6 +48,7 @@ interface Props {
   userMonthlyIncome?: number;
   onUpdated: () => void;
   onDeleted: () => void;
+  onOpenSettings?: () => void;
 }
 
 export const PurchaseDetailsModal: React.FC<Props> = ({
@@ -52,6 +61,7 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
   userMonthlyIncome = 0,
   onUpdated,
   onDeleted,
+  onOpenSettings,
 }) => {
   const { user } = useAuth();
   const [items, setItems] = useState<Item[]>([]);
@@ -61,28 +71,32 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // Estados locais sincronizados com a base de dados
   const [currentDesc, setCurrentDesc] = useState(description);
   const [currentAmount, setCurrentAmount] = useState(amount);
   const [currentDate, setCurrentDate] = useState(date);
   const [currentType, setCurrentType] = useState<'expense' | 'income'>('expense');
   const [repeatsMonthly, setRepeatsMonthly] = useState(false);
 
-  // Identificação de assinatura correspondente em recurring_bills
   const [matchingRecurringBill, setMatchingRecurringBill] = useState<{ id: string; is_active: boolean } | null>(null);
 
-  // Edição
   const [editDesc, setEditDesc] = useState(description);
   const [editAmount, setEditAmount] = useState(amount.toString());
   const [editRepeats, setEditRepeats] = useState(false);
   const [selectedBucket, setSelectedBucket] = useState<'needs' | 'wants' | 'savings'>('needs');
   
-  // Terceiros
   const [isForSomeone, setIsForSomeone] = useState(false);
   const [personName, setPersonName] = useState('');
   const [splitStatus, setSplitStatus] = useState<'gift' | 'pending' | 'settled' | 'none'>('pending');
 
   const [showLifeTime, setShowLifeTime] = useState(false);
+
+  // Metas do perfil dinâmicas
+  const [budgetRules, setBudgetRules] = useState<BudgetRules>({
+    useFixed: false,
+    needs: 50,
+    wants: 30,
+    savings: 20,
+  });
 
   useEffect(() => {
     if (visible && transactionId) {
@@ -95,8 +109,31 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
       setEditAmount(amount.toString());
       fetchTransactionDetails();
       fetchCategories();
+      fetchProfileRules();
     }
   }, [visible, transactionId]);
+
+  const fetchProfileRules = async () => {
+    if (!user?.id) return;
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('use_fixed_targets, rule_needs_pct, rule_wants_pct, rule_savings_pct, fixed_needs_val, fixed_wants_val, fixed_savings_val')
+        .eq('id', user.id)
+        .single();
+
+      if (!error && data) {
+        setBudgetRules({
+          useFixed: Boolean(data.use_fixed_targets),
+          needs: data.use_fixed_targets ? Number(data.fixed_needs_val ?? 0) : Number(data.rule_needs_pct ?? 50),
+          wants: data.use_fixed_targets ? Number(data.fixed_wants_val ?? 0) : Number(data.rule_wants_pct ?? 30),
+          savings: data.use_fixed_targets ? Number(data.fixed_savings_val ?? 0) : Number(data.rule_savings_pct ?? 20),
+        });
+      }
+    } catch (e) {
+      console.warn('Erro ao carregar regras no modal de detalhe:', e);
+    }
+  };
 
   const fetchCategories = async () => {
     const { data } = await supabase
@@ -127,7 +164,6 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
         setEditDesc(txData.description || description);
         setEditAmount(String(txData.amount || amount));
 
-        // Inicializa o bucket 50/30/20 (do banco ou da categoria associada)
         if (txData.budget_bucket) {
           setSelectedBucket(txData.budget_bucket);
         } else if (txData.categories?.rule_group) {
@@ -151,7 +187,6 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
         }
       }
 
-      // Procura se tem conta fixa correspondente na tabela recurring_bills
       const targetName = (txData?.description || description).trim();
       const { data: recBill } = await supabase
         .from('recurring_bills')
@@ -161,14 +196,21 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
 
       setMatchingRecurringBill(recBill || null);
 
-      // Procura itens fiscais vinculados
       let targetPurchaseId = txData?.purchase_id;
       if (!targetPurchaseId && (txData?.description || description).startsWith('NFC-e:')) {
         const cleanStoreName = (txData?.description || description).replace('NFC-e:', '').trim();
-        const { data: matchedPurchase } = await supabase
+        const txAmount = Number(txData?.amount || amount);
+
+        let query = supabase
           .from('purchases')
           .select('id')
-          .ilike('store_name', `%${cleanStoreName}%`)
+          .ilike('store_name', `%${cleanStoreName}%`);
+
+        if (txAmount > 0) {
+          query = query.eq('total_amount', txAmount);
+        }
+
+        const { data: matchedPurchase } = await query
           .order('purchase_date', { ascending: false })
           .limit(1)
           .maybeSingle();
@@ -205,8 +247,8 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
     Alert.alert(
       nextStatus ? 'Reativar Recorrência' : 'Pausar Recorrência',
       nextStatus
-        ? `Deseja que "${currentDesc}" volte a ser gerada automaticamente nos meses seguintes?`
-        : `Deseja pausar "${currentDesc}" e remover as pendências geradas nos meses seguintes?`,
+        ? `Pretende que "${currentDesc}" volte a ser gerada automaticamente nos meses seguintes?`
+        : `Pretende pausar "${currentDesc}" e remover as pendências nos meses futuros?`,
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -244,13 +286,6 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
 
               setRepeatsMonthly(nextStatus);
               setEditRepeats(nextStatus);
-
-              Alert.alert(
-                'Concluído',
-                nextStatus
-                  ? 'A despesa foi reativada para os próximos meses.'
-                  : 'A cobrança foi pausada e os registos futuros pendentes foram eliminados.'
-              );
               onUpdated();
             } catch (err: any) {
               Alert.alert('Erro', err.message);
@@ -329,7 +364,6 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
 
       setIsEditing(false);
       onUpdated();
-      Alert.alert('Sucesso', 'Lançamento atualizado!');
     } catch (err: any) {
       Alert.alert('Erro ao atualizar', err.message);
     } finally {
@@ -343,7 +377,7 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
     if (isRecurring) {
       Alert.alert(
         'Assinatura / Conta Fixa',
-        `"${currentDesc}" repete-se todos os meses. Como deseja prosseguir?`,
+        `"${currentDesc}" repete-se todos os meses. Como deseja proceder?`,
         [
           { text: 'Cancelar', style: 'cancel' },
           {
@@ -356,7 +390,7 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
             },
           },
           {
-            text: 'Cancelar e apagar de todos os meses futuros',
+            text: 'Cancelar e apagar dos meses futuros',
             style: 'destructive',
             onPress: async () => {
               await supabase
@@ -381,7 +415,6 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
 
               onDeleted();
               onClose();
-              Alert.alert('Cancelado', 'A cobrança foi encerrada e removida de todos os meses futuros.');
             },
           },
         ]
@@ -391,7 +424,7 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
 
     Alert.alert(
       'Excluir Transação',
-      `Tem certeza de que deseja remover "${currentDesc}"?`,
+      `Tem a certeza de que deseja remover "${currentDesc}"?`,
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -408,16 +441,18 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
   };
 
   const isIncome = currentType === 'income';
-  
   const filteredCategories = categories
     .filter((c) => c.type === currentType)
     .filter((cat, index, self) => index === self.findIndex((t) => t.name === cat.name));
 
   const isRecurringActive = matchingRecurringBill ? matchingRecurringBill.is_active : repeatsMonthly;
 
-  // Cálculo da soma dos itens da nota e desconto do mercado
   const totalItemsBruto = items.reduce((acc, it) => acc + Number(it.total_price || 0), 0);
   const economiaDesconto = Math.max(0, totalItemsBruto - Number(currentAmount));
+
+  const formatSub = (val: number) => {
+    return budgetRules.useFixed ? `R$ ${val}` : `${val}%`;
+  };
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
@@ -426,19 +461,23 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
         style={styles.overlay}
       >
         <View style={styles.card}>
+          <View style={styles.dragHandleBox}>
+            <View style={styles.dragHandle} />
+          </View>
+
           <View style={styles.headerRow}>
             <Text style={styles.title}>
-              {isIncome ? 'Detalhe da Receita' : 'Detalhe da Despesa'}
+              {isIncome ? 'Detalhe da Receita' : 'Detalhe do Lançamento'}
             </Text>
-            <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-              <Text style={styles.closeBtnText}>✕</Text>
+            <TouchableOpacity onPress={onClose} style={styles.closeBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Feather name="x" size={16} color="#94A3B8" />
             </TouchableOpacity>
           </View>
 
-          <ScrollView showsVerticalScrollIndicator={false}>
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
             {isEditing ? (
               <View style={styles.editContainer}>
-                <Text style={styles.label}>Descrição / Título</Text>
+                <Text style={styles.fieldLabel}>DESCRIÇÃO</Text>
                 <TextInput
                   style={styles.input}
                   value={editDesc}
@@ -447,9 +486,9 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
                   placeholderTextColor="#64748B"
                 />
 
-                <Text style={styles.label}>Valor (R$)</Text>
+                <Text style={styles.fieldLabel}>VALOR (R$)</Text>
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, styles.inputAmount]}
                   value={editAmount}
                   onChangeText={setEditAmount}
                   keyboardType="decimal-pad"
@@ -457,10 +496,27 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
                   placeholderTextColor="#64748B"
                 />
 
-                {/* Seleção do Grupo Orçamental 50/30/20 */}
                 {!isIncome && (
                   <View style={styles.bucketSection}>
-                    <Text style={styles.label}>Atribuir à regra orçamental (50/30/20):</Text>
+                    <TouchableOpacity
+                      style={styles.bucketHeaderTouchable}
+                      onPress={() => {
+                        onClose();
+                        if (onOpenSettings) {
+                          setTimeout(() => onOpenSettings(), 300);
+                        }
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                        <Text style={styles.fieldLabelNoMargin}>
+                          REGRA ORÇAMENTAL ({budgetRules.useFixed ? 'R$ FIXO' : `${budgetRules.needs} • ${budgetRules.wants} • ${budgetRules.savings}`})
+                        </Text>
+                        <Feather name="edit-2" size={10} color="#10B981" />
+                      </View>
+                      <Text style={styles.editConfigHint}>Ajustar metas</Text>
+                    </TouchableOpacity>
+
                     <View style={styles.bucketRow}>
                       <TouchableOpacity
                         style={[
@@ -470,14 +526,10 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
                         onPress={() => setSelectedBucket('needs')}
                         activeOpacity={0.7}
                       >
-                        <Text
-                          style={[
-                            styles.bucketText,
-                            selectedBucket === 'needs' && styles.bucketTextActive,
-                          ]}
-                        >
-                          Necessidades{'\n'}(50%)
+                        <Text style={[styles.bucketTitle, selectedBucket === 'needs' && styles.bucketTitleActive]}>
+                          Necessidades
                         </Text>
+                        <Text style={styles.bucketSub}>{formatSub(budgetRules.needs)}</Text>
                       </TouchableOpacity>
 
                       <TouchableOpacity
@@ -488,14 +540,10 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
                         onPress={() => setSelectedBucket('wants')}
                         activeOpacity={0.7}
                       >
-                        <Text
-                          style={[
-                            styles.bucketText,
-                            selectedBucket === 'wants' && styles.bucketTextActive,
-                          ]}
-                        >
-                          Desejos{'\n'}(30%)
+                        <Text style={[styles.bucketTitle, selectedBucket === 'wants' && styles.bucketTitleActive]}>
+                          Desejos
                         </Text>
+                        <Text style={styles.bucketSub}>{formatSub(budgetRules.wants)}</Text>
                       </TouchableOpacity>
 
                       <TouchableOpacity
@@ -506,64 +554,65 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
                         onPress={() => setSelectedBucket('savings')}
                         activeOpacity={0.7}
                       >
-                        <Text
-                          style={[
-                            styles.bucketText,
-                            selectedBucket === 'savings' && styles.bucketTextActive,
-                          ]}
-                        >
-                          Reserva{'\n'}(20%)
+                        <Text style={[styles.bucketTitle, selectedBucket === 'savings' && styles.bucketTitleActive]}>
+                          Reserva
                         </Text>
+                        <Text style={styles.bucketSub}>{formatSub(budgetRules.savings)}</Text>
                       </TouchableOpacity>
                     </View>
                   </View>
                 )}
 
-                <Text style={styles.label}>Categoria no Orçamento:</Text>
+                <Text style={styles.fieldLabel}>CATEGORIA</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
-                  {filteredCategories.map((c) => (
-                    <TouchableOpacity
-                      key={c.id}
-                      style={[styles.catChip, selectedCatId === c.id && styles.catChipActive]}
-                      onPress={() => {
-                        setSelectedCatId(c.id);
-                        if (c.rule_group) {
-                          if (c.rule_group === 'needs_50') setSelectedBucket('needs');
-                          else if (c.rule_group === 'wants_30') setSelectedBucket('wants');
-                          else if (c.rule_group === 'savings_20') setSelectedBucket('savings');
-                        }
-                      }}
-                    >
-                      <Text style={[styles.catChipText, selectedCatId === c.id && styles.catChipTextActive]}>
-                        {c.name}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
+                  {filteredCategories.map((c) => {
+                    const isSelected = selectedCatId === c.id;
+                    return (
+                      <TouchableOpacity
+                        key={c.id}
+                        style={[styles.catChip, isSelected && styles.catChipActive]}
+                        onPress={() => setSelectedCatId(c.id)}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[styles.catChipText, isSelected && styles.catChipTextActive]}>
+                          {c.name}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
                 </ScrollView>
 
                 <TouchableOpacity
                   style={styles.checkboxRow}
                   onPress={() => setEditRepeats(!editRepeats)}
+                  activeOpacity={0.8}
                 >
-                  <View style={[styles.checkbox, editRepeats && styles.checkboxChecked]} />
-                  <Text style={styles.checkboxLabel}>🔁 Repetir automaticamente nos meses seguintes</Text>
+                  <View style={[styles.checkbox, editRepeats && styles.checkboxChecked]}>
+                    {editRepeats && <Feather name="check" size={11} color="#0B0F19" />}
+                  </View>
+                  <Feather name="repeat" size={13} color="#94A3B8" style={{ marginRight: 6 }} />
+                  <Text style={styles.checkboxLabel}>Repetir automaticamente todos os meses</Text>
                 </TouchableOpacity>
 
                 <View style={styles.splitBox}>
                   <TouchableOpacity
                     style={styles.checkboxRow}
                     onPress={() => setIsForSomeone(!isForSomeone)}
+                    activeOpacity={0.8}
                   >
-                    <View style={[styles.checkbox, isForSomeone && styles.checkboxChecked]} />
+                    <View style={[styles.checkbox, isForSomeone && styles.checkboxChecked]}>
+                      {isForSomeone && <Feather name="check" size={11} color="#0B0F19" />}
+                    </View>
+                    <Feather name={isIncome ? 'arrow-down-left' : 'user'} size={13} color="#94A3B8" style={{ marginRight: 6 }} />
                     <Text style={styles.checkboxLabel}>
-                      {isIncome ? '📥 Informar a origem / quem enviou?' : '👤 Gastei para outra pessoa?'}
+                      {isIncome ? 'Informar pagador ou origem' : 'Despesa dividida ou para terceiro'}
                     </Text>
                   </TouchableOpacity>
 
                   {isForSomeone && (
                     <View style={{ marginTop: 8 }}>
                       <TextInput
-                        placeholder={isIncome ? 'Quem enviou' : 'Nome da pessoa'}
+                        placeholder={isIncome ? 'Quem efetuou o envio' : 'Nome da pessoa'}
                         placeholderTextColor="#64748B"
                         style={styles.inputPerson}
                         value={personName}
@@ -573,29 +622,35 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
                       {!isIncome && (
                         <View style={styles.splitStatusRow}>
                           <TouchableOpacity
-                            style={[styles.splitStatusBtn, splitStatus === 'gift' && styles.splitStatusBtnActiveGift]}
+                            style={[styles.splitStatusBtn, splitStatus === 'gift' && styles.splitStatusBtnActive]}
                             onPress={() => setSplitStatus('gift')}
+                            activeOpacity={0.7}
                           >
+                            <Feather name="gift" size={11} color={splitStatus === 'gift' ? '#38BDF8' : '#64748B'} style={{ marginBottom: 2 }} />
                             <Text style={[styles.splitStatusText, splitStatus === 'gift' && styles.splitStatusTextActive]}>
-                              🎁 Paguei p/ ela
+                              Oferecido
                             </Text>
                           </TouchableOpacity>
 
                           <TouchableOpacity
                             style={[styles.splitStatusBtn, splitStatus === 'pending' && styles.splitStatusBtnActivePending]}
                             onPress={() => setSplitStatus('pending')}
+                            activeOpacity={0.7}
                           >
-                            <Text style={[styles.splitStatusText, splitStatus === 'pending' && styles.splitStatusTextActive]}>
-                              ⏳ Vai me pagar
+                            <Feather name="clock" size={11} color={splitStatus === 'pending' ? '#F59E0B' : '#64748B'} style={{ marginBottom: 2 }} />
+                            <Text style={[styles.splitStatusText, splitStatus === 'pending' && styles.splitStatusTextActivePending]}>
+                              Pendente
                             </Text>
                           </TouchableOpacity>
 
                           <TouchableOpacity
                             style={[styles.splitStatusBtn, splitStatus === 'settled' && styles.splitStatusBtnActiveSettled]}
                             onPress={() => setSplitStatus('settled')}
+                            activeOpacity={0.7}
                           >
-                            <Text style={[styles.splitStatusText, splitStatus === 'settled' && styles.splitStatusTextActive]}>
-                              ✅ Já pagou
+                            <Feather name="check-circle" size={11} color={splitStatus === 'settled' ? '#10B981' : '#64748B'} style={{ marginBottom: 2 }} />
+                            <Text style={[styles.splitStatusText, splitStatus === 'settled' && styles.splitStatusTextActiveSettled]}>
+                              Acertado
                             </Text>
                           </TouchableOpacity>
                         </View>
@@ -609,7 +664,7 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
                     <Text style={styles.cancelBtnText}>Cancelar</Text>
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.saveBtn} onPress={handleSaveEdit} disabled={saving}>
-                    <Text style={styles.saveBtnText}>{saving ? 'Salvando...' : 'Salvar Alterações'}</Text>
+                    <Text style={styles.saveBtnText}>{saving ? 'A guardar...' : 'Gravar Alterações'}</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -617,30 +672,39 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
               <View>
                 <Text style={styles.txDesc}>{currentDesc}</Text>
                 <Text style={styles.txDate}>
-                  Data: {currentDate} {isRecurringActive ? '• 🔁 Assinatura Mensal' : ''}
+                  {currentDate.split('-').reverse().join('/')} {isRecurringActive ? '• Assinatura Mensal' : ''}
                 </Text>
 
                 {isForSomeone && personName ? (
                   <View style={[styles.splitBanner, isIncome && styles.splitBannerIncome]}>
-                    <Text style={[styles.splitBannerTitle, isIncome && styles.splitBannerTitleIncome]}>
-                      {isIncome
-                        ? `📥 Recebido de: ${personName}`
-                        : splitStatus === 'pending'
-                        ? `⏳ Aguardando acerto com: ${personName}`
-                        : splitStatus === 'settled'
-                        ? `✅ Reembolsado por: ${personName}`
-                        : `🎁 Pago para: ${personName}`}
-                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Feather 
+                        name={isIncome ? 'arrow-down-left' : splitStatus === 'pending' ? 'clock' : splitStatus === 'settled' ? 'check-circle' : 'gift'} 
+                        size={12} 
+                        color={isIncome ? '#34D399' : '#FBBF24'} 
+                      />
+                      <Text style={[styles.splitBannerTitle, isIncome && styles.splitBannerTitleIncome]}>
+                        {isIncome
+                          ? `Recebido de: ${personName}`
+                          : splitStatus === 'pending'
+                          ? `Aguardando acerto com: ${personName}`
+                          : splitStatus === 'settled'
+                          ? `Reembolsado por: ${personName}`
+                          : `Pago para: ${personName}`}
+                      </Text>
+                    </View>
                   </View>
                 ) : null}
 
+                {/* Card Consolidado do Montante */}
                 <View style={styles.amountCard}>
-                  <Text style={styles.amountLabel}>Valor {isIncome ? 'Recebido' : 'Pago'}</Text>
-                  <Text style={[styles.amountVal, { color: isIncome ? '#10B981' : '#38BDF8' }]}>
+                  <Text style={styles.amountLabel}>VALOR {isIncome ? 'RECEBIDO' : 'TOTAL'}</Text>
+                  <Text style={[styles.amountVal, { color: isIncome ? '#34D399' : '#F8FAFC' }]}>
                     {isIncome ? '+ ' : '- '}R$ {Number(currentAmount).toFixed(2).replace('.', ',')}
                   </Text>
                 </View>
 
+                {/* Custo em Tempo de Vida */}
                 {!isIncome && (
                   <TouchableOpacity
                     style={[styles.lifeTimeCard, showLifeTime && styles.lifeTimeCardActive]}
@@ -648,11 +712,14 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
                     activeOpacity={0.8}
                   >
                     <View style={styles.lifeTimeHeader}>
-                      <Text style={styles.lifeTimeTitle}>
-                        {showLifeTime ? '⏳ Custo em Tempo de Vida:' : '🔒 Custo em Horas de Vida'}
-                      </Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Feather name={showLifeTime ? 'clock' : 'lock'} size={13} color="#FBBF24" />
+                        <Text style={styles.lifeTimeTitle}>
+                          {showLifeTime ? 'Custo em Horas de Trabalho:' : 'Custo em Horas de Trabalho'}
+                        </Text>
+                      </View>
                       <Text style={styles.lifeTimeToggleHint}>
-                        {showLifeTime ? 'Toque para ocultar' : 'Toque para desbloquear'}
+                        {showLifeTime ? 'Ocultar' : 'Calcular'}
                       </Text>
                     </View>
 
@@ -668,10 +735,10 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
                           return (
                             <>
                               <Text style={styles.lifeTimeText}>
-                                Custou <Text style={styles.lifeTimeHighlight}>{hours}h {minutes}min</Text> de trabalho.
+                                Equivale a <Text style={styles.lifeTimeHighlight}>{hours}h {minutes}min</Text> de esforço profissional.
                               </Text>
                               <Text style={styles.lifeTimeSub}>
-                                Baseado no salário de R$ {baseSalary.toFixed(2).replace('.', ',')} (R$ {hourlyRate.toFixed(2).replace('.', ',')}/h).
+                                Com base em R$ {baseSalary.toFixed(2).replace('.', ',')} / mês (~R$ {hourlyRate.toFixed(2).replace('.', ',')}/h).
                               </Text>
                             </>
                           );
@@ -690,33 +757,39 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
                     onPress={handleToggleRecurringFromDetail}
                     activeOpacity={0.7}
                   >
-                    <Text
-                      style={[
-                        styles.pauseRecurringBtnText,
-                        !isRecurringActive && styles.pauseRecurringBtnTextPaused,
-                      ]}
-                    >
-                      {isRecurringActive
-                        ? '⏸️ Pausar cobrança nos meses seguintes'
-                        : '▶️ Reativar cobrança nos meses seguintes'}
-                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Feather name={isRecurringActive ? 'pause' : 'play'} size={12} color={!isRecurringActive ? '#34D399' : '#FBBF24'} />
+                      <Text
+                        style={[
+                          styles.pauseRecurringBtnText,
+                          !isRecurringActive && styles.pauseRecurringBtnTextPaused,
+                        ]}
+                      >
+                        {isRecurringActive
+                          ? 'Pausar cobrança nos meses seguintes'
+                          : 'Reativar cobrança recorrente'}
+                      </Text>
+                    </View>
                   </TouchableOpacity>
                 )}
 
                 <View style={styles.topActionsRow}>
-                  <TouchableOpacity style={styles.actionBtnEdit} onPress={() => setIsEditing(true)}>
-                    <Text style={styles.actionBtnEditText}>✏️ Editar</Text>
+                  <TouchableOpacity style={styles.actionBtnEdit} onPress={() => setIsEditing(true)} activeOpacity={0.7}>
+                    <Feather name="edit-2" size={12} color="#38BDF8" style={{ marginRight: 4 }} />
+                    <Text style={styles.actionBtnEditText}>Editar</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.actionBtnDelete} onPress={handleDelete}>
-                    <Text style={styles.actionBtnDeleteText}>🗑️ Excluir</Text>
+                  <TouchableOpacity style={styles.actionBtnDelete} onPress={handleDelete} activeOpacity={0.7}>
+                    <Feather name="trash-2" size={12} color="#F87171" style={{ marginRight: 4 }} />
+                    <Text style={styles.actionBtnDeleteText}>Excluir</Text>
                   </TouchableOpacity>
                 </View>
 
+                {/* Itens do Cupom Fiscal */}
                 {!isIncome && (
                   <>
-                    <Text style={styles.sectionTitle}>ITENS DISCRIMINADOS NA NOTA:</Text>
+                    <Text style={styles.sectionTitle}>ITENS DA NOTA FISCAL</Text>
                     {loading ? (
-                      <ActivityIndicator size="small" color="#38BDF8" style={{ marginVertical: 14 }} />
+                      <ActivityIndicator size="small" color="#10B981" style={{ marginVertical: 14 }} />
                     ) : items.length > 0 ? (
                       <>
                         <View style={styles.itemsList}>
@@ -731,7 +804,6 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
                           ))}
                         </View>
 
-                        {/* Bloco de Desconto do Mercado se houver diferença de valor */}
                         {economiaDesconto > 0.01 && (
                           <View style={styles.discountCard}>
                             <View style={styles.discountRow}>
@@ -741,7 +813,10 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
                               </Text>
                             </View>
                             <View style={styles.discountRow}>
-                              <Text style={styles.discountHighlight}>🎉 Descontos do mercado:</Text>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                <Feather name="tag" size={12} color="#34D399" />
+                                <Text style={styles.discountHighlight}>Economia do mercado:</Text>
+                              </View>
                               <Text style={styles.discountValue}>
                                 - R$ {economiaDesconto.toFixed(2).replace('.', ',')}
                               </Text>
@@ -751,14 +826,14 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
                       </>
                     ) : (
                       <View style={styles.emptyItemsBox}>
-                        <Text style={styles.emptyItemsText}>Nenhum item discriminado para este lançamento.</Text>
+                        <Text style={styles.emptyItemsText}>Sem itens discriminados por QR Code para este registo.</Text>
                       </View>
                     )}
                   </>
                 )}
 
-                <TouchableOpacity style={styles.closeFullBtn} onPress={onClose}>
-                  <Text style={styles.closeFullBtnText}>Fechar</Text>
+                <TouchableOpacity style={styles.closeFullBtn} onPress={onClose} activeOpacity={0.8}>
+                  <Text style={styles.closeFullBtnText}>Concluído</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -770,68 +845,249 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
 };
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'flex-end' },
-  card: { backgroundColor: '#1E293B', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, maxHeight: '92%' },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  title: { color: '#F8FAFC', fontSize: 18, fontWeight: 'bold' },
-  closeBtn: { padding: 6 },
-  closeBtnText: { color: '#94A3B8', fontSize: 18, fontWeight: 'bold' },
-  txDesc: { color: '#F8FAFC', fontSize: 18, fontWeight: 'bold' },
-  txDate: { color: '#94A3B8', fontSize: 12, marginTop: 4 },
-  splitBanner: { backgroundColor: '#0F172A', borderRadius: 8, padding: 10, marginVertical: 10, borderWidth: 1, borderColor: '#334155' },
-  splitBannerIncome: { backgroundColor: 'rgba(16, 185, 129, 0.1)', borderColor: 'rgba(16, 185, 129, 0.3)' },
-  splitBannerTitle: { color: '#FBBF24', fontSize: 13, fontWeight: '600' },
-  splitBannerTitleIncome: { color: '#34D399' },
-  amountCard: { backgroundColor: '#0F172A', borderRadius: 12, padding: 14, alignItems: 'center', marginVertical: 10, borderWidth: 1, borderColor: '#334155' },
-  amountLabel: { color: '#94A3B8', fontSize: 12 },
-  amountVal: { fontSize: 24, fontWeight: 'bold', marginTop: 2 },
-  lifeTimeCard: { backgroundColor: '#0F172A', borderRadius: 10, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: '#334155', borderStyle: 'dashed' },
-  lifeTimeCardActive: { borderColor: '#F59E0B', borderStyle: 'solid', backgroundColor: 'rgba(245, 158, 11, 0.08)' },
-  lifeTimeHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  lifeTimeTitle: { color: '#F8FAFC', fontSize: 13, fontWeight: 'bold' },
-  lifeTimeToggleHint: { color: '#94A3B8', fontSize: 11 },
-  lifeTimeContent: { marginTop: 8 },
-  lifeTimeText: { color: '#CBD5E1', fontSize: 14, fontWeight: '500' },
-  lifeTimeHighlight: { color: '#FBBF24', fontWeight: 'bold' },
-  lifeTimeSub: { color: '#64748B', fontSize: 11, marginTop: 3 },
-  pauseRecurringBtn: {
-    backgroundColor: 'rgba(245, 158, 11, 0.12)',
-    borderWidth: 1,
-    borderColor: '#F59E0B',
-    borderRadius: 8,
-    paddingVertical: 9,
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'flex-end',
+  },
+  card: {
+    backgroundColor: '#0B0F19',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 20,
+    paddingBottom: Platform.OS === 'android' ? 24 : 36,
+    maxHeight: '92%',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  dragHandleBox: {
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  dragHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 12,
   },
+  title: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#F8FAFC',
+    letterSpacing: -0.3,
+  },
+  closeBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#131927',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  txDesc: {
+    color: '#F8FAFC',
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: -0.3,
+  },
+  txDate: {
+    color: '#64748B',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  splitBanner: {
+    backgroundColor: '#131927',
+    borderRadius: 8,
+    padding: 10,
+    marginVertical: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.3)',
+  },
+  splitBannerIncome: {
+    borderColor: 'rgba(16, 185, 129, 0.3)',
+  },
+  splitBannerTitle: {
+    color: '#FBBF24',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  splitBannerTitleIncome: {
+    color: '#34D399',
+  },
+  amountCard: {
+    backgroundColor: '#131927',
+    borderRadius: 14,
+    padding: 16,
+    alignItems: 'center',
+    marginVertical: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  amountLabel: {
+    color: '#64748B',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+  },
+  amountVal: {
+    fontSize: 26,
+    fontWeight: '800',
+    letterSpacing: -0.5,
+    marginTop: 4,
+  },
+  lifeTimeCard: {
+    backgroundColor: '#131927',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  lifeTimeCardActive: {
+    borderColor: 'rgba(245, 158, 11, 0.4)',
+    backgroundColor: 'rgba(245, 158, 11, 0.05)',
+  },
+  lifeTimeHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  lifeTimeTitle: {
+    color: '#F8FAFC',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  lifeTimeToggleHint: {
+    color: '#38BDF8',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  lifeTimeContent: {
+    marginTop: 8,
+  },
+  lifeTimeText: {
+    color: '#CBD5E1',
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  lifeTimeHighlight: {
+    color: '#FBBF24',
+    fontWeight: '700',
+  },
+  lifeTimeSub: {
+    color: '#64748B',
+    fontSize: 11,
+    marginTop: 2,
+  },
+  pauseRecurringBtn: {
+    backgroundColor: 'rgba(245, 158, 11, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.3)',
+    borderRadius: 10,
+    paddingVertical: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
   pauseRecurringBtnPaused: {
-    backgroundColor: 'rgba(16, 185, 129, 0.12)',
-    borderColor: '#10B981',
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+    borderColor: 'rgba(16, 185, 129, 0.3)',
   },
   pauseRecurringBtnText: {
     color: '#FBBF24',
     fontSize: 12,
-    fontWeight: 'bold',
+    fontWeight: '700',
   },
   pauseRecurringBtnTextPaused: {
     color: '#34D399',
     fontSize: 12,
-    fontWeight: 'bold',
+    fontWeight: '700',
   },
-  topActionsRow: { flexDirection: 'row', gap: 10, marginBottom: 14 },
-  actionBtnEdit: { flex: 1, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: '#38BDF8', backgroundColor: 'rgba(56, 189, 248, 0.1)', alignItems: 'center' },
-  actionBtnEditText: { color: '#38BDF8', fontWeight: 'bold', fontSize: 13 },
-  actionBtnDelete: { flex: 1, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: '#EF4444', backgroundColor: 'rgba(239, 68, 68, 0.1)', alignItems: 'center' },
-  actionBtnDeleteText: { color: '#EF4444', fontWeight: 'bold', fontSize: 13 },
-  sectionTitle: { color: '#94A3B8', fontSize: 11, fontWeight: 'bold', marginBottom: 6, textTransform: 'uppercase' },
-  itemsList: { backgroundColor: '#0F172A', borderRadius: 10, padding: 12, marginBottom: 10, borderWidth: 1, borderColor: '#334155' },
-  itemRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#1E293B' },
-  itemName: { color: '#F8FAFC', fontSize: 13, fontWeight: '500' },
-  itemSub: { color: '#64748B', fontSize: 11, marginTop: 2 },
-  itemTotal: { color: '#F8FAFC', fontSize: 13, fontWeight: 'bold' },
-  discountCard: {
-    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+  topActionsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 16,
+  },
+  actionBtnEdit: {
+    flex: 1,
+    flexDirection: 'row',
+    paddingVertical: 9,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#10B981',
+    borderColor: 'rgba(56, 189, 248, 0.3)',
+    backgroundColor: 'rgba(56, 189, 248, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionBtnEditText: {
+    color: '#38BDF8',
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  actionBtnDelete: {
+    flex: 1,
+    flexDirection: 'row',
+    paddingVertical: 9,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(248, 113, 113, 0.3)',
+    backgroundColor: 'rgba(248, 113, 113, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionBtnDeleteText: {
+    color: '#F87171',
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  sectionTitle: {
+    color: '#64748B',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    marginBottom: 8,
+  },
+  itemsList: {
+    backgroundColor: '#131927',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  itemRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.04)',
+  },
+  itemName: {
+    color: '#F8FAFC',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  itemSub: {
+    color: '#64748B',
+    fontSize: 10,
+    marginTop: 1,
+  },
+  itemTotal: {
+    color: '#F8FAFC',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  discountCard: {
+    backgroundColor: 'rgba(16, 185, 129, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.25)',
     borderRadius: 10,
     padding: 12,
     marginBottom: 14,
@@ -840,72 +1096,280 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   discountLabel: {
-    color: '#94A3B8',
-    fontSize: 12,
+    color: '#64748B',
+    fontSize: 11,
   },
   discountOriginal: {
-    color: '#94A3B8',
-    fontSize: 12,
+    color: '#64748B',
+    fontSize: 11,
     textDecorationLine: 'line-through',
   },
   discountHighlight: {
     color: '#34D399',
-    fontSize: 13,
-    fontWeight: 'bold',
+    fontSize: 12,
+    fontWeight: '700',
   },
   discountValue: {
     color: '#34D399',
-    fontSize: 13,
-    fontWeight: 'bold',
+    fontSize: 12,
+    fontWeight: '700',
   },
-  emptyItemsBox: { backgroundColor: '#0F172A', borderRadius: 10, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: '#334155' },
-  emptyItemsText: { color: '#64748B', fontSize: 12, textAlign: 'center' },
-  closeFullBtn: { backgroundColor: '#334155', paddingVertical: 12, borderRadius: 10, alignItems: 'center', marginBottom: 8 },
-  closeFullBtnText: { color: '#F8FAFC', fontWeight: 'bold', fontSize: 14 },
-  editContainer: { paddingVertical: 4 },
-  label: { color: '#94A3B8', fontSize: 12, marginBottom: 6 },
-  input: { backgroundColor: '#0F172A', color: '#F8FAFC', padding: 12, borderRadius: 8, fontSize: 15, marginBottom: 10, borderWidth: 1, borderColor: '#334155' },
-  bucketSection: { marginVertical: 4 },
-  bucketRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
+  emptyItemsBox: {
+    backgroundColor: '#131927',
+    borderRadius: 10,
+    padding: 14,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.04)',
+  },
+  emptyItemsText: {
+    color: '#64748B',
+    fontSize: 11,
+    textAlign: 'center',
+  },
+  closeFullBtn: {
+    backgroundColor: '#131927',
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  closeFullBtnText: {
+    color: '#F8FAFC',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  editContainer: {
+    paddingVertical: 4,
+  },
+  fieldLabel: {
+    color: '#64748B',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    marginBottom: 6,
+    marginTop: 4,
+  },
+  fieldLabelNoMargin: {
+    color: '#64748B',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+  },
+  bucketHeaderTouchable: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+    marginTop: 4,
+  },
+  editConfigHint: {
+    color: '#10B981',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  input: {
+    backgroundColor: '#131927',
+    color: '#F8FAFC',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    fontSize: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  inputAmount: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  bucketSection: {
+    marginBottom: 8,
+  },
+  bucketRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 8,
+  },
   bucketBtn: {
     flex: 1,
     paddingVertical: 10,
-    paddingHorizontal: 4,
-    borderRadius: 8,
-    backgroundColor: '#0F172A',
+    paddingHorizontal: 6,
+    borderRadius: 10,
+    backgroundColor: '#131927',
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+    alignItems: 'center',
+  },
+  bucketNeedsActive: {
+    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+    borderColor: '#38BDF8',
+  },
+  bucketWantsActive: {
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    borderColor: '#F59E0B',
+  },
+  bucketSavingsActive: {
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    borderColor: '#10B981',
+  },
+  bucketTitle: {
+    color: '#94A3B8',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  bucketTitleActive: {
+    color: '#F8FAFC',
+    fontWeight: '700',
+  },
+  bucketSub: {
+    color: '#64748B',
+    fontSize: 10,
+    marginTop: 2,
+    fontWeight: '600',
+  },
+  catChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#131927',
+    borderRadius: 16,
+    marginRight: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  catChipActive: {
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    borderColor: '#10B981',
+  },
+  catChipText: {
+    color: '#94A3B8',
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  catChipTextActive: {
+    color: '#10B981',
+    fontWeight: '700',
+  },
+  checkboxRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 6,
+  },
+  checkbox: {
+    width: 18,
+    height: 18,
+    borderRadius: 5,
+    borderWidth: 1.5,
+    borderColor: '#64748B',
     alignItems: 'center',
     justifyContent: 'center',
+    marginRight: 8,
+    backgroundColor: '#131927',
   },
-  bucketNeedsActive: { backgroundColor: 'rgba(56, 189, 248, 0.2)', borderColor: '#38BDF8' },
-  bucketWantsActive: { backgroundColor: 'rgba(245, 158, 11, 0.2)', borderColor: '#F59E0B' },
-  bucketSavingsActive: { backgroundColor: 'rgba(16, 185, 129, 0.2)', borderColor: '#10B981' },
-  bucketText: { color: '#94A3B8', fontSize: 11, fontWeight: '600', textAlign: 'center' },
-  bucketTextActive: { color: '#F8FAFC', fontWeight: 'bold' },
-  catChip: { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: '#0F172A', borderRadius: 16, marginRight: 6, borderWidth: 1, borderColor: '#334155' },
-  catChipActive: { backgroundColor: '#38BDF8', borderColor: '#38BDF8' },
-  catChipText: { color: '#94A3B8', fontSize: 12 },
-  catChipTextActive: { color: '#0F172A', fontWeight: 'bold' },
-  checkboxRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 6 },
-  checkbox: { width: 18, height: 18, borderRadius: 4, borderWidth: 2, borderColor: '#64748B', marginRight: 8 },
-  checkboxChecked: { backgroundColor: '#10B981', borderColor: '#10B981' },
-  checkboxLabel: { color: '#CBD5E1', fontSize: 13 },
-  splitBox: { backgroundColor: '#0F172A', borderRadius: 10, padding: 12, marginVertical: 8, borderWidth: 1, borderColor: '#334155' },
-  inputPerson: { backgroundColor: '#1E293B', color: '#F8FAFC', padding: 10, borderRadius: 8, fontSize: 14, marginBottom: 8, borderWidth: 1, borderColor: '#334155' },
-  splitStatusRow: { flexDirection: 'row', gap: 4 },
-  splitStatusBtn: { flex: 1, paddingVertical: 6, borderRadius: 6, backgroundColor: '#1E293B', alignItems: 'center', borderWidth: 1, borderColor: '#334155' },
-  splitStatusBtnActiveGift: { backgroundColor: 'rgba(56, 189, 248, 0.2)', borderColor: '#38BDF8' },
-  splitStatusBtnActivePending: { backgroundColor: 'rgba(245, 158, 11, 0.2)', borderColor: '#F59E0B' },
-  splitStatusBtnActiveSettled: { backgroundColor: 'rgba(16, 185, 129, 0.2)', borderColor: '#10B981' },
-  splitStatusText: { color: '#94A3B8', fontSize: 10, fontWeight: '600' },
-  splitStatusTextActive: { color: '#F8FAFC', fontWeight: 'bold' },
-  editActions: { flexDirection: 'row', gap: 10, marginTop: 12, marginBottom: 8 },
-  cancelBtn: { flex: 1, paddingVertical: 12, borderRadius: 8, backgroundColor: '#334155', alignItems: 'center' },
-  cancelBtnText: { color: '#F8FAFC', fontWeight: 'bold' },
-  saveBtn: { flex: 1, paddingVertical: 12, borderRadius: 8, backgroundColor: '#10B981', alignItems: 'center' },
-  saveBtnText: { color: '#F8FAFC', fontWeight: 'bold' },
+  checkboxChecked: {
+    backgroundColor: '#10B981',
+    borderColor: '#10B981',
+  },
+  checkboxLabel: {
+    color: '#CBD5E1',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  splitBox: {
+    backgroundColor: '#131927',
+    borderRadius: 12,
+    padding: 12,
+    marginVertical: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  inputPerson: {
+    backgroundColor: '#0B0F19',
+    color: '#F8FAFC',
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 8,
+    fontSize: 13,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  splitStatusRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  splitStatusBtn: {
+    flex: 1,
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: '#0B0F19',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  splitStatusBtnActive: {
+    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+    borderColor: '#38BDF8',
+  },
+  splitStatusBtnActivePending: {
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    borderColor: '#F59E0B',
+  },
+  splitStatusBtnActiveSettled: {
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    borderColor: '#10B981',
+  },
+  splitStatusText: {
+    color: '#64748B',
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  splitStatusTextActive: {
+    color: '#38BDF8',
+    fontWeight: '700',
+  },
+  splitStatusTextActivePending: {
+    color: '#F59E0B',
+    fontWeight: '700',
+  },
+  splitStatusTextActiveSettled: {
+    color: '#10B981',
+    fontWeight: '700',
+  },
+  editActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 18,
+  },
+  cancelBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: '#131927',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  cancelBtnText: {
+    color: '#94A3B8',
+    fontWeight: '600',
+    fontSize: 13,
+  },
+  saveBtn: {
+    flex: 2,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: '#10B981',
+    alignItems: 'center',
+  },
+  saveBtnText: {
+    color: '#0B0F19',
+    fontWeight: '800',
+    fontSize: 13,
+  },
 });

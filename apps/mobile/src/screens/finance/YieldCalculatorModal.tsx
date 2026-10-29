@@ -5,11 +5,13 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  ActivityIndicator,
   StyleSheet,
   ScrollView,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 
 interface InstitutionPreset {
   id: string;
@@ -142,19 +144,23 @@ export const YieldCalculatorModal: React.FC<YieldCalculatorModalProps> = ({
         style={styles.overlay}
       >
         <View style={styles.modalContent}>
+          <View style={styles.dragHandleBox}>
+            <View style={styles.dragHandle} />
+          </View>
+
           <View style={styles.headerRow}>
             <View>
-              <Text style={styles.title}>Simulador & Comparador de Renda Fixa</Text>
-              <Text style={styles.subtitle}>Bancos Digitais vs. Poupança</Text>
+              <Text style={styles.title}>Simulador de Rendimentos</Text>
+              <Text style={styles.subtitle}>Renda Fixa & Bancos Digitais vs. Poupança</Text>
             </View>
-            <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-              <Text style={styles.closeBtnText}>✕</Text>
+            <TouchableOpacity onPress={onClose} style={styles.closeBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Feather name="x" size={16} color="#94A3B8" />
             </TouchableOpacity>
           </View>
 
-          <ScrollView showsVerticalScrollIndicator={false}>
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
             {/* Seletor de Bancos */}
-            <Text style={styles.label}>Escolha a Instituição:</Text>
+            <Text style={styles.fieldLabel}>INSTITUIÇÃO FINANCEIRA</Text>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -167,17 +173,25 @@ export const YieldCalculatorModal: React.FC<YieldCalculatorModalProps> = ({
                     key={inst.id}
                     style={[styles.instChip, isActive && styles.instChipActive]}
                     onPress={() => handleSelectInstitution(inst)}
+                    activeOpacity={0.7}
                   >
                     <Text style={[styles.instChipTitle, isActive && styles.instChipTitleActive]}>
                       {inst.name}
                     </Text>
-                    <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center', marginTop: 2 }}>
+                    <View style={styles.instBadgeRow}>
                       <Text style={[styles.instChipBadge, isActive && styles.instChipBadgeActive]}>
                         {inst.typeBadge}
                       </Text>
-                      <Text style={{ fontSize: 9, color: inst.hasFgc ? '#34D399' : '#FBBF24' }}>
-                        {inst.hasFgc ? '🛡️ FGC' : '🏛️ Segregado'}
-                      </Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                        <Feather
+                          name={inst.hasFgc ? 'shield' : 'lock'}
+                          size={9}
+                          color={inst.hasFgc ? '#34D399' : '#FBBF24'}
+                        />
+                        <Text style={{ fontSize: 9, color: inst.hasFgc ? '#34D399' : '#FBBF24', fontWeight: '700' }}>
+                          {inst.hasFgc ? 'FGC' : 'Títulos'}
+                        </Text>
+                      </View>
                     </View>
                   </TouchableOpacity>
                 );
@@ -187,9 +201,9 @@ export const YieldCalculatorModal: React.FC<YieldCalculatorModalProps> = ({
             {/* Inputs de Parâmetros */}
             <View style={styles.row}>
               <View style={{ flex: 1.2, marginRight: 8 }}>
-                <Text style={styles.label}>Valor (R$)</Text>
+                <Text style={styles.fieldLabel}>APORTE (R$)</Text>
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, styles.inputBold]}
                   keyboardType="numeric"
                   value={amountStr}
                   onChangeText={setAmountStr}
@@ -199,7 +213,7 @@ export const YieldCalculatorModal: React.FC<YieldCalculatorModalProps> = ({
               </View>
 
               <View style={{ flex: 0.9, marginRight: 8 }}>
-                <Text style={styles.label}>% do CDI</Text>
+                <Text style={styles.fieldLabel}>% DO CDI</Text>
                 <TextInput
                   style={styles.input}
                   keyboardType="numeric"
@@ -211,9 +225,16 @@ export const YieldCalculatorModal: React.FC<YieldCalculatorModalProps> = ({
               </View>
 
               <View style={{ flex: 1 }}>
-                <Text style={styles.label}>
-                  Taxa DI {loadingRate ? '⏳' : '🟢 BCB'} (%)
-                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 6 }}>
+                  <Text style={styles.fieldLabelInline}>TAXA DI (%)</Text>
+                  {loadingRate ? (
+                    <ActivityIndicator size={9} color="#38BDF8" />
+                  ) : (
+                    <View style={styles.bcbPill}>
+                      <Text style={styles.bcbPillText}>BCB</Text>
+                    </View>
+                  )}
+                </View>
                 <TextInput
                   style={styles.input}
                   keyboardType="numeric"
@@ -225,9 +246,9 @@ export const YieldCalculatorModal: React.FC<YieldCalculatorModalProps> = ({
               </View>
             </View>
 
-            {/* Seleção do Período */}
+            {/* Período da Aplicação */}
             <View style={styles.periodSection}>
-              <Text style={styles.label}>Período da Aplicação:</Text>
+              <Text style={styles.fieldLabel}>PRAZO DA APLICAÇÃO</Text>
 
               <View style={styles.customDaysContainer}>
                 <TextInput
@@ -238,7 +259,7 @@ export const YieldCalculatorModal: React.FC<YieldCalculatorModalProps> = ({
                   placeholder="30"
                   placeholderTextColor="#64748B"
                 />
-                <Text style={styles.customDaysUnit}>dias corridos</Text>
+                <Text style={styles.customDaysUnit}>dias corridos (~{businessDays} úteis)</Text>
               </View>
 
               <ScrollView
@@ -253,6 +274,7 @@ export const YieldCalculatorModal: React.FC<YieldCalculatorModalProps> = ({
                       key={preset.days}
                       style={[styles.chip, isActive && styles.chipActive]}
                       onPress={() => setDaysStr(String(preset.days))}
+                      activeOpacity={0.7}
                     >
                       <Text style={[styles.chipText, isActive && styles.chipTextActive]}>
                         {preset.label}
@@ -263,17 +285,22 @@ export const YieldCalculatorModal: React.FC<YieldCalculatorModalProps> = ({
               </ScrollView>
             </View>
 
-            {/* Painel do Resultado Consolidado */}
+            {/* Card Principal de Resultado Líquido */}
             <View style={styles.resultCard}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <View style={styles.resultCardHeader}>
                 <Text style={styles.resultTitle}>
                   {selectedInst.name} • {days} dias
                 </Text>
                 
-                {/* Badge de Garantia do FGC */}
                 <View style={[styles.fgcBadge, selectedInst.hasFgc ? styles.fgcBadgeOn : styles.fgcBadgeOff]}>
+                  <Feather
+                    name={selectedInst.hasFgc ? 'shield' : 'lock'}
+                    size={9}
+                    color={selectedInst.hasFgc ? '#34D399' : '#FBBF24'}
+                    style={{ marginRight: 3 }}
+                  />
                   <Text style={[styles.fgcBadgeText, selectedInst.hasFgc ? styles.fgcBadgeTextOn : styles.fgcBadgeTextOff]}>
-                    {selectedInst.hasFgc ? '🛡️ Garantia FGC (até R$ 250k)' : '🏛️ Sem FGC (Títulos Públicos)'}
+                    {selectedInst.hasFgc ? 'Garantia FGC' : 'Títulos Federais'}
                   </Text>
                 </View>
               </View>
@@ -301,7 +328,7 @@ export const YieldCalculatorModal: React.FC<YieldCalculatorModalProps> = ({
                     </Text>
                   </View>
                 </View>
-                <Text style={[styles.breakdownVal, { color: iofAmount > 0 ? '#EF4444' : '#94A3B8' }]}>
+                <Text style={[styles.breakdownVal, { color: iofAmount > 0 ? '#F87171' : '#64748B' }]}>
                   {iofAmount > 0 ? `- R$ ${iofAmount.toFixed(2).replace('.', ',')}` : 'R$ 0,00'}
                 </Text>
               </View>
@@ -313,23 +340,25 @@ export const YieldCalculatorModal: React.FC<YieldCalculatorModalProps> = ({
                     <Text style={styles.taxBadgeText}>{(irTaxRate * 100).toFixed(1)}%</Text>
                   </View>
                 </View>
-                <Text style={[styles.breakdownVal, { color: '#EF4444' }]}>
+                <Text style={[styles.breakdownVal, { color: '#F87171' }]}>
                   - R$ {irAmount.toFixed(2).replace('.', ',')}
                 </Text>
               </View>
 
               {days < 30 && selectedInst.hasIof && (
                 <View style={styles.warningIofBox}>
+                  <Feather name="alert-circle" size={12} color="#F87171" style={{ marginRight: 6, marginTop: 1 }} />
                   <Text style={styles.warningIofText}>
-                    ⚠️ No {selectedInst.name}, resgatar antes de 30 dias desconta IOF regressivo. Faltam {30 - days} dias para o imposto zerar.
+                    Resgatar antes de 30 dias deduz IOF regressivo. Faltam {30 - days} dias para o imposto zerar.
                   </Text>
                 </View>
               )}
 
               {!selectedInst.hasFgc && (
                 <View style={styles.infoBox}>
+                  <Feather name="info" size={12} color="#38BDF8" style={{ marginRight: 6, marginTop: 1 }} />
                   <Text style={styles.infoBoxText}>
-                    ℹ️ Conta de pagamento: o saldo não conta com o FGC, mas fica investido obrigatoriamente pelo Mercado Pago em títulos públicos federais protegidos pelo Banco Central.
+                    Conta de pagamento: o saldo não conta com o FGC, mas fica aplicado em títulos públicos federais com custódia no Banco Central.
                   </Text>
                 </View>
               )}
@@ -349,21 +378,22 @@ export const YieldCalculatorModal: React.FC<YieldCalculatorModalProps> = ({
 
               <View style={styles.savingsRow}>
                 <Text style={styles.savingsLabel}>No {selectedInst.name} (Líquido):</Text>
-                <Text style={[styles.savingsVal, { color: '#10B981' }]}>
+                <Text style={[styles.savingsVal, { color: '#34D399' }]}>
                   + R$ {netProfit.toFixed(2).replace('.', ',')}
                 </Text>
               </View>
 
               <View style={styles.diffBox}>
+                <Feather name="trending-up" size={13} color="#FBBF24" style={{ marginRight: 6, marginTop: 2 }} />
                 <Text style={styles.diffText}>
                   {diffProfit >= 0
-                    ? `💡 No ${selectedInst.name} rende R$ ${diffProfit.toFixed(2).replace('.', ',')} A MAIS do que na poupança.`
-                    : `⚠️ Devido ao IOF regressivo nos primeiros ${days} dias, a poupança rendeu R$ ${Math.abs(diffProfit).toFixed(2).replace('.', ',')} a mais.`}
+                    ? `No ${selectedInst.name} rende R$ ${diffProfit.toFixed(2).replace('.', ',')} a mais do que na poupança tradicional.`
+                    : `Devido ao IOF regressivo inicial nos primeiros ${days} dias, a poupança rendeu R$ ${Math.abs(diffProfit).toFixed(2).replace('.', ',')} a mais.`}
                 </Text>
               </View>
             </View>
 
-            <TouchableOpacity style={styles.closeButton} onPress={onClose}>
+            <TouchableOpacity style={styles.closeButton} onPress={onClose} activeOpacity={0.8}>
               <Text style={styles.closeButtonText}>Fechar Simulação</Text>
             </TouchableOpacity>
           </ScrollView>
@@ -376,61 +406,94 @@ export const YieldCalculatorModal: React.FC<YieldCalculatorModalProps> = ({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.75)',
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: '#1E293B',
+    backgroundColor: '#0B0F19',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    padding: 20,
-    maxHeight: '90%',
+    paddingHorizontal: 20,
+    paddingBottom: Platform.OS === 'android' ? 24 : 36,
+    maxHeight: '92%',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  dragHandleBox: {
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  dragHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     marginBottom: 12,
   },
   title: {
-    color: '#F8FAFC',
     fontSize: 17,
-    fontWeight: 'bold',
+    fontWeight: '800',
+    color: '#F8FAFC',
+    letterSpacing: -0.3,
   },
   subtitle: {
-    color: '#94A3B8',
     fontSize: 11,
+    color: '#64748B',
     marginTop: 2,
   },
   closeBtn: {
-    padding: 6,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#131927',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  closeBtnText: {
-    color: '#94A3B8',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  label: {
-    fontSize: 12,
-    color: '#94A3B8',
+  fieldLabel: {
+    color: '#64748B',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.6,
     marginBottom: 6,
-    fontWeight: '500',
+    marginTop: 4,
+  },
+  fieldLabelInline: {
+    color: '#64748B',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+  },
+  bcbPill: {
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  bcbPillText: {
+    color: '#10B981',
+    fontSize: 8,
+    fontWeight: '800',
   },
   instChipsContainer: {
     gap: 8,
     paddingBottom: 12,
   },
   instChip: {
-    backgroundColor: '#0F172A',
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: 8,
+    backgroundColor: '#131927',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
   instChipActive: {
-    backgroundColor: 'rgba(2, 132, 199, 0.25)',
-    borderColor: '#38BDF8',
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    borderColor: '#10B981',
   },
   instChipTitle: {
     color: '#94A3B8',
@@ -439,33 +502,41 @@ const styles = StyleSheet.create({
   },
   instChipTitleActive: {
     color: '#F8FAFC',
-    fontWeight: 'bold',
+    fontWeight: '700',
+  },
+  instBadgeRow: {
+    flexDirection: 'row',
+    gap: 6,
+    alignItems: 'center',
+    marginTop: 3,
   },
   instChipBadge: {
     color: '#64748B',
     fontSize: 10,
   },
   instChipBadgeActive: {
-    color: '#38BDF8',
+    color: '#10B981',
     fontWeight: '700',
   },
   row: {
     flexDirection: 'row',
-    marginBottom: 10,
+    marginBottom: 8,
   },
   input: {
-    backgroundColor: '#0F172A',
-    borderWidth: 1,
-    borderColor: '#334155',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    backgroundColor: '#131927',
     color: '#F8FAFC',
-    fontSize: 14,
-    fontWeight: '600',
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 10,
+    fontSize: 13,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  inputBold: {
+    fontWeight: '700',
   },
   periodSection: {
-    marginBottom: 14,
+    marginBottom: 12,
   },
   customDaysContainer: {
     flexDirection: 'row',
@@ -474,21 +545,21 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   customDaysInput: {
-    backgroundColor: '#0F172A',
+    backgroundColor: '#131927',
     borderWidth: 1,
-    borderColor: '#38BDF8',
-    borderRadius: 8,
+    borderColor: '#10B981',
+    borderRadius: 10,
     paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingVertical: 8,
     color: '#F8FAFC',
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: 'bold',
-    width: 90,
+    width: 80,
     textAlign: 'center',
   },
   customDaysUnit: {
     color: '#94A3B8',
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '500',
   },
   chipsScroll: {
@@ -496,40 +567,49 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   chip: {
-    backgroundColor: '#0F172A',
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: 8,
+    backgroundColor: '#131927',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
   chipActive: {
-    backgroundColor: '#0284C7',
-    borderColor: '#38BDF8',
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    borderColor: '#10B981',
   },
   chipText: {
     color: '#94A3B8',
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 11,
+    fontWeight: '500',
   },
   chipTextActive: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
+    color: '#10B981',
+    fontWeight: '700',
   },
   resultCard: {
-    backgroundColor: '#0F172A',
-    borderRadius: 12,
+    backgroundColor: '#131927',
+    borderRadius: 16,
     padding: 16,
     borderWidth: 1,
-    borderColor: '#334155',
-    marginBottom: 14,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+    marginBottom: 12,
+  },
+  resultCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
   },
   resultTitle: {
     color: '#94A3B8',
     fontSize: 12,
+    fontWeight: '600',
   },
   fgcBadge: {
-    paddingHorizontal: 7,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
   },
@@ -540,7 +620,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(245, 158, 11, 0.15)',
   },
   fgcBadgeText: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '700',
   },
   fgcBadgeTextOn: {
@@ -551,21 +631,22 @@ const styles = StyleSheet.create({
   },
   finalTotal: {
     color: '#F8FAFC',
-    fontSize: 26,
-    fontWeight: 'bold',
+    fontSize: 28,
+    fontWeight: '800',
     textAlign: 'center',
-    marginTop: 4,
+    letterSpacing: -0.5,
+    marginTop: 6,
   },
   profitBadge: {
-    color: '#10B981',
-    fontSize: 13,
-    fontWeight: 'bold',
+    color: '#34D399',
+    fontSize: 12,
+    fontWeight: '700',
     textAlign: 'center',
     marginTop: 2,
   },
   divider: {
     height: 1,
-    backgroundColor: '#1E293B',
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
     marginVertical: 12,
   },
   breakdownRow: {
@@ -580,19 +661,19 @@ const styles = StyleSheet.create({
   },
   breakdownVal: {
     color: '#F8FAFC',
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
   },
   taxBadge: {
-    backgroundColor: 'rgba(239, 68, 68, 0.15)',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    backgroundColor: 'rgba(248, 113, 113, 0.15)',
+    paddingHorizontal: 5,
+    paddingVertical: 1,
     borderRadius: 4,
   },
   taxBadgeText: {
-    color: '#EF4444',
-    fontSize: 10,
-    fontWeight: 'bold',
+    color: '#F87171',
+    fontSize: 9,
+    fontWeight: '700',
   },
   taxBadgeZero: {
     backgroundColor: 'rgba(16, 185, 129, 0.15)',
@@ -601,48 +682,54 @@ const styles = StyleSheet.create({
     color: '#34D399',
   },
   warningIofBox: {
-    backgroundColor: 'rgba(239, 68, 68, 0.1)',
-    borderRadius: 6,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: 'rgba(248, 113, 113, 0.08)',
+    borderRadius: 8,
     padding: 8,
     marginTop: 8,
     borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.25)',
+    borderColor: 'rgba(248, 113, 113, 0.2)',
   },
   warningIofText: {
+    flex: 1,
     color: '#FCA5A5',
     fontSize: 11,
     lineHeight: 15,
   },
   infoBox: {
-    backgroundColor: 'rgba(56, 189, 248, 0.1)',
-    borderRadius: 6,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: 'rgba(56, 189, 248, 0.08)',
+    borderRadius: 8,
     padding: 8,
     marginTop: 8,
     borderWidth: 1,
-    borderColor: 'rgba(56, 189, 248, 0.25)',
+    borderColor: 'rgba(56, 189, 248, 0.2)',
   },
   infoBoxText: {
+    flex: 1,
     color: '#7DD3FC',
     fontSize: 11,
     lineHeight: 15,
   },
   savingsCard: {
-    backgroundColor: '#0F172A',
-    borderRadius: 12,
+    backgroundColor: '#131927',
+    borderRadius: 14,
     padding: 14,
     borderWidth: 1,
-    borderColor: '#334155',
-    marginBottom: 16,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+    marginBottom: 14,
   },
   savingsHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 10,
+    marginBottom: 8,
   },
   savingsTitle: {
     color: '#F8FAFC',
-    fontSize: 13,
-    fontWeight: 'bold',
+    fontSize: 12,
+    fontWeight: '700',
   },
   savingsSubtitle: {
     color: '#64748B',
@@ -655,36 +742,40 @@ const styles = StyleSheet.create({
   },
   savingsLabel: {
     color: '#94A3B8',
-    fontSize: 12,
+    fontSize: 11,
   },
   savingsVal: {
     color: '#F8FAFC',
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
   },
   diffBox: {
-    backgroundColor: 'rgba(245, 158, 11, 0.1)',
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: 'rgba(245, 158, 11, 0.08)',
     borderRadius: 8,
-    padding: 10,
-    marginTop: 8,
+    padding: 8,
+    marginTop: 6,
     borderWidth: 1,
-    borderColor: 'rgba(245, 158, 11, 0.25)',
+    borderColor: 'rgba(245, 158, 11, 0.2)',
   },
   diffText: {
+    flex: 1,
     color: '#FBBF24',
     fontSize: 11,
-    lineHeight: 16,
+    lineHeight: 15,
   },
   closeButton: {
-    backgroundColor: '#334155',
+    backgroundColor: '#131927',
     paddingVertical: 12,
     borderRadius: 10,
     alignItems: 'center',
-    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
   closeButtonText: {
     color: '#F8FAFC',
-    fontWeight: 'bold',
+    fontWeight: '700',
     fontSize: 13,
   },
 });

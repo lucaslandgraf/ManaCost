@@ -10,7 +10,10 @@ import {
   TouchableOpacity,
   TextInput,
   Linking,
+  Platform,
+  StatusBar,
 } from 'react-native';
+import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { WebView } from 'react-native-webview';
 import { supabase } from '../../config/supabase';
 import { useBasket } from '../../context/BasketContext';
@@ -63,7 +66,6 @@ interface ProductImageWithFallbackProps {
 
 const CATALOG_PAGE_SIZE = 100;
 
-// Lista apenas lojas que possuem raspagem de ofertas ativas no banco de dados
 const STORES_LIST = [
   'Todas',
   'Super Muffato',
@@ -76,7 +78,6 @@ const STORES_LIST = [
   'Carrefour',
 ];
 
-// URLs dos encartes para a aba Encartes (aqui podem ficar todos, incluindo Tonhão e Max)
 const FALLBACK_FLYER_URLS: Record<string, string> = {
   'Super Muffato': 'https://www.supermuffato.com.br/lojas-fisicas?tab=encartes&loja=26',
   'Max Atacadista': 'https://www.maxatacadista.com.br/lojas/encartes-e-videos/?loja=110',
@@ -100,25 +101,43 @@ export const ProductImageWithFallback: React.FC<ProductImageWithFallbackProps> =
 
   const getFallbackIcon = () => {
     const text = `${category || ''} ${name || ''}`.toLowerCase();
-
-    if (text.includes('agua') || text.includes('água') || text.includes('mineral')) return '💧';
-    if (text.includes('bisteca') || text.includes('carne') || text.includes('suin') || text.includes('bovin') || text.includes('frango')) return '🥩';
-    if (text.includes('arroz') || text.includes('feijao') || text.includes('farinha') || text.includes('trigo')) return '🌾';
-    if (text.includes('cerveja') || text.includes('chopp')) return '🍺';
-    if (text.includes('refrigerante') || text.includes('suco') || text.includes('nectar')) return '🥤';
-    if (text.includes('leite') || text.includes('queijo') || text.includes('iogurte') || text.includes('mussarela')) return '🧀';
-    if (text.includes('limpeza') || text.includes('detergente') || text.includes('sabao') || text.includes('amaciante') || text.includes('desinfetante')) return '🧹';
-    if (text.includes('dente') || text.includes('escova') || text.includes('sabonete') || text.includes('shampoo')) return '🪥';
-    if (text.includes('maca') || text.includes('maçã') || text.includes('laranja') || text.includes('banana') || text.includes('tomate')) return '🍎';
-    if (text.includes('pao') || text.includes('biscoito') || text.includes('bolacha')) return '🍞';
-
-    return '🛒';
+    if (text.includes('agua') || text.includes('água') || text.includes('mineral')) {
+      return <MaterialCommunityIcons name="water" size={24} color="#38BDF8" />;
+    }
+    if (text.includes('bisteca') || text.includes('carne') || text.includes('suin') || text.includes('bovin') || text.includes('frango')) {
+      return <MaterialCommunityIcons name="food-steak" size={24} color="#F87171" />;
+    }
+    if (text.includes('arroz') || text.includes('feijao') || text.includes('farinha') || text.includes('trigo')) {
+      return <MaterialCommunityIcons name="barley" size={24} color="#FBBF24" />;
+    }
+    if (text.includes('cerveja') || text.includes('chopp')) {
+      return <MaterialCommunityIcons name="glass-mug-variant" size={24} color="#F59E0B" />;
+    }
+    if (text.includes('refrigerante') || text.includes('suco') || text.includes('nectar')) {
+      return <MaterialCommunityIcons name="bottle-soda-classic" size={24} color="#38BDF8" />;
+    }
+    if (text.includes('leite') || text.includes('queijo') || text.includes('iogurte') || text.includes('mussarela')) {
+      return <MaterialCommunityIcons name="cheese" size={24} color="#FDE047" />;
+    }
+    if (text.includes('limpeza') || text.includes('detergente') || text.includes('sabao') || text.includes('amaciante') || text.includes('desinfetante')) {
+      return <MaterialCommunityIcons name="broom" size={24} color="#34D399" />;
+    }
+    if (text.includes('dente') || text.includes('escova') || text.includes('sabonete') || text.includes('shampoo')) {
+      return <MaterialCommunityIcons name="toothbrush-paste" size={24} color="#A78BFA" />;
+    }
+    if (text.includes('maca') || text.includes('maçã') || text.includes('laranja') || text.includes('banana') || text.includes('tomate')) {
+      return <MaterialCommunityIcons name="food-apple" size={24} color="#F87171" />;
+    }
+    if (text.includes('pao') || text.includes('biscoito') || text.includes('bolacha')) {
+      return <MaterialCommunityIcons name="bread-slice" size={24} color="#F59E0B" />;
+    }
+    return <Feather name="shopping-bag" size={24} color="#64748B" />;
   };
 
   if (!uri || hasError) {
     return (
       <View style={styles.cardImagePlaceholder}>
-        <Text style={styles.cardPlaceholderEmoji}>{getFallbackIcon()}</Text>
+        {getFallbackIcon()}
       </View>
     );
   }
@@ -136,13 +155,11 @@ export const ProductImageWithFallback: React.FC<ProductImageWithFallbackProps> =
 export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
   const [activeTab, setActiveTab] = useState<'matches' | 'catalog' | 'flyers'>('matches');
 
-  // Estados dos Produtos Comparados (Aba 1)
   const [matches, setMatches] = useState<ProductMatch[]>([]);
   const [lastUpdated, setLastUpdated] = useState<string>('');
   const [loadingMatches, setLoadingMatches] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  // Estados do Catálogo Geral / Menor Preço (Aba 2)
   const [catalogDeals, setCatalogDeals] = useState<FlyerDeal[]>([]);
   const [loadingCatalog, setLoadingCatalog] = useState(false);
   const [loadingMoreCatalog, setLoadingMoreCatalog] = useState(false);
@@ -150,19 +167,16 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
   const catalogRequestId = useRef(0);
   const loadingMoreCatalogRef = useRef(false);
 
-  // Filtros Globais
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
   const [selectedStore, setSelectedStore] = useState<string>('Todas');
   const [refreshing, setRefreshing] = useState(false);
 
-  // Estados dos Encartes (Aba 3)
   const [flyers, setFlyers] = useState<Flyer[]>([]);
   const [loadingFlyers, setLoadingFlyers] = useState(false);
   const [previewFlyer, setPreviewFlyer] = useState<{ name: string; url: string } | null>(null);
   const [loadingWeb, setLoadingWeb] = useState(true);
 
-  // Cesta Inteligente
   const { items, addItem, removeItem } = useBasket();
   const [basketVisible, setBasketVisible] = useState(false);
 
@@ -271,25 +285,15 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
       }
 
       if (selectedStore !== 'Todas') {
-        // Tolerância de correspondência para nomes de lojas do banco
         let storeKeyword = selectedStore;
-        if (selectedStore.includes('Almeida')) {
-          storeKeyword = 'Almeida';
-        } else if (selectedStore.includes('Muffato')) {
-          storeKeyword = 'Muffato';
-        } else if (selectedStore.includes('Condor')) {
-          storeKeyword = 'Condor';
-        } else if (selectedStore.includes('Atacadão')) {
-          storeKeyword = 'Atacad';
-        } else if (selectedStore.includes('Amigão')) {
-          storeKeyword = 'Amigão';
-        } else if (selectedStore.includes('Carrefour')) {
-          storeKeyword = 'Carrefour';
-        } else if (selectedStore.includes('Santarém')) {
-          storeKeyword = 'Santarém';
-        } else if (selectedStore.includes('Viscardi')) {
-          storeKeyword = 'Viscardi';
-        }
+        if (selectedStore.includes('Almeida')) storeKeyword = 'Almeida';
+        else if (selectedStore.includes('Muffato')) storeKeyword = 'Muffato';
+        else if (selectedStore.includes('Condor')) storeKeyword = 'Condor';
+        else if (selectedStore.includes('Atacadão')) storeKeyword = 'Atacad';
+        else if (selectedStore.includes('Amigão')) storeKeyword = 'Amigão';
+        else if (selectedStore.includes('Carrefour')) storeKeyword = 'Carrefour';
+        else if (selectedStore.includes('Santarém')) storeKeyword = 'Santarém';
+        else if (selectedStore.includes('Viscardi')) storeKeyword = 'Viscardi';
 
         query = query.ilike('store_name', `%${storeKeyword}%`);
       }
@@ -428,24 +432,38 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
     setExpandedId((prev) => (prev === id ? null : id));
   };
 
+  const getStoreBadgeColor = (storeName: string) => {
+    const s = storeName.toLowerCase();
+    if (s.includes('condor')) return '#0284C7';
+    if (s.includes('muffato')) return '#059669';
+    if (s.includes('atacad')) return '#EA580C';
+    if (s.includes('santarem')) return '#DB2777';
+    if (s.includes('almeida')) return '#7C3AED';
+    return '#475569';
+  };
+
   if (previewFlyer) {
     return (
       <View style={styles.container}>
         <View style={styles.previewHeader}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.previewTitle} numberOfLines={1}>
-              📰 {previewFlyer.name}
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Feather name="book-open" size={15} color="#F8FAFC" />
+              <Text style={styles.previewTitle} numberOfLines={1}>
+                {previewFlyer.name}
+              </Text>
+            </View>
             <Text style={styles.previewSubtitle}>Folheto oficial da semana</Text>
           </View>
-          <TouchableOpacity onPress={() => setPreviewFlyer(null)} style={styles.closePreviewBtn}>
-            <Text style={styles.closePreviewText}>✕ Fechar</Text>
+          <TouchableOpacity onPress={() => setPreviewFlyer(null)} style={styles.closePreviewBtn} activeOpacity={0.7}>
+            <Feather name="x" size={14} color="#F8FAFC" style={{ marginRight: 4 }} />
+            <Text style={styles.closePreviewText}>Fechar</Text>
           </TouchableOpacity>
         </View>
 
         {loadingWeb && (
           <View style={styles.webLoadingOverlay}>
-            <ActivityIndicator size="large" color="#38BDF8" />
+            <ActivityIndicator size="large" color="#10B981" />
             <Text style={styles.loadingText}>A carregar folheto...</Text>
           </View>
         )}
@@ -463,12 +481,10 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
           userAgent="Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
           onShouldStartLoadWithRequest={(request) => {
             const url = request.url;
-
             if (url.startsWith('whatsapp:') || url.startsWith('tel:') || url.startsWith('mailto:')) {
               Linking.openURL(url).catch(() => {});
               return false;
             }
-
             if (url.startsWith('intent://')) {
               const fallbackMatch = url.match(/scheme=https;.*?browser_fallback_url=([^;]+)/);
               if (fallbackMatch && fallbackMatch[1]) {
@@ -477,7 +493,6 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
               }
               return false;
             }
-
             return true;
           }}
           onError={() => setLoadingWeb(false)}
@@ -488,54 +503,61 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
 
   return (
     <View style={styles.container}>
-      {/* Cabeçalho */}
+      <StatusBar barStyle="light-content" />
+
+      {/* Top Bar / Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} style={styles.backButton}>
-          <Text style={styles.backText}>← Voltar</Text>
+        <TouchableOpacity onPress={onBack} style={styles.backButton} activeOpacity={0.7}>
+          <Feather name="chevron-left" size={20} color="#10B981" />
+          <Text style={styles.backText}>Voltar</Text>
         </TouchableOpacity>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.title}>ManaCost Londrina</Text>
-          <Text style={styles.subtitle}>Encartes e Comparador de Supermercados</Text>
-          {lastUpdated ? (
-            <Text style={styles.lastUpdatedText}>🕒 Atualizado {lastUpdated}</Text>
-          ) : null}
+
+        <View style={{ flex: 1, paddingLeft: 4 }}>
+          <Text style={styles.title}>Radar de Ofertas</Text>
+          <Text style={styles.subtitle}>Supermercados parceiros de Londrina</Text>
         </View>
+
         {items.length > 0 && activeTab !== 'flyers' && (
           <TouchableOpacity
             style={styles.headerCartBadge}
             onPress={() => setBasketVisible(true)}
+            activeOpacity={0.8}
           >
-            <Text style={styles.headerCartBadgeText}>🛒 {items.length}</Text>
+            <Feather name="shopping-bag" size={13} color="#10B981" style={{ marginRight: 4 }} />
+            <Text style={styles.headerCartBadgeText}>{items.length}</Text>
           </TouchableOpacity>
         )}
       </View>
 
-      {/* Seletor de Três Abas */}
+      {/* Navegação de Abas Segmentadas */}
       <View style={styles.tabBar}>
         <TouchableOpacity
           style={[styles.tabButton, activeTab === 'matches' && styles.tabButtonActive]}
           onPress={() => setActiveTab('matches')}
+          activeOpacity={0.7}
         >
           <Text style={[styles.tabText, activeTab === 'matches' && styles.tabTextActive]}>
-            🔍 Comparativo
+            Comparativo
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={[styles.tabButton, activeTab === 'catalog' && styles.tabButtonActive]}
           onPress={() => setActiveTab('catalog')}
+          activeOpacity={0.7}
         >
           <Text style={[styles.tabText, activeTab === 'catalog' && styles.tabTextActive]}>
-            🏷️ Menor Preço
+            Menor Preço
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={[styles.tabButton, activeTab === 'flyers' && styles.tabButtonActive]}
           onPress={() => setActiveTab('flyers')}
+          activeOpacity={0.7}
         >
           <Text style={[styles.tabText, activeTab === 'flyers' && styles.tabTextActive]}>
-            📰 Encartes
+            Encartes
           </Text>
         </TouchableOpacity>
       </View>
@@ -544,26 +566,35 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
       {activeTab !== 'flyers' && (
         <>
           <View style={styles.searchContainer}>
-            <TextInput
-              style={styles.searchInput}
-              placeholder={
-                activeTab === 'catalog'
-                  ? 'Buscar em todas as 6.000 ofertas (ex: coyote, refriko)...'
-                  : 'Buscar arroz, café, leite, carne...'
-              }
-              placeholderTextColor="#64748B"
-              value={search}
-              onChangeText={setSearch}
-            />
+            <View style={styles.searchBox}>
+              <Feather name="search" size={14} color="#64748B" style={{ marginRight: 8 }} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder={
+                  activeTab === 'catalog'
+                    ? 'Buscar produto em todas as ofertas...'
+                    : 'Buscar café, arroz, leite, azeite...'
+                }
+                placeholderTextColor="#64748B"
+                value={search}
+                onChangeText={setSearch}
+              />
+              {search.length > 0 && (
+                <TouchableOpacity onPress={() => setSearch('')}>
+                  <Feather name="x" size={14} color="#94A3B8" />
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
 
-          {/* Filtro de Categorias */}
+          {/* Chips de Categorias */}
           <View style={styles.filtersContainer}>
             <FlatList
               horizontal
               showsHorizontalScrollIndicator={false}
               data={categories}
               keyExtractor={(item) => item}
+              contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={[
@@ -571,6 +602,7 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
                     selectedCategory === item && styles.chipActive,
                   ]}
                   onPress={() => setSelectedCategory(item)}
+                  activeOpacity={0.7}
                 >
                   <Text
                     style={[
@@ -585,7 +617,7 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
             />
           </View>
 
-          {/* Filtro por Supermercado */}
+          {/* Filtro de Lojas */}
           {activeTab === 'catalog' && (
             <View style={styles.storesFilterContainer}>
               <FlatList
@@ -593,6 +625,7 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
                 showsHorizontalScrollIndicator={false}
                 data={STORES_LIST}
                 keyExtractor={(item) => item}
+                contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}
                 renderItem={({ item }) => (
                   <TouchableOpacity
                     style={[
@@ -600,6 +633,7 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
                       selectedStore === item && styles.storeChipActive,
                     ]}
                     onPress={() => setSelectedStore(item)}
+                    activeOpacity={0.7}
                   >
                     <Text
                       style={[
@@ -607,7 +641,7 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
                         selectedStore === item && styles.storeChipTextActive,
                       ]}
                     >
-                      {item === 'Todas' ? '🏬 Todas as Lojas' : item}
+                      {item === 'Todas' ? 'Todas as Lojas' : item}
                     </Text>
                   </TouchableOpacity>
                 )}
@@ -617,12 +651,13 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
         </>
       )}
 
-      {/* ABA 1: PRODUTOS COMPARADOS */}
+      {/* ABA 1: COMPARATIVO ENTRE SUPERMERCADOS */}
       {activeTab === 'matches' && (
         <>
           {loadingMatches ? (
             <View style={styles.center}>
               <ActivityIndicator size="large" color="#10B981" />
+              <Text style={styles.loadingText}>Atualizando radar de preços...</Text>
             </View>
           ) : (
             <FlatList
@@ -637,8 +672,9 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
               }
               contentContainerStyle={[
                 styles.listContent,
-                items.length > 0 && { paddingBottom: 85 },
+                items.length > 0 && { paddingBottom: 110 },
               ]}
+              showsVerticalScrollIndicator={false}
               renderItem={({ item }) => {
                 const isExpanded = expandedId === item.id;
                 const inBasket = items.some((basketItem) => basketItem.id === item.id);
@@ -655,53 +691,52 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
                   (a, b) => Number(a.price) - Number(b.price)
                 );
 
+                const storeColor = getStoreBadgeColor(item.cheapest_store);
+
                 return (
-                  <View style={styles.card}>
+                  <View style={styles.productCard}>
                     <TouchableOpacity
-                      activeOpacity={0.9}
+                      activeOpacity={0.85}
                       onPress={() => toggleExpand(item.id)}
                       style={styles.cardHeaderArea}
                     >
-                      <ProductImageWithFallback
-                        uri={item.image_url}
-                        category={item.category}
-                        name={item.display_name}
-                      />
+                      <View style={styles.imageContainer}>
+                        <ProductImageWithFallback
+                          uri={item.image_url}
+                          category={item.category}
+                          name={item.display_name}
+                        />
+                      </View>
 
                       <View style={styles.cardBody}>
-                        <View style={styles.badgeRow}>
-                          <View style={[styles.storesBadge, { backgroundColor: '#059669' }]}>
-                            <Text style={styles.storesBadgeText}>{item.cheapest_store}</Text>
+                        <View style={styles.tagHeaderRow}>
+                          <View style={[styles.storeBadge, { backgroundColor: `${storeColor}20`, borderColor: `${storeColor}60` }]}>
+                            <Feather name="map-pin" size={9} color={storeColor} style={{ marginRight: 3 }} />
+                            <Text style={[styles.storeBadgeText, { color: storeColor }]}>
+                              {item.cheapest_store}
+                            </Text>
                           </View>
-                          {item.category && (
-                            <Text style={styles.categoryBadge}>{item.category}</Text>
+
+                          {item.spread > 0 && (
+                            <View style={styles.spreadBadge}>
+                              <Text style={styles.spreadBadgeText}>
+                                -R$ {Number(item.spread).toFixed(2).replace('.', ',')}
+                              </Text>
+                            </View>
                           )}
                         </View>
 
-                        <Text style={styles.productName} numberOfLines={isExpanded ? undefined : 2}>
+                        <Text style={styles.productName} numberOfLines={2}>
                           {item.display_name}
                         </Text>
 
-                        <View style={styles.priceHighlightRow}>
+                        <View style={styles.priceActionRow}>
                           <View>
-                            <Text style={styles.cheapestLabel}>Melhor preço</Text>
+                            <Text style={styles.priceSmallLabel}>Melhor opção</Text>
                             <Text style={styles.cheapestPrice}>
                               R$ {Number(item.min_price).toFixed(2).replace('.', ',')}
                             </Text>
                           </View>
-
-                          <View style={styles.spreadBox}>
-                            <Text style={styles.spreadLabel}>Economia</Text>
-                            <Text style={styles.spreadValue}>
-                              R$ {Number(item.spread).toFixed(2).replace('.', ',')}
-                            </Text>
-                          </View>
-                        </View>
-
-                        <View style={styles.cardFooterActions}>
-                          <Text style={styles.expandHint}>
-                            {isExpanded ? 'Ocultar lojas' : 'Ver lojas'}
-                          </Text>
 
                           <TouchableOpacity
                             style={[styles.basketBtn, inBasket && styles.basketBtnActive]}
@@ -721,52 +756,71 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
                                 });
                               }
                             }}
+                            activeOpacity={0.8}
                           >
+                            <Feather
+                              name={inBasket ? 'check' : 'plus'}
+                              size={11}
+                              color={inBasket ? '#10B981' : '#94A3B8'}
+                              style={{ marginRight: 3 }}
+                            />
                             <Text
                               style={[
                                 styles.basketBtnText,
                                 inBasket && styles.basketBtnTextActive,
                               ]}
                             >
-                              {inBasket ? '✓ Na Cesta' : '+ Cesta'}
+                              {inBasket ? 'Na cesta' : 'Cesta'}
                             </Text>
                           </TouchableOpacity>
                         </View>
+
+                        <Text style={styles.expandHint}>
+                          {isExpanded ? 'Ocultar comparativo' : `Comparar em ${item.stores_count || sortedItems.length} mercados`}
+                        </Text>
                       </View>
                     </TouchableOpacity>
 
                     {isExpanded && (
                       <View style={styles.expandedSection}>
-                        <Text style={styles.expandedTitle}>Preço por Supermercado:</Text>
-                        {sortedItems.map((storeDeal, idx) => (
-                          <View
-                            key={storeDeal.id || idx}
-                            style={[
-                              styles.storeRow,
-                              idx === 0 && styles.cheapestStoreRow,
-                            ]}
-                          >
-                            <View style={styles.storeRowLeft}>
-                              <Text
-                                style={[
-                                  styles.storeRowName,
-                                  idx === 0 && styles.cheapestStoreText,
-                                ]}
-                              >
-                                {storeDeal.store_name}
-                                {idx === 0 && ' (Mais Barato)'}
-                              </Text>
-                            </View>
-                            <Text
+                        <Text style={styles.expandedTitle}>PREÇO NOS SUPERMERCADOS:</Text>
+                        {sortedItems.map((storeDeal, idx) => {
+                          const isWinner = idx === 0;
+                          return (
+                            <View
+                              key={storeDeal.id || idx}
                               style={[
-                                styles.storeRowPrice,
-                                idx === 0 && styles.cheapestStoreText,
+                                styles.storeRow,
+                                isWinner && styles.cheapestStoreRow,
                               ]}
                             >
-                              R$ {Number(storeDeal.price).toFixed(2).replace('.', ',')}
-                            </Text>
-                          </View>
-                        ))}
+                              <View style={styles.storeRowLeft}>
+                                <Feather
+                                  name={isWinner ? 'award' : 'shopping-cart'}
+                                  size={13}
+                                  color={isWinner ? '#34D399' : '#64748B'}
+                                  style={{ marginRight: 6 }}
+                                />
+                                <Text
+                                  style={[
+                                    styles.storeRowName,
+                                    isWinner && styles.cheapestStoreText,
+                                  ]}
+                                >
+                                  {storeDeal.store_name}
+                                </Text>
+                              </View>
+                              <Text
+                                style={[
+                                  styles.storeRowPrice,
+                                  isWinner && styles.cheapestStoreText,
+                                ]}
+                              >
+                                R$ {Number(storeDeal.price).toFixed(2).replace('.', ',')}
+                              </Text>
+                            </View>
+                          );
+                        })}
                       </View>
                     )}
                   </View>
@@ -782,8 +836,8 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
         <>
           {loadingCatalog ? (
             <View style={styles.center}>
-              <ActivityIndicator size="large" color="#38BDF8" />
-              <Text style={styles.loadingText}>Buscando as melhores ofertas...</Text>
+              <ActivityIndicator size="large" color="#10B981" />
+              <Text style={styles.loadingText}>Procurando no catálogo...</Text>
             </View>
           ) : (
             <FlatList
@@ -795,34 +849,34 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
                 <RefreshControl
                   refreshing={refreshing}
                   onRefresh={onRefresh}
-                  tintColor="#38BDF8"
+                  tintColor="#10B981"
                 />
               }
               contentContainerStyle={[
                 styles.listContent,
-                items.length > 0 && { paddingBottom: 85 },
+                items.length > 0 && { paddingBottom: 110 },
               ]}
+              showsVerticalScrollIndicator={false}
               renderItem={({ item }) => {
                 const inBasket = items.some((basketItem) => basketItem.id === item.id);
+                const storeColor = getStoreBadgeColor(item.store_name);
 
                 return (
-                  <View style={styles.card}>
+                  <View style={styles.productCard}>
                     <View style={styles.cardHeaderArea}>
-                      <ProductImageWithFallback
-                        uri={item.image_url}
-                        category={item.category}
-                        name={item.product_name}
-                      />
+                      <View style={styles.imageContainer}>
+                        <ProductImageWithFallback
+                          uri={item.image_url}
+                          category={item.category}
+                          name={item.product_name}
+                        />
+                      </View>
 
                       <View style={styles.cardBody}>
-                        <View style={styles.badgeRow}>
-                          <View
-                            style={[
-                              styles.storesBadge,
-                              { backgroundColor: '#059669' },
-                            ]}
-                          >
-                            <Text style={styles.storesBadgeText}>
+                        <View style={styles.tagHeaderRow}>
+                          <View style={[styles.storeBadge, { backgroundColor: `${storeColor}20`, borderColor: `${storeColor}60` }]}>
+                            <Feather name="map-pin" size={9} color={storeColor} style={{ marginRight: 3 }} />
+                            <Text style={[styles.storeBadgeText, { color: storeColor }]}>
                               {item.store_name}
                             </Text>
                           </View>
@@ -831,13 +885,13 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
                           )}
                         </View>
 
-                        <Text style={styles.productName} numberOfLines={4}>
+                        <Text style={styles.productName} numberOfLines={2}>
                           {item.product_name}
                         </Text>
 
-                        <View style={styles.priceHighlightRow}>
+                        <View style={styles.priceActionRow}>
                           <View>
-                            <Text style={styles.cheapestLabel}>Preço no Encarte</Text>
+                            <Text style={styles.priceSmallLabel}>Valor anunciado</Text>
                             <Text style={styles.cheapestPrice}>
                               R$ {Number(item.deal_price).toFixed(2).replace('.', ',')}
                             </Text>
@@ -863,14 +917,21 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
                                 });
                               }
                             }}
+                            activeOpacity={0.8}
                           >
+                            <Feather
+                              name={inBasket ? 'check' : 'plus'}
+                              size={11}
+                              color={inBasket ? '#10B981' : '#94A3B8'}
+                              style={{ marginRight: 3 }}
+                            />
                             <Text
                               style={[
                                 styles.basketBtnText,
                                 inBasket && styles.basketBtnTextActive,
                               ]}
                             >
-                              {inBasket ? '✓ Na Cesta' : '+ Cesta'}
+                              {inBasket ? 'Na cesta' : 'Cesta'}
                             </Text>
                           </TouchableOpacity>
                         </View>
@@ -880,13 +941,13 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
                 );
               }}
               ListEmptyComponent={
-                <Text style={styles.emptyText}>Nenhuma oferta encontrada para essa busca.</Text>
+                <Text style={styles.emptyText}>Nenhuma oferta encontrada para esta pesquisa.</Text>
               }
               ListFooterComponent={
                 loadingMoreCatalog ? (
                   <ActivityIndicator
                     style={styles.catalogLoadingMore}
-                    color="#38BDF8"
+                    color="#10B981"
                   />
                 ) : undefined
               }
@@ -900,33 +961,34 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
         <View style={{ flex: 1 }}>
           {loadingFlyers ? (
             <View style={styles.center}>
-              <ActivityIndicator size="large" color="#38BDF8" />
-              <Text style={styles.loadingText}>A carregar encartes...</Text>
+              <ActivityIndicator size="large" color="#10B981" />
+              <Text style={styles.loadingText}>A carregar encartes da semana...</Text>
             </View>
           ) : (
             <FlatList
               data={flyers}
               keyExtractor={(item) => String(item.id || item.store_name)}
               contentContainerStyle={styles.flyersList}
+              showsVerticalScrollIndicator={false}
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={styles.flyerCard}
                   onPress={() => handleOpenFlyer(item)}
-                  activeOpacity={0.7}
+                  activeOpacity={0.75}
                 >
                   <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                       <Text style={styles.flyerStoreName}>{item.store_name}</Text>
                       <View
                         style={[
-                          styles.categoryBadge,
-                          { backgroundColor: `${item.badge_color || '#38BDF8'}20` },
+                          styles.flyerTypeBadge,
+                          { backgroundColor: `${item.badge_color || '#10B981'}20` },
                         ]}
                       >
                         <Text
                           style={[
-                            styles.categoryBadgeText,
-                            { color: item.badge_color || '#38BDF8' },
+                            styles.flyerTypeBadgeText,
+                            { color: item.badge_color || '#10B981' },
                           ]}
                         >
                           {item.category === 'instagram'
@@ -938,10 +1000,10 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
                       </View>
                     </View>
                     <Text style={styles.flyerActionHint}>
-                      Visualizar lâminas dentro da aplicação
+                      Toque para abrir lâminas completas
                     </Text>
                   </View>
-                  <Text style={styles.flyerArrow}>👁️</Text>
+                  <Feather name="chevron-right" size={18} color="#64748B" />
                 </TouchableOpacity>
               )}
             />
@@ -949,7 +1011,7 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
         </View>
       )}
 
-      {/* Barra Flutuante da Cesta */}
+      {/* Barra Flutuante da Cesta Inteligente */}
       {items.length > 0 && activeTab !== 'flyers' && (
         <TouchableOpacity
           style={styles.floatingBar}
@@ -957,10 +1019,16 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
           onPress={() => setBasketVisible(true)}
         >
           <View style={styles.floatingBarContent}>
-            <Text style={styles.floatingBarText}>
-              🛒 {items.length} {items.length === 1 ? 'item na Cesta' : 'itens na Cesta'}
-            </Text>
-            <Text style={styles.floatingBarAction}>Comparar Lojas →</Text>
+            <View style={styles.floatingBarLeft}>
+              <Feather name="shopping-bag" size={16} color="#0B0F19" />
+              <Text style={styles.floatingBarText}>
+                Cesta Inteligente • {items.length} {items.length === 1 ? 'item' : 'itens'}
+              </Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Text style={styles.floatingBarAction}>Comparar lojas</Text>
+              <Feather name="arrow-right" size={13} color="#0B0F19" />
+            </View>
           </View>
         </TouchableOpacity>
       )}
@@ -973,65 +1041,71 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0F172A',
-    paddingTop: 50,
+    backgroundColor: '#0B0F19',
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 28) + 8 : 44,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    marginBottom: 8,
+    paddingBottom: 12,
   },
   backButton: {
-    marginRight: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingRight: 10,
   },
   backText: {
-    color: '#38BDF8',
-    fontSize: 16,
+    color: '#10B981',
+    fontSize: 14,
     fontWeight: '600',
+    marginLeft: 2,
   },
   title: {
     color: '#F8FAFC',
-    fontSize: 20,
-    fontWeight: 'bold',
+    fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: -0.3,
   },
   subtitle: {
-    color: '#94A3B8',
-    fontSize: 12,
-  },
-  lastUpdatedText: {
-    color: '#34D399',
+    color: '#64748B',
     fontSize: 11,
-    fontWeight: '600',
-    marginTop: 2,
+    marginTop: 1,
   },
   headerCartBadge: {
-    backgroundColor: '#10B981',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    borderWidth: 1,
+    borderColor: '#10B981',
     paddingHorizontal: 10,
     paddingVertical: 5,
-    borderRadius: 16,
+    borderRadius: 20,
   },
   headerCartBadgeText: {
-    color: '#FFFFFF',
+    color: '#10B981',
     fontWeight: 'bold',
     fontSize: 12,
   },
   tabBar: {
     flexDirection: 'row',
-    backgroundColor: '#1E293B',
+    backgroundColor: '#131927',
     marginHorizontal: 16,
-    borderRadius: 12,
-    padding: 4,
+    borderRadius: 10,
+    padding: 3,
     marginBottom: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
   },
   tabButton: {
     flex: 1,
-    paddingVertical: 9,
+    paddingVertical: 7,
     alignItems: 'center',
     borderRadius: 8,
   },
   tabButtonActive: {
-    backgroundColor: '#0F172A',
+    backgroundColor: '#0B0F19',
   },
   tabText: {
     fontSize: 12,
@@ -1039,219 +1113,210 @@ const styles = StyleSheet.create({
     color: '#64748B',
   },
   tabTextActive: {
-    color: '#38BDF8',
-    fontWeight: 'bold',
+    color: '#10B981',
+    fontWeight: '700',
   },
   searchContainer: {
     paddingHorizontal: 16,
     marginBottom: 10,
   },
-  searchInput: {
-    backgroundColor: '#1E293B',
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    color: '#F8FAFC',
-    fontSize: 14,
+  searchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#131927',
+    borderRadius: 10,
+    paddingHorizontal: 12,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  searchInput: {
+    flex: 1,
+    paddingVertical: 9,
+    color: '#F8FAFC',
+    fontSize: 13,
   },
   filtersContainer: {
-    paddingHorizontal: 16,
     marginBottom: 8,
   },
   storesFilterContainer: {
-    paddingHorizontal: 16,
     marginBottom: 10,
   },
   chip: {
-    backgroundColor: '#1E293B',
-    paddingHorizontal: 14,
+    backgroundColor: '#131927',
+    paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 20,
-    marginRight: 8,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
   chipActive: {
-    backgroundColor: '#10B981',
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
     borderColor: '#10B981',
   },
   chipText: {
     color: '#94A3B8',
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: '500',
   },
   chipTextActive: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
+    color: '#10B981',
+    fontWeight: '700',
   },
   storeChip: {
-    backgroundColor: '#1E293B',
+    backgroundColor: '#131927',
     paddingHorizontal: 12,
     paddingVertical: 5,
-    borderRadius: 16,
-    marginRight: 8,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
   storeChipActive: {
-    backgroundColor: '#0284C7',
-    borderColor: '#38BDF8',
+    backgroundColor: '#1E293B',
+    borderColor: 'rgba(255, 255, 255, 0.2)',
   },
   storeChipText: {
     color: '#94A3B8',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '500',
   },
   storeChipTextActive: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
+    color: '#F8FAFC',
+    fontWeight: '700',
   },
   listContent: {
     paddingHorizontal: 16,
     paddingBottom: 24,
   },
-  card: {
-    backgroundColor: '#1E293B',
-    borderRadius: 12,
-    marginBottom: 12,
+  productCard: {
+    backgroundColor: '#131927',
+    borderRadius: 14,
+    marginBottom: 10,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.05)',
   },
   cardHeaderArea: {
     flexDirection: 'row',
+    padding: 12,
+  },
+  imageContainer: {
+    width: 86,
+    height: 86,
+    borderRadius: 10,
+    backgroundColor: '#0B0F19',
+    overflow: 'hidden',
+    marginRight: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.03)',
   },
   cardImage: {
-    width: 100,
-    height: 120,
-    backgroundColor: '#0F172A',
+    width: '100%',
+    height: '100%',
   },
   cardImagePlaceholder: {
-    width: 100,
-    height: 120,
-    backgroundColor: '#0F172A',
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    borderRightWidth: 1,
-    borderRightColor: '#334155',
-  },
-  cardPlaceholderEmoji: {
-    fontSize: 38,
   },
   cardBody: {
     flex: 1,
-    padding: 10,
     justifyContent: 'space-between',
   },
-  badgeRow: {
+  tagHeaderRow: {
     flexDirection: 'row',
     gap: 6,
     alignItems: 'center',
+    marginBottom: 4,
   },
-  storesBadge: {
-    backgroundColor: '#0284C7',
+  storeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
+    borderWidth: 1,
   },
-  storesBadgeText: {
-    color: '#FFFFFF',
-    fontSize: 10,
-    fontWeight: 'bold',
-  },
-  categoryBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-    backgroundColor: 'rgba(56, 189, 248, 0.1)',
-  },
-  categoryBadgeText: {
+  storeBadgeText: {
     fontSize: 10,
     fontWeight: '700',
-    textTransform: 'uppercase',
+  },
+  spreadBadge: {
+    backgroundColor: 'rgba(248, 113, 113, 0.12)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  spreadBadgeText: {
+    color: '#F87171',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  categoryBadge: {
+    color: '#64748B',
+    fontSize: 10,
+    fontWeight: '500',
   },
   productName: {
     color: '#F8FAFC',
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
-    marginTop: 4,
+    lineHeight: 18,
+    marginBottom: 6,
   },
-  priceHighlightRow: {
+  priceActionRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-end',
-    marginTop: 6,
   },
-  cheapestLabel: {
-    color: '#94A3B8',
-    fontSize: 11,
-  },
-  cheapestPrice: {
-    color: '#10B981',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  spreadBox: {
-    alignItems: 'flex-end',
-    backgroundColor: 'rgba(245, 158, 11, 0.1)',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: 'rgba(245, 158, 11, 0.3)',
-  },
-  spreadLabel: {
-    color: '#F59E0B',
+  priceSmallLabel: {
+    color: '#64748B',
     fontSize: 10,
   },
-  spreadValue: {
-    color: '#F59E0B',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  cardFooterActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  expandHint: {
-    color: '#38BDF8',
-    fontSize: 11,
-    fontWeight: '500',
+  cheapestPrice: {
+    color: '#34D399',
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: -0.3,
   },
   basketBtn: {
-    backgroundColor: '#334155',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1E293B',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#475569',
+    borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   basketBtnActive: {
-    backgroundColor: '#10B981',
+    backgroundColor: 'rgba(16, 185, 129, 0.2)',
     borderColor: '#10B981',
   },
   basketBtnText: {
-    color: '#F8FAFC',
+    color: '#94A3B8',
     fontSize: 11,
-    fontWeight: 'bold',
+    fontWeight: '700',
   },
   basketBtnTextActive: {
-    color: '#FFFFFF',
+    color: '#10B981',
+  },
+  expandHint: {
+    color: '#64748B',
+    fontSize: 10,
+    fontWeight: '500',
+    marginTop: 6,
   },
   expandedSection: {
-    backgroundColor: '#0F172A',
+    backgroundColor: '#0B0F19',
     padding: 12,
     borderTopWidth: 1,
-    borderTopColor: '#334155',
+    borderTopColor: 'rgba(255, 255, 255, 0.04)',
   },
   expandedTitle: {
-    color: '#94A3B8',
-    fontSize: 12,
-    fontWeight: '600',
+    color: '#64748B',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.5,
     marginBottom: 8,
   },
   storeRow: {
@@ -1259,40 +1324,42 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingVertical: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: '#1E293B',
   },
   cheapestStoreRow: {
-    backgroundColor: 'rgba(16, 185, 129, 0.08)',
-    paddingHorizontal: 6,
-    borderRadius: 4,
+    backgroundColor: 'rgba(16, 185, 129, 0.06)',
+    paddingHorizontal: 8,
+    borderRadius: 6,
   },
   storeRowLeft: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   storeRowName: {
-    color: '#E2E8F0',
-    fontSize: 13,
+    color: '#94A3B8',
+    fontSize: 12,
   },
   storeRowPrice: {
-    color: '#E2E8F0',
-    fontSize: 14,
+    color: '#F8FAFC',
+    fontSize: 13,
     fontWeight: '600',
   },
   cheapestStoreText: {
-    color: '#10B981',
-    fontWeight: 'bold',
+    color: '#34D399',
+    fontWeight: '700',
   },
   floatingBar: {
     position: 'absolute',
-    bottom: 20,
+    bottom: Platform.OS === 'android' ? 24 : 32,
     left: 16,
     right: 16,
     backgroundColor: '#10B981',
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 24,
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
     elevation: 8,
   },
   floatingBarContent: {
@@ -1300,16 +1367,20 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  floatingBarLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   floatingBarText: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-    fontSize: 15,
+    color: '#0B0F19',
+    fontWeight: '800',
+    fontSize: 13,
   },
   floatingBarAction: {
-    color: '#FFFFFF',
-    fontWeight: '800',
-    fontSize: 14,
-    textDecorationLine: 'underline',
+    color: '#0B0F19',
+    fontWeight: '700',
+    fontSize: 12,
   },
   flyersList: {
     paddingHorizontal: 16,
@@ -1320,25 +1391,31 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#1E293B',
+    backgroundColor: '#131927',
     padding: 14,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.05)',
   },
   flyerStoreName: {
-    fontSize: 15,
-    fontWeight: 'bold',
+    fontSize: 14,
+    fontWeight: '700',
     color: '#F8FAFC',
   },
-  flyerActionHint: {
-    fontSize: 12,
-    color: '#94A3B8',
-    marginTop: 3,
+  flyerTypeBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
   },
-  flyerArrow: {
-    fontSize: 16,
-    marginLeft: 10,
+  flyerTypeBadgeText: {
+    fontSize: 9,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  flyerActionHint: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 2,
   },
   previewHeader: {
     flexDirection: 'row',
@@ -1347,32 +1424,36 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#1E293B',
-    backgroundColor: '#0F172A',
+    borderBottomColor: 'rgba(255, 255, 255, 0.06)',
+    backgroundColor: '#0B0F19',
   },
   previewTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
+    fontSize: 15,
+    fontWeight: '700',
     color: '#F8FAFC',
   },
   previewSubtitle: {
     fontSize: 11,
-    color: '#94A3B8',
+    color: '#64748B',
   },
   closePreviewBtn: {
-    backgroundColor: '#334155',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#131927',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
   closePreviewText: {
     color: '#F8FAFC',
-    fontWeight: 'bold',
+    fontWeight: '600',
     fontSize: 12,
   },
   webView: {
     flex: 1,
-    backgroundColor: '#0F172A',
+    backgroundColor: '#0B0F19',
   },
   webLoadingOverlay: {
     position: 'absolute',
@@ -1380,7 +1461,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     left: 0,
-    backgroundColor: '#0F172A',
+    backgroundColor: '#0B0F19',
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 10,
@@ -1391,7 +1472,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   loadingText: {
-    color: '#94A3B8',
+    color: '#64748B',
     marginTop: 8,
     fontSize: 12,
   },
@@ -1402,6 +1483,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     color: '#64748B',
     marginTop: 40,
-    fontSize: 14,
+    fontSize: 13,
   },
 });

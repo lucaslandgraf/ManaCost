@@ -11,7 +11,9 @@ import {
   Modal,
   Platform,
   StatusBar,
+  ScrollView,
 } from 'react-native';
+import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { supabase } from '../../config/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { useOfflineSync } from '../../hooks/useOfflineSync';
@@ -47,7 +49,7 @@ export const DashboardScreen = ({ navigation }: any) => {
   const [dealsModalVisible, setDealsModalVisible] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [settingsVisible, setSettingsVisible] = useState(false);
-  const { user, signOut } = useAuth();
+  const { user } = useAuth();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(false);
   const [yieldModalVisible, setYieldModalVisible] = useState(false);
@@ -59,12 +61,10 @@ export const DashboardScreen = ({ navigation }: any) => {
   const [reportsModalVisible, setReportsModalVisible] = useState(false);
   const [billsToPayVisible, setBillsToPayVisible] = useState(false);
 
-  // Monitorização de conectividade e fila de sincronização offline
   const { isOnline, pendingCount } = useOfflineSync(() => {
     fetchTransactions();
   });
 
-  // Regras orçamentais da tabela profiles
   const [budgetRules, setBudgetRules] = useState({
     useFixed: false,
     needsPct: 50,
@@ -75,10 +75,8 @@ export const DashboardScreen = ({ navigation }: any) => {
     fixedSavings: 0,
   });
 
-  // Mês de Competência
   const [currentDate, setCurrentDate] = useState(new Date());
 
-  // Métricas financeiras
   const [totalIncome, setTotalIncome] = useState(0);
   const [totalExpense, setTotalExpense] = useState(0);
   const [spentNeeds, setSpentNeeds] = useState(0);
@@ -101,8 +99,8 @@ export const DashboardScreen = ({ navigation }: any) => {
 
   const formatMonthTitle = (date: Date) => {
     const months = [
-      'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
-      'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
+      'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun',
+      'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez',
     ];
     return `${months[date.getMonth()]} ${date.getFullYear()}`;
   };
@@ -130,7 +128,7 @@ export const DashboardScreen = ({ navigation }: any) => {
         });
       }
     } catch (e) {
-      console.warn('Erro ao carregar regras orçamentais:', e);
+      console.warn('Erro ao carregar regras:', e);
     }
   };
 
@@ -140,7 +138,6 @@ export const DashboardScreen = ({ navigation }: any) => {
     const { startDate, endDate } = getMonthDateRange(currentDate);
 
     try {
-      // 1. Procura as transações registadas (incluindo budget_bucket)
       const { data: existingData } = await supabase
         .from('transactions')
         .select('id, description, amount, type, date, is_settled, split_status, spent_for_name, repeats_monthly, budget_bucket, categories(name, rule_group)')
@@ -150,16 +147,11 @@ export const DashboardScreen = ({ navigation }: any) => {
 
       let currentItems: Transaction[] = (existingData as unknown as Transaction[]) || [];
 
-      // 2. Procura todas as contas/receitas ativas do utilizador
-      const { data: activeBills, error: recError } = await supabase
+      const { data: activeBills } = await supabase
         .from('recurring_bills')
         .select('id, description, amount, due_day, category_id, type, spent_for_name')
         .eq('user_id', user.id)
         .eq('is_active', true);
-
-      if (recError) {
-        console.warn('Erro ao carregar recurring_bills:', recError.message);
-      }
 
       if (activeBills && activeBills.length > 0) {
         const existingDescriptions = new Set(
@@ -192,14 +184,12 @@ export const DashboardScreen = ({ navigation }: any) => {
         }
 
         if (toAutoInsert.length > 0) {
-          const { data: insertedData, error: insError } = await supabase
+          const { data: insertedData } = await supabase
             .from('transactions')
             .insert(toAutoInsert)
             .select('id, description, amount, type, date, is_settled, split_status, spent_for_name, repeats_monthly, budget_bucket, categories(name, rule_group)');
 
-          if (insError) {
-            console.warn('Erro ao auto-inserir recorrentes no mês:', insError.message);
-          } else if (insertedData) {
+          if (insertedData) {
             currentItems = [...(insertedData as unknown as Transaction[]), ...currentItems];
           }
         }
@@ -233,27 +223,21 @@ export const DashboardScreen = ({ navigation }: any) => {
 
       if (item.type === 'income') {
         income += val;
-
         const isSalary =
           desc.includes('salário') ||
           desc.includes('salario') ||
           catName.includes('salário') ||
           catName.includes('salario');
 
-        if (isSalary) {
-          salaryBase += val;
-        }
+        if (isSalary) salaryBase += val;
       } else {
         if (item.split_status === 'settled') return;
         expense += val;
 
-        if (item.budget_bucket === 'needs') {
-          needs += val;
-        } else if (item.budget_bucket === 'wants') {
-          wants += val;
-        } else if (item.budget_bucket === 'savings') {
-          savings += val;
-        } else {
+        if (item.budget_bucket === 'needs') needs += val;
+        else if (item.budget_bucket === 'wants') wants += val;
+        else if (item.budget_bucket === 'savings') savings += val;
+        else {
           if (catObj?.rule_group === 'needs_50') needs += val;
           else if (catObj?.rule_group === 'wants_30') wants += val;
           else if (catObj?.rule_group === 'savings_20') savings += val;
@@ -284,7 +268,6 @@ export const DashboardScreen = ({ navigation }: any) => {
         prev.map((tx) => (tx.id === item.id ? { ...tx, is_settled: updatedStatus } : tx))
       );
     } catch (err) {
-      console.error('Erro ao alternar estado de liquidação:', err);
       Alert.alert('Erro', 'Não foi possível atualizar o estado do lançamento.');
     }
   };
@@ -318,19 +301,13 @@ export const DashboardScreen = ({ navigation }: any) => {
             text: 'Cancelar assinatura e apagar dos meses futuros',
             style: 'destructive',
             onPress: async () => {
-              // 1. Apaga a regra de recorrência para não gerar mais
               await supabase
                 .from('recurring_bills')
                 .delete()
                 .ilike('description', item.description.trim());
 
-              // 2. Apaga o lançamento atual (mesmo que já esteja efetivado)
-              await supabase
-                .from('transactions')
-                .delete()
-                .eq('id', item.id);
+              await supabase.from('transactions').delete().eq('id', item.id);
 
-              // 3. Apaga os lançamentos futuros não efetivados
               if (user) {
                 await supabase
                   .from('transactions')
@@ -341,12 +318,9 @@ export const DashboardScreen = ({ navigation }: any) => {
                   .eq('is_settled', false);
               }
 
-              // 4. Atualiza a lista visual imediatamente no mês corrente
               const remaining = transactions.filter((tx) => tx.id !== item.id);
               setTransactions(remaining);
               calculateMetrics(remaining);
-
-              Alert.alert('Sucesso', 'Assinatura cancelada e removida dos meses atuais e futuros.');
             },
           },
         ]
@@ -404,462 +378,375 @@ export const DashboardScreen = ({ navigation }: any) => {
     );
   };
 
-  const syncRecurringBillsForCurrentMonth = async () => {
-    if (!user) return;
-    try {
-      const { data: bills } = await supabase
-        .from('recurring_bills')
-        .select('*')
-        .eq('is_active', true);
-
-      if (!bills || bills.length === 0) {
-        Alert.alert('Aviso', 'Nenhuma assinatura ativa encontrada para gerar.');
-        return;
-      }
-
-      const { startDate, endDate } = getMonthDateRange(currentDate);
-      const { data: existingTx, error: existingError } = await supabase
-        .from('transactions')
-        .select('description')
-        .gte('date', startDate)
-        .lte('date', endDate);
-
-      if (existingError) throw existingError;
-
-      const existingNames = new Set(
-        (existingTx || []).map((transaction) => transaction.description.trim().toLowerCase())
-      );
-      const year = currentDate.getFullYear();
-      const month = currentDate.getMonth();
-      const toInsert = [];
-
-      for (const bill of bills) {
-        if (!existingNames.has(bill.description.trim().toLowerCase())) {
-          const lastDayOfMonth = new Date(year, month + 1, 0).getDate();
-          const validDay = Math.min(bill.due_day, lastDayOfMonth);
-          const billDate = new Date(year, month, validDay).toISOString().split('T')[0];
-
-          toInsert.push({
-            user_id: user.id,
-            description: bill.description.trim(),
-            amount: bill.amount,
-            type: bill.type || 'expense',
-            category_id: bill.category_id,
-            date: billDate,
-            is_settled: false,
-            spent_for_name: (bill as any).spent_for_name || null,
-            split_status: 'none',
-            repeats_monthly: true,
-          });
-        }
-      }
-
-      if (toInsert.length > 0) {
-        const { error } = await supabase.from('transactions').insert(toInsert);
-        if (error) throw error;
-        Alert.alert('Sucesso', `${toInsert.length} lançamento(s) recorrente(s) gerado(s) no mês!`);
-        fetchTransactions();
-      } else {
-        Alert.alert('Informação', 'Todas as assinaturas ativas já constam nos lançamentos deste mês.');
-      }
-    } catch (err: any) {
-      console.warn('Erro ao sincronizar assinaturas:', err);
-      Alert.alert('Erro', err.message);
+  const getTransactionIcon = (desc: string, catName: string) => {
+    const text = `${desc} ${catName}`.toLowerCase();
+    if (text.includes('mercado') || text.includes('supermercado') || text.includes('alimento') || text.includes('muffato') || text.includes('condor') || text.includes('atacadao')) {
+      return <Feather name="shopping-cart" size={16} color="#38BDF8" />;
     }
+    if (text.includes('salário') || text.includes('receita') || text.includes('pix recebido')) {
+      return <Feather name="trending-up" size={16} color="#10B981" />;
+    }
+    if (text.includes('uber') || text.includes('combustivel') || text.includes('posto') || text.includes('transporte')) {
+      return <Ionicons name="car-outline" size={17} color="#F59E0B" />;
+    }
+    if (text.includes('aluguel') || text.includes('condomínio') || text.includes('moradia')) {
+      return <Feather name="home" size={16} color="#A855F7" />;
+    }
+    if (text.includes('restaurante') || text.includes('jantar') || text.includes('almoço') || text.includes('ifood') || text.includes('lanche')) {
+      return <Ionicons name="restaurant-outline" size={16} color="#EC4899" />;
+    }
+    if (text.includes('farmacia') || text.includes('saude') || text.includes('medico')) {
+      return <Feather name="activity" size={16} color="#EF4444" />;
+    }
+    if (text.includes('internet') || text.includes('vivo') || text.includes('luz') || text.includes('energia') || text.includes('copel')) {
+      return <Feather name="zap" size={16} color="#FBBF24" />;
+    }
+    return <Feather name="credit-card" size={16} color="#94A3B8" />;
   };
+
+  const userInitial = user?.email ? user.email.slice(0, 2).toUpperCase() : 'MC';
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Barra de Aviso de Modo Offline */}
+      <StatusBar barStyle="light-content" />
+
       {!isOnline && (
         <View style={styles.offlineBanner}>
+          <Feather name="wifi-off" size={13} color="#0B0F19" style={{ marginRight: 6 }} />
           <Text style={styles.offlineBannerText}>
-            📡 Modo Offline ativo • {pendingCount} lançamento(s) pendente(s)
+            Modo Offline • {pendingCount} pendente(s)
           </Text>
         </View>
       )}
 
+      {/* Top Header */}
       <View style={styles.header}>
-        <View>
-          <Text style={styles.welcomeText}>ManaCost</Text>
-          <Text style={styles.subText}>{user?.email}</Text>
-        </View>
-
-        <View style={styles.headerActions}>
-          <TouchableOpacity 
-            style={styles.settingsBtn} 
+        <View style={styles.userInfoRow}>
+          <TouchableOpacity
+            style={styles.avatarCircle}
             onPress={() => setSettingsVisible(true)}
             activeOpacity={0.7}
           >
-            <Text style={styles.settingsIcon}>⚙️</Text>
+            <Text style={styles.avatarText}>{userInitial}</Text>
           </TouchableOpacity>
-
-          <TouchableOpacity style={styles.logoutBtn} onPress={signOut}>
-            <Text style={styles.logoutText}>Sair</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* Seletor de Mês de Competência */}
-      <View style={styles.monthSelector}>
-        <TouchableOpacity style={styles.arrowBtn} onPress={() => changeMonth(-1)}>
-          <Text style={styles.arrowText}>‹</Text>
-        </TouchableOpacity>
-        <Text style={styles.monthTitle}>{formatMonthTitle(currentDate)}</Text>
-        <TouchableOpacity style={styles.arrowBtn} onPress={() => changeMonth(1)}>
-          <Text style={styles.arrowText}>›</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Resumo Financeiro com 3 Colunas: Receitas, Despesas e Saldo */}
-      <View style={styles.summaryCard}>
-        <View style={styles.summaryCol}>
-          <Text style={styles.summaryLabel}>Receitas</Text>
-          <Text style={[styles.summaryVal, { color: '#10B981' }]}>
-            R$ {totalIncome.toFixed(2)}
-          </Text>
+          <View>
+            <Text style={styles.welcomeText}>ManaCost</Text>
+            <Text style={styles.userEmailText} numberOfLines={1}>{user?.email}</Text>
+          </View>
         </View>
 
-        <View style={styles.divider} />
+        <View style={styles.headerRight}>
+          <View style={styles.monthPill}>
+            <TouchableOpacity style={styles.monthArrow} onPress={() => changeMonth(-1)}>
+              <Feather name="chevron-left" size={14} color="#94A3B8" />
+            </TouchableOpacity>
+            <Text style={styles.monthPillText}>{formatMonthTitle(currentDate)}</Text>
+            <TouchableOpacity style={styles.monthArrow} onPress={() => changeMonth(1)}>
+              <Feather name="chevron-right" size={14} color="#94A3B8" />
+            </TouchableOpacity>
+          </View>
 
-        <View style={styles.summaryCol}>
-          <Text style={styles.summaryLabel}>Despesas</Text>
-          <Text style={[styles.summaryVal, { color: '#EF4444' }]}>
-            R$ {totalExpense.toFixed(2)}
-          </Text>
-        </View>
-
-        <View style={styles.divider} />
-
-        <View style={styles.summaryCol}>
-          <Text style={styles.summaryLabel}>Saldo</Text>
-          <Text
-            style={[
-              styles.summaryVal,
-              { color: currentBalance >= 0 ? '#38BDF8' : '#F59E0B' },
-            ]}
+          <TouchableOpacity 
+            style={styles.headerIconButton}
+            onPress={() => setReportsModalVisible(true)}
+            activeOpacity={0.7}
           >
+            <Feather name="bar-chart-2" size={15} color="#94A3B8" />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.headerIconButton}
+            onPress={() => setSettingsVisible(true)}
+            activeOpacity={0.7}
+          >
+            <Feather name="settings" size={15} color="#94A3B8" />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* BLOCO FIXO SUPERIOR */}
+      <View style={styles.fixedTopSection}>
+        {/* Card Saldo Consolidado */}
+        <View style={styles.heroBalanceCard}>
+          <Text style={styles.heroLabel}>SALDO CONSOLIDADO DO MÊS</Text>
+
+          <Text style={[styles.heroBalanceVal, { color: currentBalance >= 0 ? '#F8FAFC' : '#F87171' }]}>
             R$ {currentBalance.toFixed(2)}
           </Text>
+
+          <View style={styles.inOutRow}>
+            <View style={styles.inOutCol}>
+              <View style={styles.inOutLabelRow}>
+                <Feather name="arrow-up-right" size={12} color="#10B981" />
+                <Text style={styles.inOutLabel}>Entradas</Text>
+              </View>
+              <Text style={styles.inVal}>+R$ {totalIncome.toFixed(2)}</Text>
+            </View>
+
+            <View style={styles.inOutDivider} />
+
+            <View style={styles.inOutCol}>
+              <View style={styles.inOutLabelRow}>
+                <Feather name="arrow-down-right" size={12} color="#F87171" />
+                <Text style={styles.inOutLabel}>Saídas</Text>
+              </View>
+              <Text style={styles.outVal}>-R$ {totalExpense.toFixed(2)}</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Ações Rápidas */}
+        <View style={styles.quickActionsContainer}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickActionsScroll}>
+            <TouchableOpacity
+              style={[styles.actionPill, styles.actionPillExpense]}
+              onPress={() => setModalVisible(true)}
+              activeOpacity={0.7}
+            >
+              <Feather name="minus" size={13} color="#F87171" />
+              <Text style={styles.actionPillText}>Despesa</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.actionPill, styles.actionPillIncome]}
+              onPress={() => setModalVisible(true)}
+              activeOpacity={0.7}
+            >
+              <Feather name="plus" size={13} color="#10B981" />
+              <Text style={styles.actionPillText}>Receita</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.actionPill}
+              onPress={() => setBillsToPayVisible(true)}
+              activeOpacity={0.7}
+            >
+              <Feather name="file-text" size={13} color="#38BDF8" />
+              <Text style={styles.actionPillText}>Boletos</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.actionPill}
+              onPress={() => setYieldModalVisible(true)}
+              activeOpacity={0.7}
+            >
+              <Feather name="trending-up" size={13} color="#F59E0B" />
+              <Text style={styles.actionPillText}>Simulador</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.actionPill}
+              onPress={() => setEstimatorVisible(true)}
+              activeOpacity={0.7}
+            >
+              <Feather name="compass" size={13} color="#14B8A6" />
+              <Text style={styles.actionPillText}>Estimador</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.actionPill}
+              onPress={() => setToolsModalVisible(true)}
+              activeOpacity={0.7}
+            >
+              <Feather name="grid" size={13} color="#94A3B8" />
+              <Text style={styles.actionPillText}>Mais</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+
+        {/* Régua de Orçamento Clicável com Redirecionamento Direto para Ajustes */}
+        <TouchableOpacity
+          style={styles.budgetCard}
+          onPress={() => setSettingsVisible(true)}
+          activeOpacity={0.8}
+        >
+          <View style={styles.budgetHeaderRow}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={styles.budgetTitle}>
+                {budgetRules.useFixed
+                  ? 'Orçamento em R$ Fixos'
+                  : `Orçamento ${budgetRules.needsPct} • ${budgetRules.wantsPct} • ${budgetRules.savingsPct}`}
+              </Text>
+              <Feather name="edit-2" size={11} color="#10B981" />
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Text style={styles.budgetBaseVal}>Base R$ {totalIncome.toFixed(2)}</Text>
+              <Feather name="chevron-right" size={12} color="#64748B" />
+            </View>
+          </View>
+
+          <View style={styles.budgetItem}>
+            <View style={styles.budgetRow}>
+              <Text style={styles.budgetLabel}>
+                Necessidades <Text style={styles.budgetPct}>• {budgetRules.useFixed ? 'Fixo' : `${budgetRules.needsPct}%`}</Text>
+              </Text>
+              <Text style={styles.budgetValue}>
+                R$ {spentNeeds.toFixed(2)} <Text style={styles.budgetValueMax}>/ R$ {budgetNeeds.toFixed(2)}</Text>
+              </Text>
+            </View>
+            {renderProgressBar(spentNeeds, budgetNeeds, '#38BDF8')}
+          </View>
+
+          <View style={styles.budgetItem}>
+            <View style={styles.budgetRow}>
+              <Text style={styles.budgetLabel}>
+                Desejos <Text style={styles.budgetPct}>• {budgetRules.useFixed ? 'Fixo' : `${budgetRules.wantsPct}%`}</Text>
+              </Text>
+              <Text style={styles.budgetValue}>
+                R$ {spentWants.toFixed(2)} <Text style={styles.budgetValueMax}>/ R$ {budgetWants.toFixed(2)}</Text>
+              </Text>
+            </View>
+            {renderProgressBar(spentWants, budgetWants, '#F59E0B')}
+          </View>
+
+          <View style={styles.budgetItem}>
+            <View style={styles.budgetRow}>
+              <Text style={styles.budgetLabel}>
+                Reserva / Invest <Text style={styles.budgetPct}>• {budgetRules.useFixed ? 'Fixo' : `${budgetRules.savingsPct}%`}</Text>
+              </Text>
+              <Text style={styles.budgetValue}>
+                R$ {spentSavings.toFixed(2)} <Text style={styles.budgetValueMax}>/ R$ {budgetSavings.toFixed(2)}</Text>
+              </Text>
+            </View>
+            {renderProgressBar(spentSavings, budgetSavings, '#10B981')}
+          </View>
+        </TouchableOpacity>
+
+        {/* Título do Extrato */}
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionTitle}>Extrato Recente</Text>
+          <Text style={styles.sectionCounter}>{transactions.length} lançamentos</Text>
         </View>
       </View>
 
-      {/* Teto de Gastos Proporcional Personalizável */}
-      <View style={styles.budgetCard}>
-        <Text style={styles.budgetTitle}>
-          {budgetRules.useFixed
-            ? 'Orçamento com Teto Fixo (R$)'
-            : `Orçamento Proporcional (${budgetRules.needsPct}/${budgetRules.wantsPct}/${budgetRules.savingsPct})`}
-        </Text>
-
-        <View style={styles.budgetItem}>
-          <View style={styles.budgetRow}>
-            <Text style={styles.budgetLabel}>
-              Necessidades {budgetRules.useFixed ? '(Fixo)' : `(${budgetRules.needsPct}%)`}
-            </Text>
-            <Text style={styles.budgetValue}>
-              R$ {spentNeeds.toFixed(2)} / R$ {budgetNeeds.toFixed(2)}
-            </Text>
-          </View>
-          {renderProgressBar(spentNeeds, budgetNeeds, '#38BDF8')}
-        </View>
-
-        <View style={styles.budgetItem}>
-          <View style={styles.budgetRow}>
-            <Text style={styles.budgetLabel}>
-              Desejos {budgetRules.useFixed ? '(Fixo)' : `(${budgetRules.wantsPct}%)`}
-            </Text>
-            <Text style={styles.budgetValue}>
-              R$ {spentWants.toFixed(2)} / R$ {budgetWants.toFixed(2)}
-            </Text>
-          </View>
-          {renderProgressBar(spentWants, budgetWants, '#F59E0B')}
-        </View>
-
-        <View style={styles.budgetItem}>
-          <View style={styles.budgetRow}>
-            <Text style={styles.budgetLabel}>
-              Reserva/Invest {budgetRules.useFixed ? '(Fixo)' : `(${budgetRules.savingsPct}%)`}
-            </Text>
-            <Text style={styles.budgetValue}>
-              R$ {spentSavings.toFixed(2)} / R$ {budgetSavings.toFixed(2)}
-            </Text>
-          </View>
-          {renderProgressBar(spentSavings, budgetSavings, '#10B981')}
-        </View>
-      </View>
-
-      {/* Cabeçalho de Lançamentos */}
-      <View style={styles.sectionHeaderRow}>
-        <View>
-          <Text style={styles.sectionTitle}>Lançamentos</Text>
-          <Text style={styles.sectionSubtitle}>{transactions.length} registo(s) no mês</Text>
-        </View>
-
-        <View style={styles.headerButtonsRow}>
-          <TouchableOpacity
-            style={styles.btnTools}
-            onPress={() => setToolsModalVisible(true)}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.btnToolsText}>⚡ Ferramentas</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.btnAddMain}
-            onPress={() => setModalVisible(true)}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.btnAddMainText}>+ Lançar</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* Lista de Transações */}
+      {/* LISTA ROLÁVEL */}
       <FlatList
         data={transactions}
         keyExtractor={(item) => item.id}
         refreshControl={
-          <RefreshControl refreshing={loading} onRefresh={fetchTransactions} tintColor="#fff" />
+          <RefreshControl refreshing={loading} onRefresh={fetchTransactions} tintColor="#10B981" />
         }
+        style={styles.txFlatList}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
-        renderItem={({ item }) => (
-          <TouchableOpacity 
-            style={styles.txItem} 
-            onPress={() => setSelectedTx(item)}
-            onLongPress={() => deleteTransaction(item)}
-            delayLongPress={500}
-          >
-            <View style={{ flex: 1, paddingRight: 8 }}>
-              <Text style={styles.txDesc}>{item.description}</Text>
-              
-              <Text style={styles.txSub}>
-                {(Array.isArray(item.categories)
-                  ? item.categories[0]?.name
-                  : item.categories?.name) ?? 'Geral'}{' '}
-                • {item.date}
-              </Text>
+        renderItem={({ item }) => {
+          const rawCat = item.categories;
+          const catObj = Array.isArray(rawCat) ? rawCat[0] : rawCat;
+          const catName = catObj?.name || 'Geral';
+          const isIncome = item.type === 'income';
 
-              {item.spent_for_name ? (
-                <View style={styles.splitTag}>
-                  {item.type === 'income' ? (
-                    <Text style={styles.splitIncomeText}>📥 De: {item.spent_for_name}</Text>
-                  ) : item.split_status === 'pending' ? (
-                    <Text style={styles.splitPendingText}>⏳ Vai pagar: {item.spent_for_name}</Text>
-                  ) : item.split_status === 'settled' ? (
-                    <Text style={styles.splitSettledText}>✅ Pago por: {item.spent_for_name}</Text>
-                  ) : (
-                    <Text style={styles.splitGiftText}>🎁 Para: {item.spent_for_name}</Text>
-                  )}
-                </View>
-              ) : null}
-            </View>
+          return (
+            <TouchableOpacity
+              style={styles.txCard}
+              onPress={() => setSelectedTx(item)}
+              onLongPress={() => deleteTransaction(item)}
+              delayLongPress={500}
+              activeOpacity={0.7}
+            >
+              <View style={styles.txIconBox}>
+                {getTransactionIcon(item.description, catName)}
+              </View>
 
-            <View style={styles.rightActions}>
-              <Text
-                style={[
-                  styles.txAmount,
-                  { color: item.type === 'income' ? '#10B981' : '#EF4444' },
-                ]}
-              >
-                {item.type === 'income' ? '+' : '-'} R$ {Number(item.amount).toFixed(2)}
-              </Text>
-
-              <TouchableOpacity
-                style={[
-                  styles.statusBadge,
-                  item.is_settled ? styles.badgeSettled : styles.badgePending,
-                ]}
-                onPress={() => toggleSettled(item)}
-              >
-                <Text
-                  style={[
-                    styles.statusBadgeText,
-                    item.is_settled ? styles.textSettled : styles.textPending,
-                  ]}
-                >
-                  {item.is_settled ? 'Efetivado' : 'Pendente'}
+              <View style={styles.txInfoCol}>
+                <Text style={styles.txDesc} numberOfLines={1}>{item.description}</Text>
+                <Text style={styles.txSub}>
+                  {catName} • {item.date.split('-').reverse().join('/')}
                 </Text>
-              </TouchableOpacity>
-            </View>
-          </TouchableOpacity>
-        )}
+
+                {item.spent_for_name ? (
+                  <View style={styles.splitBadge}>
+                    <Text style={styles.splitBadgeText}>
+                      {isIncome ? 'De: ' : item.split_status === 'pending' ? 'Pendente: ' : item.split_status === 'settled' ? 'Pago: ' : 'Para: '}
+                      {item.spent_for_name}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+
+              <View style={styles.txRightCol}>
+                <Text style={[styles.txAmount, { color: isIncome ? '#34D399' : '#F8FAFC' }]}>
+                  {isIncome ? '+' : '-'}R$ {Number(item.amount).toFixed(2)}
+                </Text>
+
+                <TouchableOpacity
+                  style={[
+                    styles.settledBadge,
+                    item.is_settled ? styles.settledBadgeActive : styles.settledBadgePending,
+                  ]}
+                  onPress={() => toggleSettled(item)}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                >
+                  <Text style={[styles.settledBadgeText, item.is_settled ? styles.settledTextActive : styles.settledTextPending]}>
+                    {item.is_settled ? 'Efetivado' : 'Pendente'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableOpacity>
+          );
+        }}
         ListEmptyComponent={
-          <Text style={styles.emptyText}>Nenhuma transação neste período.</Text>
+          <View style={styles.emptyContainer}>
+            <Feather name="inbox" size={30} color="#64748B" style={{ marginBottom: 8 }} />
+            <Text style={styles.emptyTitle}>Nenhum lançamento no período</Text>
+            <Text style={styles.emptySubtitle}>Use as ações rápidas acima para registrar novas movimentações.</Text>
+          </View>
         }
       />
-      <View style={styles.bottomBarBarrier} />
 
-      {/* Menu Inferior de Recursos & Ferramentas */}
-      <Modal
-        visible={toolsModalVisible}
-        animationType="fade"
-        transparent
-        onRequestClose={() => setToolsModalVisible(false)}
-      >
+      {/* Bottom Bar */}
+      <View style={styles.bottomBarContainer}>
+        <TouchableOpacity style={styles.navTab} activeOpacity={0.7}>
+          <Feather name="grid" size={20} color="#10B981" />
+          <Text style={[styles.navLabel, styles.navLabelActive]}>Início</Text>
+          <View style={styles.activeDot} />
+        </TouchableOpacity>
+
         <TouchableOpacity
-          style={styles.toolsOverlay}
-          activeOpacity={1}
-          onPress={() => setToolsModalVisible(false)}
+          style={styles.navTab}
+          onPress={() => setDealsModalVisible(true)}
+          activeOpacity={0.7}
         >
-          <View style={styles.toolsCard}>
-            <View style={styles.toolsHeader}>
-              <Text style={styles.toolsTitle}>Recursos & Ferramentas</Text>
-              <TouchableOpacity onPress={() => setToolsModalVisible(false)}>
-                <Text style={styles.toolsClose}>✕</Text>
-              </TouchableOpacity>
-            </View>
+          <Feather name="tag" size={20} color="#64748B" />
+          <Text style={styles.navLabel}>Ofertas</Text>
+        </TouchableOpacity>
 
-            <View style={styles.toolsGrid}>
-              <TouchableOpacity
-                style={styles.toolItem}
-                onPress={() => {
-                  setToolsModalVisible(false);
-                  setReportsModalVisible(true);
-                }}
-              >
-                <View style={[styles.toolIconBox, { backgroundColor: 'rgba(56, 189, 248, 0.15)' }]}>
-                  <Text style={styles.toolIcon}>📊</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.toolLabel}>Relatórios & Exportação</Text>
-                  <Text style={styles.toolSub}>CSV, acerto de contas e 50/30/20</Text>
-                </View>
-              </TouchableOpacity>
-
-              {/* Botão de Contas a Pagar & Lembretes */}
-              <TouchableOpacity
-                style={styles.toolItem}
-                onPress={() => {
-                  setToolsModalVisible(false);
-                  setBillsToPayVisible(true);
-                }}
-              >
-                <View style={[styles.toolIconBox, { backgroundColor: 'rgba(239, 68, 68, 0.15)' }]}>
-                  <Text style={styles.toolIcon}>📑</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.toolLabel}>Contas a Pagar</Text>
-                  <Text style={styles.toolSub}>Lembretes de boletos e faturas</Text>
-                </View>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.toolItem}
-                onPress={() => {
-                  setToolsModalVisible(false);
-                  navigation.navigate('Events');
-                }}
-              >
-                <View style={[styles.toolIconBox, { backgroundColor: 'rgba(56, 189, 248, 0.15)' }]}>
-                  <Text style={styles.toolIcon}>✈️</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.toolLabel}>Viagens & Eventos</Text>
-                  <Text style={styles.toolSub}>Orçamento fechado e isolado</Text>
-                </View>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.toolItem}
-                onPress={() => {
-                  setToolsModalVisible(false);
-                  setEstimatorVisible(true);
-                }}
-              >
-                <View style={[styles.toolIconBox, { backgroundColor: 'rgba(20, 184, 166, 0.15)' }]}>
-                  <Text style={styles.toolIcon}>🧭</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.toolLabel}>Estimativas de Viagem</Text>
-                  <Text style={styles.toolSub}>Distância, combustível, diárias e refeições</Text>
-                </View>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.toolItem}
-                onPress={() => {
-                  setToolsModalVisible(false);
-                  setRecurringModalVisible(true);
-                }}
-              >
-                <View style={[styles.toolIconBox, { backgroundColor: 'rgba(168, 85, 247, 0.15)' }]}>
-                  <Text style={styles.toolIcon}>🔁</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.toolLabel}>Assinaturas & Fixas</Text>
-                  <Text style={styles.toolSub}>Contas automáticas</Text>
-                </View>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.toolItem}
-                onPress={() => {
-                  setToolsModalVisible(false);
-                  setPriceSearchVisible(true);
-                }}
-              >
-                <View style={[styles.toolIconBox, { backgroundColor: 'rgba(14, 165, 233, 0.15)' }]}>
-                  <Text style={styles.toolIcon}>🔍</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.toolLabel}>Menor Preço</Text>
-                  <Text style={styles.toolSub}>Comparador geral</Text>
-                </View>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.toolItem}
-                onPress={() => {
-                  setToolsModalVisible(false);
-                  setDealsModalVisible(true);
-                }}
-              >
-                <View style={[styles.toolIconBox, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
-                  <Text style={styles.toolIcon}>🏷️</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.toolLabel}>Ofertas</Text>
-                  <Text style={styles.toolSub}>Encartes e promoções</Text>
-                </View>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.toolItem}
-                onPress={() => {
-                  setToolsModalVisible(false);
-                  setScannerVisible(true);
-                }}
-              >
-                <View style={[styles.toolIconBox, { backgroundColor: 'rgba(56, 189, 248, 0.15)' }]}>
-                  <Text style={styles.toolIcon}>📸</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.toolLabel}>Ler NFC-e</Text>
-                  <Text style={styles.toolSub}>Escanear QR Code</Text>
-                </View>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.toolItem}
-                onPress={() => {
-                  setToolsModalVisible(false);
-                  setYieldModalVisible(true);
-                }}
-              >
-                <View style={[styles.toolIconBox, { backgroundColor: 'rgba(245, 158, 11, 0.15)' }]}>
-                  <Text style={styles.toolIcon}>📈</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.toolLabel}>Simulador CDI</Text>
-                  <Text style={styles.toolSub}>Rendimento da reserva</Text>
-                </View>
-              </TouchableOpacity>
-            </View>
+        <TouchableOpacity
+          style={styles.fabCenter}
+          onPress={() => setScannerVisible(true)}
+          activeOpacity={0.85}
+        >
+          <View style={styles.fabInner}>
+            <MaterialCommunityIcons name="qrcode-scan" size={24} color="#0B0F19" />
           </View>
         </TouchableOpacity>
-      </Modal>
+
+        <TouchableOpacity
+          style={styles.navTab}
+          onPress={() => setBillsToPayVisible(true)}
+          activeOpacity={0.7}
+        >
+          <MaterialCommunityIcons name="receipt-text-outline" size={21} color="#64748B" />
+          <Text style={styles.navLabel}>Boletos</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.navTab}
+          onPress={() => navigation?.navigate ? navigation.navigate('Events') : setEstimatorVisible(true)}
+          activeOpacity={0.7}
+        >
+          <Feather name="send" size={19} color="#64748B" />
+          <Text style={styles.navLabel}>Viagens</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Modais */}
+      <NewTransactionModal
+        visible={modalVisible}
+        onClose={() => setModalVisible(false)}
+        currentMonthDate={currentDate}
+        onSuccess={fetchTransactions}
+        onOpenSettings={() => setSettingsVisible(true)}
+      />
 
       <ReportsModal
         visible={reportsModalVisible}
@@ -868,23 +755,16 @@ export const DashboardScreen = ({ navigation }: any) => {
       />
 
       <BillsToPayModal
-  visible={billsToPayVisible}
-  onClose={() => setBillsToPayVisible(false)}
-  currentMonthDate={currentDate}
-  onBillSettled={fetchTransactions}
-/>
+        visible={billsToPayVisible}
+        onClose={() => setBillsToPayVisible(false)}
+        currentMonthDate={currentDate}
+        onBillSettled={fetchTransactions}
+      />
 
       <TravelEstimatorModal
         visible={estimatorVisible}
         onClose={() => setEstimatorVisible(false)}
         onEventCreated={fetchTransactions}
-      />
-
-      <NewTransactionModal
-        visible={modalVisible}
-        onClose={() => setModalVisible(false)}
-        currentMonthDate={currentDate}
-        onSuccess={fetchTransactions}
       />
 
       <ScannerScreen
@@ -894,22 +774,23 @@ export const DashboardScreen = ({ navigation }: any) => {
       />
 
       <PurchaseDetailsModal
-        visible={!!selectedTx}
-        onClose={() => setSelectedTx(null)}
-        transactionId={selectedTx?.id ?? ''}
-        description={selectedTx?.description ?? ''}
-        date={selectedTx?.date ?? ''}
-        amount={selectedTx?.amount ?? 0}
-        userMonthlyIncome={baseSalaryIncome}
-        onUpdated={fetchTransactions}
-        onDeleted={fetchTransactions}
-      />
+  visible={!!selectedTx}
+  onClose={() => setSelectedTx(null)}
+  transactionId={selectedTx?.id ?? ''}
+  description={selectedTx?.description ?? ''}
+  date={selectedTx?.date ?? ''}
+  amount={selectedTx?.amount ?? 0}
+  userMonthlyIncome={baseSalaryIncome}
+  onUpdated={fetchTransactions}
+  onDeleted={fetchTransactions}
+  onOpenSettings={() => setSettingsVisible(true)}
+/>
 
       <RecurringBillsModal
         visible={recurringModalVisible}
         onClose={() => setRecurringModalVisible(false)}
         currentMonthDate={currentDate}
-        onSyncMonth={syncRecurringBillsForCurrentMonth}
+        onSyncMonth={fetchTransactions}
       />
 
       <Modal
@@ -949,301 +830,417 @@ export const DashboardScreen = ({ navigation }: any) => {
 const styles = StyleSheet.create({
   container: { 
     flex: 1, 
-    backgroundColor: '#0F172A',
+    backgroundColor: '#0B0F19',
   },
   offlineBanner: {
     backgroundColor: '#F59E0B',
-    paddingVertical: 6,
+    paddingVertical: 4,
     paddingHorizontal: 12,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
   },
   offlineBannerText: {
-    color: '#0F172A',
-    fontSize: 12,
-    fontWeight: 'bold',
+    color: '#0B0F19',
+    fontSize: 11,
+    fontWeight: '700',
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 28) + 16 : 16,
-    paddingBottom: 8,
-  },
-  welcomeText: { fontSize: 22, fontWeight: 'bold', color: '#F8FAFC' },
-  subText: { fontSize: 12, color: '#94A3B8' },
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  settingsBtn: {
-    backgroundColor: '#1E293B',
-    padding: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#334155',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  settingsIcon: {
-    fontSize: 18,
-  },
-  logoutBtn: { 
-    padding: 8,
-    marginLeft: 4,
-  },
-  logoutText: { color: '#EF4444', fontSize: 13, fontWeight: 'bold' },
-  monthSelector: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginVertical: 6,
-    paddingHorizontal: 20,
-  },
-  arrowBtn: {
     paddingHorizontal: 16,
-    paddingVertical: 4,
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 28) + 8 : 10,
+    paddingBottom: 8,
+    backgroundColor: '#0B0F19',
   },
-  arrowText: {
-    color: '#38BDF8',
-    fontSize: 26,
-    fontWeight: 'bold',
-    lineHeight: 28,
-  },
-  monthTitle: {
-    color: '#F8FAFC',
-    fontSize: 16,
-    fontWeight: '700',
-    minWidth: 160,
-    textAlign: 'center',
-  },
-  summaryCard: {
+  userInfoRow: {
     flexDirection: 'row',
-    backgroundColor: '#1E293B',
-    marginHorizontal: 20,
-    marginTop: 6,
-    borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 8,
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: 10,
+    flex: 1,
   },
-  summaryCol: { 
-    flex: 1, 
+  avatarCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#10B981',
     alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarText: {
+    color: '#0B0F19',
+    fontWeight: '800',
+    fontSize: 13,
+  },
+  welcomeText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#F8FAFC',
+    lineHeight: 18,
+  },
+  userEmailText: {
+    fontSize: 11,
+    color: '#64748B',
+    maxWidth: 120,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  monthPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#131927',
+    borderRadius: 16,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  monthArrow: {
     paddingHorizontal: 4,
   },
-  divider: { 
-    width: 1, 
-    height: 28, 
-    backgroundColor: '#334155' 
+  monthPillText: {
+    color: '#F8FAFC',
+    fontSize: 11,
+    fontWeight: '700',
+    paddingHorizontal: 2,
   },
-  summaryLabel: { 
-    color: '#94A3B8', 
-    fontSize: 11, 
+  headerIconButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#131927',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  fixedTopSection: {
+    paddingHorizontal: 16,
+  },
+  heroBalanceCard: {
+    backgroundColor: '#131927',
+    borderRadius: 16,
+    padding: 16,
+    marginTop: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  heroLabel: {
+    color: '#64748B',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.8,
     marginBottom: 4,
+  },
+  heroBalanceVal: {
+    fontSize: 28,
+    fontWeight: '800',
+    letterSpacing: -0.5,
+    marginVertical: 2,
+  },
+  inOutRow: {
+    flexDirection: 'row',
+    backgroundColor: '#0B0F19',
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.03)',
+  },
+  inOutCol: {
+    flex: 1,
+  },
+  inOutLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 2,
+  },
+  inOutDivider: {
+    width: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    marginHorizontal: 10,
+  },
+  inOutLabel: {
+    color: '#64748B',
+    fontSize: 10,
     fontWeight: '600',
   },
-  summaryVal: { 
-    fontSize: 15, 
-    fontWeight: 'bold',
+  inVal: {
+    color: '#34D399',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  outVal: {
+    color: '#F87171',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  quickActionsContainer: {
+    marginVertical: 10,
+  },
+  quickActionsScroll: {
+    gap: 6,
+  },
+  actionPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#131927',
+    borderRadius: 16,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+    gap: 6,
+  },
+  actionPillExpense: {
+    borderColor: 'rgba(248, 113, 113, 0.25)',
+  },
+  actionPillIncome: {
+    borderColor: 'rgba(16, 185, 129, 0.25)',
+  },
+  actionPillText: {
+    color: '#F8FAFC',
+    fontSize: 11,
+    fontWeight: '600',
   },
   budgetCard: {
-    backgroundColor: '#1E293B',
-    marginHorizontal: 20,
-    marginTop: 10,
-    borderRadius: 12,
-    padding: 16,
+    backgroundColor: '#131927',
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+    marginBottom: 10,
   },
-  budgetTitle: { color: '#F8FAFC', fontSize: 14, fontWeight: 'bold', marginBottom: 12 },
-  budgetItem: { marginBottom: 10 },
-  budgetRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
-  budgetLabel: { color: '#94A3B8', fontSize: 12 },
-  budgetValue: { color: '#F8FAFC', fontSize: 12, fontWeight: '600' },
-  progressBg: { height: 6, backgroundColor: '#0F172A', borderRadius: 3, overflow: 'hidden' },
-  progressFill: { height: '100%', borderRadius: 3 },
+  budgetHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  budgetTitle: {
+    color: '#F8FAFC',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  budgetBaseVal: {
+    color: '#64748B',
+    fontSize: 10,
+  },
+  budgetItem: {
+    marginBottom: 6,
+  },
+  budgetRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 3,
+  },
+  budgetLabel: {
+    color: '#94A3B8',
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  budgetPct: {
+    color: '#64748B',
+    fontSize: 10,
+  },
+  budgetValue: {
+    color: '#F8FAFC',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  budgetValueMax: {
+    color: '#64748B',
+    fontWeight: '400',
+  },
+  progressBg: {
+    height: 3.5,
+    backgroundColor: '#0B0F19',
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 2,
+  },
   sectionHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    marginTop: 16,
-    marginBottom: 10,
-  },
-  sectionTitle: { 
-    color: '#F8FAFC', 
-    fontSize: 16, 
-    fontWeight: 'bold',
-  },
-  sectionSubtitle: {
-    color: '#64748B',
-    fontSize: 11,
-    marginTop: 1,
-  },
-  headerButtonsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  btnTools: {
-    backgroundColor: 'rgba(56, 189, 248, 0.1)',
-    borderWidth: 1,
-    borderColor: '#38BDF8',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
-  btnToolsText: {
-    color: '#38BDF8',
-    fontWeight: '700',
-    fontSize: 12,
-  },
-  btnAddMain: {
-    backgroundColor: '#10B981',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
-  btnAddMainText: { 
-    color: '#F8FAFC', 
-    fontWeight: 'bold', 
-    fontSize: 12,
-  },
-  listContent: {
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-  },
-  bottomBarBarrier: {
-    height: Platform.OS === 'android' ? 68 : 0,
-    backgroundColor: '#0F172A',
-    width: '100%',
-  },
-  txItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: '#1E293B',
-    padding: 14,
-    borderRadius: 10,
     marginBottom: 8,
   },
-  txDesc: { color: '#F8FAFC', fontSize: 15, fontWeight: '500' },
-  txSub: { color: '#64748B', fontSize: 12, marginTop: 2 },
-  splitTag: {
-    marginTop: 4,
+  sectionTitle: {
+    color: '#F8FAFC',
+    fontSize: 13,
+    fontWeight: '700',
   },
-  splitPendingText: {
-    color: '#F59E0B',
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  splitSettledText: {
-    color: '#34D399',
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  splitGiftText: {
-    color: '#38BDF8',
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  splitIncomeText: {
-    color: '#34D399',
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  rightActions: {
-    alignItems: 'flex-end',
-    justifyContent: 'center',
-  },
-  txAmount: { fontSize: 15, fontWeight: 'bold' },
-  statusBadge: {
-    marginTop: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  badgeSettled: {
-    backgroundColor: 'rgba(16, 185, 129, 0.15)',
-  },
-  badgePending: {
-    backgroundColor: 'rgba(245, 158, 11, 0.15)',
-  },
-  statusBadgeText: {
+  sectionCounter: {
+    color: '#64748B',
     fontSize: 10,
+  },
+  txFlatList: {
+    flex: 1,
+  },
+  listContent: {
+    paddingHorizontal: 16,
+    paddingBottom: Platform.OS === 'android' ? 140 : 110,
+  },
+  txCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#131927',
+    padding: 10,
+    borderRadius: 12,
+    marginBottom: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.03)',
+  },
+  txIconBox: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    backgroundColor: '#0B0F19',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.03)',
+  },
+  txInfoCol: {
+    flex: 1,
+    paddingRight: 8,
+  },
+  txDesc: {
+    color: '#F8FAFC',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  txSub: {
+    color: '#64748B',
+    fontSize: 10,
+    marginTop: 1,
+  },
+  splitBadge: {
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    alignSelf: 'flex-start',
+    marginTop: 3,
+  },
+  splitBadgeText: {
+    color: '#F59E0B',
+    fontSize: 9,
+    fontWeight: '700',
+  },
+  txRightCol: {
+    alignItems: 'flex-end',
+  },
+  txAmount: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  settledBadge: {
+    marginTop: 3,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  settledBadgeActive: {
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+  },
+  settledBadgePending: {
+    backgroundColor: 'rgba(245, 158, 11, 0.1)',
+  },
+  settledBadgeText: {
+    fontSize: 8.5,
     fontWeight: '700',
     textTransform: 'uppercase',
   },
-  textSettled: {
+  settledTextActive: {
     color: '#34D399',
   },
-  textPending: {
+  settledTextPending: {
     color: '#FBBF24',
   },
-  emptyText: { textAlign: 'center', color: '#64748B', marginTop: 24, fontSize: 14 },
-  toolsOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    justifyContent: 'flex-end',
-  },
-  toolsCard: {
-    backgroundColor: '#1E293B',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 20,
-    paddingBottom: Platform.OS === 'android' ? 36 : 28,
-  },
-  toolsHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  emptyContainer: {
     alignItems: 'center',
-    marginBottom: 16,
-  },
-  toolsTitle: {
-    color: '#F8FAFC',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  toolsClose: {
-    color: '#94A3B8',
-    fontSize: 18,
-    fontWeight: 'bold',
-    padding: 4,
-  },
-  toolsGrid: {
-    flexDirection: 'column',
-    gap: 8,
-  },
-  toolItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#0F172A',
-    padding: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#334155',
-    gap: 12,
-  },
-  toolIconBox: {
-    width: 38,
-    height: 38,
-    borderRadius: 8,
     justifyContent: 'center',
-    alignItems: 'center',
+    paddingVertical: 24,
   },
-  toolIcon: {
-    fontSize: 18,
-  },
-  toolLabel: {
-    color: '#F8FAFC',
+  emptyTitle: {
+    color: '#94A3B8',
     fontSize: 13,
-    fontWeight: 'bold',
+    fontWeight: '600',
   },
-  toolSub: {
+  emptySubtitle: {
     color: '#64748B',
     fontSize: 11,
-    marginTop: 1,
+    textAlign: 'center',
+    marginTop: 2,
+    paddingHorizontal: 30,
+  },
+  bottomBarContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: Platform.OS === 'android' ? 104 : 88,
+    backgroundColor: '#0B0F19',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.06)',
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-around',
+    paddingTop: 10,
+    paddingBottom: Platform.OS === 'android' ? 44 : 28,
+    paddingHorizontal: 12,
+  },
+  navTab: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    flex: 1,
+  },
+  navLabel: {
+    fontSize: 10,
+    color: '#64748B',
+    marginTop: 3,
+    fontWeight: '600',
+  },
+  navLabelActive: {
+    color: '#10B981',
+    fontWeight: '700',
+  },
+  activeDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: '#10B981',
+    marginTop: 2,
+  },
+  fabCenter: {
+    top: -24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 58,
+    height: 58,
+  },
+  fabInner: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: '#10B981',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+    elevation: 10,
   },
 });

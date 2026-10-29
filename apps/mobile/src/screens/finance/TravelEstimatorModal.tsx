@@ -12,6 +12,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { supabase } from '../../config/supabase';
 
 interface Props {
@@ -35,31 +36,25 @@ export const TravelEstimatorModal: React.FC<Props> = ({
   onClose,
   onEventCreated,
 }) => {
-  // Perfil Selecionado
   const [selectedProfile, setSelectedProfile] = useState<TravelProfile>('moderate');
 
-  // Entradas de Cidades
   const [origin, setOrigin] = useState('');
   const [destination, setDestination] = useState('');
 
-  // Detalhes confirmados do GPS
   const [resolvedOrigin, setResolvedOrigin] = useState<ResolvedCity | null>(null);
   const [resolvedDest, setResolvedDest] = useState<ResolvedCity | null>(null);
 
-  // Parâmetros de Viagem
-  const [rawRouteKm, setRawRouteKm] = useState<number | null>(null); // Km sem margem
-  const [distanceKm, setDistanceKm] = useState(''); // Km efetivo no cálculo
-  const [hasUrbanMargin, setHasUrbanMargin] = useState(true); // +12% deslocamento local
+  const [rawRouteKm, setRawRouteKm] = useState<number | null>(null);
+  const [distanceKm, setDistanceKm] = useState('');
+  const [hasUrbanMargin, setHasUrbanMargin] = useState(true);
   const [days, setDays] = useState('3');
   const [people, setPeople] = useState('2');
 
-  // Transporte
   const [fuelPrice, setFuelPrice] = useState('6.19');
   const [consumptionKmPerL, setConsumptionKmPerL] = useState('11');
   const [autoTollEnabled, setAutoTollEnabled] = useState(false);
   const [tollCost, setTollCost] = useState('0');
 
-  // Hospedagem & Alimentação (Inicia no perfil Moderado)
   const [hotelNightPrice, setHotelNightPrice] = useState('220');
   const [roomsCount, setRoomsCount] = useState('1');
   const [foodPerPersonPerDay, setFoodPerPersonPerDay] = useState('90');
@@ -68,25 +63,23 @@ export const TravelEstimatorModal: React.FC<Props> = ({
   const [loadingRoute, setLoadingRoute] = useState(false);
   const [savingEvent, setSavingEvent] = useState(false);
 
-  // Aplicar Perfis Pré-definidos
   const handleSelectProfile = (profile: TravelProfile) => {
     setSelectedProfile(profile);
     if (profile === 'budget') {
-      setHotelNightPrice('120'); // Hostel / Quarto simples
-      setFoodPerPersonPerDay('60'); // Refeições simples / PF / lanches
+      setHotelNightPrice('120');
+      setFoodPerPersonPerDay('60');
       setExtraExpenses('80');
     } else if (profile === 'moderate') {
-      setHotelNightPrice('220'); // Hotel 3 estrelas / Pousada padrão
-      setFoodPerPersonPerDay('90'); // 3 refeições executivas
+      setHotelNightPrice('220');
+      setFoodPerPersonPerDay('90');
       setExtraExpenses('150');
     } else if (profile === 'comfort') {
-      setHotelNightPrice('380'); // Hotel superior / Resorts / Luxo
-      setFoodPerPersonPerDay('160'); // Restaurantes à la carte
+      setHotelNightPrice('380');
+      setFoodPerPersonPerDay('160');
       setExtraExpenses('300');
     }
   };
 
-  // Consulta do Nominatim com Estado
   const resolveCityGeo = async (inputCity: string): Promise<ResolvedCity> => {
     const query = inputCity.trim();
     const url =
@@ -103,7 +96,7 @@ export const TravelEstimatorModal: React.FC<Props> = ({
     const data = await res.json();
 
     if (!data || data.length === 0) {
-      throw new Error(`Não encontramos "${inputCity}". Informe a sigla do estado (ex: ${inputCity}, PR).`);
+      throw new Error(`Não encontramos "${inputCity}". Indique a sigla do estado (ex: ${inputCity}, PR).`);
     }
 
     const item = data[0];
@@ -148,11 +141,9 @@ export const TravelEstimatorModal: React.FC<Props> = ({
         const roundTripRaw = kmTrecho * 2;
         setRawRouteKm(roundTripRaw);
 
-        // Aplica margem urbana (+12%) se habilitada
         const finalKm = hasUrbanMargin ? Math.round(roundTripRaw * 1.12) : roundTripRaw;
         setDistanceKm(String(finalKm));
 
-        // Se pedágio automático estiver ativo, estima R$ 0,14 por km de estrada pura
         if (autoTollEnabled) {
           const estimatedToll = Math.round(roundTripRaw * 0.14);
           setTollCost(String(estimatedToll));
@@ -172,7 +163,6 @@ export const TravelEstimatorModal: React.FC<Props> = ({
     }
   };
 
-  // Alternar a margem urbana manualmente
   const toggleUrbanMargin = () => {
     const nextState = !hasUrbanMargin;
     setHasUrbanMargin(nextState);
@@ -182,7 +172,6 @@ export const TravelEstimatorModal: React.FC<Props> = ({
     }
   };
 
-  // Alternar o pedágio automático
   const toggleAutoToll = () => {
     const nextState = !autoTollEnabled;
     setAutoTollEnabled(nextState);
@@ -195,7 +184,6 @@ export const TravelEstimatorModal: React.FC<Props> = ({
     }
   };
 
-  // Cálculos
   const numDays = Math.max(1, parseInt(days, 10) || 1);
   const numPeople = Math.max(1, parseInt(people, 10) || 1);
   const numRooms = Math.max(1, parseInt(roomsCount, 10) || 1);
@@ -229,12 +217,12 @@ export const TravelEstimatorModal: React.FC<Props> = ({
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      if (!user) throw new Error('Usuário não autenticado.');
+      if (!user) throw new Error('Utilizador não autenticado.');
 
-      const routeDesc = finalOrigName ? `${finalOrigName} ➔ ${finalDestName}` : finalDestName;
+      const routeDesc = finalOrigName ? `${finalOrigName} -> ${finalDestName}` : finalDestName;
       const profileLabel =
         selectedProfile === 'budget'
-          ? 'Mochilão / Econômico'
+          ? 'Mochilão / Económico'
           : selectedProfile === 'comfort'
           ? 'Conforto / Casal'
           : 'Padrão / Moderado';
@@ -245,7 +233,7 @@ export const TravelEstimatorModal: React.FC<Props> = ({
         `• Duração: ${numDays} dias (${nights} noites) | ${numPeople} pessoa(s)\n` +
         `• Transporte: R$ ${transportTotal.toFixed(2)} (${numDistance} km rodados` +
         (hasUrbanMargin && rawRouteKm ? ` [inclui +12% de margem urbana sobre ${rawRouteKm} km de estrada]` : '') +
-        (autoTollEnabled ? ` [inclui R$ ${tollCost} de pedágios estimados por média rodoviária]` : '') +
+        (autoTollEnabled ? ` [inclui R$ ${tollCost} de pedágios estimados]` : '') +
         `)\n` +
         `• Hospedagem: R$ ${hotelTotal.toFixed(2)} (${numRooms} quarto(s) a R$ ${numHotelDaily.toFixed(2)}/noite)\n` +
         `• Alimentação: R$ ${foodTotal.toFixed(2)} (R$ ${numFoodDaily.toFixed(2)}/dia/pessoa)\n` +
@@ -268,11 +256,11 @@ export const TravelEstimatorModal: React.FC<Props> = ({
 
       if (error) throw error;
 
-      Alert.alert('Sucesso', 'Viagem criada com a memória de cálculo e margens registradas!');
+      Alert.alert('Sucesso', 'Viagem criada com a meta orçamentada!');
       if (onEventCreated) onEventCreated();
       onClose();
     } catch (err: any) {
-      Alert.alert('Erro', err.message || 'Falha ao salvar evento.');
+      Alert.alert('Erro', err.message || 'Falha ao guardar viagem.');
     } finally {
       setSavingEvent(false);
     }
@@ -285,19 +273,23 @@ export const TravelEstimatorModal: React.FC<Props> = ({
         style={styles.overlay}
       >
         <View style={styles.card}>
+          <View style={styles.dragHandleBox}>
+            <View style={styles.dragHandle} />
+          </View>
+
           <View style={styles.headerRow}>
             <View>
-              <Text style={styles.title}>Simulador de Custos de Viagem</Text>
-              <Text style={styles.sub}>Planejamento realista com margem de segurança</Text>
+              <Text style={styles.title}>Estimador de Viagem</Text>
+              <Text style={styles.sub}>Planeamento com margem rodoviária e urbana</Text>
             </View>
-            <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-              <Text style={styles.closeBtnText}>✕</Text>
+            <TouchableOpacity onPress={onClose} style={styles.closeBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Feather name="x" size={16} color="#94A3B8" />
             </TouchableOpacity>
           </View>
 
-          <ScrollView showsVerticalScrollIndicator={false}>
-            {/* Seletor de Perfis Rápidos */}
-            <Text style={styles.sectionLabel}>Estilo de Viagem</Text>
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
+            {/* Perfis Rápidos */}
+            <Text style={styles.fieldLabel}>PERFIL DE VIAGEM</Text>
             <View style={styles.profilesRow}>
               <TouchableOpacity
                 style={[
@@ -307,14 +299,19 @@ export const TravelEstimatorModal: React.FC<Props> = ({
                 onPress={() => handleSelectProfile('budget')}
                 activeOpacity={0.7}
               >
-                <Text style={styles.profileEmoji}>🎒</Text>
+                <Feather 
+                  name="compass" 
+                  size={16} 
+                  color={selectedProfile === 'budget' ? '#38BDF8' : '#64748B'} 
+                  style={{ marginBottom: 4 }} 
+                />
                 <Text
                   style={[
                     styles.profileBtnText,
                     selectedProfile === 'budget' && styles.profileBtnTextActive,
                   ]}
                 >
-                  Econômico
+                  Económico
                 </Text>
                 <Text style={styles.profileSubText}>Hostel & Lanches</Text>
               </TouchableOpacity>
@@ -327,7 +324,12 @@ export const TravelEstimatorModal: React.FC<Props> = ({
                 onPress={() => handleSelectProfile('moderate')}
                 activeOpacity={0.7}
               >
-                <Text style={styles.profileEmoji}>🏨</Text>
+                <Feather 
+                  name="home" 
+                  size={16} 
+                  color={selectedProfile === 'moderate' ? '#F59E0B' : '#64748B'} 
+                  style={{ marginBottom: 4 }} 
+                />
                 <Text
                   style={[
                     styles.profileBtnText,
@@ -347,7 +349,12 @@ export const TravelEstimatorModal: React.FC<Props> = ({
                 onPress={() => handleSelectProfile('comfort')}
                 activeOpacity={0.7}
               >
-                <Text style={styles.profileEmoji}>🥂</Text>
+                <Feather 
+                  name="award" 
+                  size={16} 
+                  color={selectedProfile === 'comfort' ? '#10B981' : '#64748B'} 
+                  style={{ marginBottom: 4 }} 
+                />
                 <Text
                   style={[
                     styles.profileBtnText,
@@ -361,13 +368,12 @@ export const TravelEstimatorModal: React.FC<Props> = ({
             </View>
 
             {/* Rota e Cidades */}
-            <Text style={styles.sectionLabel}>Cidades & Estados</Text>
+            <Text style={styles.fieldLabel}>CIDADES & ESTADOS</Text>
             <View style={styles.rowInputs}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.label}>Origem</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="Ex: Londrina, PR"
+                  placeholder="Origem (ex: Londrina, PR)"
                   placeholderTextColor="#64748B"
                   value={origin}
                   onChangeText={(text) => {
@@ -377,10 +383,9 @@ export const TravelEstimatorModal: React.FC<Props> = ({
                 />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.label}>Destino</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="Ex: Gramado, RS"
+                  placeholder="Destino (ex: Curitiba, PR)"
                   placeholderTextColor="#64748B"
                   value={destination}
                   onChangeText={(text) => {
@@ -395,32 +400,38 @@ export const TravelEstimatorModal: React.FC<Props> = ({
               style={styles.calcDistanceBtn}
               onPress={handleCalculateDistance}
               disabled={loadingRoute}
+              activeOpacity={0.8}
             >
               {loadingRoute ? (
-                <ActivityIndicator size="small" color="#38BDF8" />
+                <ActivityIndicator size="small" color="#10B981" />
               ) : (
-                <Text style={styles.calcDistanceBtnText}>📍 Identificar Cidades & Traçar Km</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Feather name="navigation" size={13} color="#10B981" />
+                  <Text style={styles.calcDistanceBtnText}>Traçar Rota & Distância Automática</Text>
+                </View>
               )}
             </TouchableOpacity>
 
-            {/* Banner com a rota confirmada */}
             {(resolvedOrigin || resolvedDest) && (
               <View style={styles.geoConfirmedBanner}>
-                <Text style={styles.geoConfirmedTitle}>📍 Rota Confirmada pelo Mapa:</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Feather name="map-pin" size={12} color="#34D399" />
+                  <Text style={styles.geoConfirmedTitle}>Rota traçada:</Text>
+                </View>
                 <Text style={styles.geoConfirmedText}>
                   {resolvedOrigin ? resolvedOrigin.fullTitle : origin}
-                  {' ➔ '}
+                  {' -> '}
                   {resolvedDest ? resolvedDest.fullTitle : destination}
                 </Text>
               </View>
             )}
 
-            {/* Parâmetros de Duração e Km com Margem Urbana */}
+            {/* Parâmetros Básicos */}
             <View style={styles.rowInputs}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.label}>Km Efetivo (Ida e Volta)</Text>
+                <Text style={styles.fieldLabel}>KM TOTAL</Text>
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, styles.inputBold]}
                   placeholder="0"
                   placeholderTextColor="#64748B"
                   keyboardType="numeric"
@@ -429,7 +440,7 @@ export const TravelEstimatorModal: React.FC<Props> = ({
                 />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.label}>Duração (Dias)</Text>
+                <Text style={styles.fieldLabel}>DIAS</Text>
                 <TextInput
                   style={styles.input}
                   keyboardType="numeric"
@@ -438,7 +449,7 @@ export const TravelEstimatorModal: React.FC<Props> = ({
                 />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.label}>Pessoas</Text>
+                <Text style={styles.fieldLabel}>PESSOAS</Text>
                 <TextInput
                   style={styles.input}
                   keyboardType="numeric"
@@ -448,31 +459,31 @@ export const TravelEstimatorModal: React.FC<Props> = ({
               </View>
             </View>
 
-            {/* Margem urbana de deslocamento local */}
+            {/* Checkbox Margem Urbana */}
             <TouchableOpacity
               style={styles.checkboxFeatureRow}
               onPress={toggleUrbanMargin}
               activeOpacity={0.7}
             >
               <View style={[styles.checkboxBox, hasUrbanMargin && styles.checkboxBoxChecked]}>
-                {hasUrbanMargin && <Text style={styles.checkboxCheckmark}>✓</Text>}
+                {hasUrbanMargin && <Feather name="check" size={11} color="#0B0F19" />}
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.checkboxFeatureTitle}>
-                  Margem de Segurança Urbana (+12% de Km)
+                  Margem Urbana (+12% de Km)
                 </Text>
                 <Text style={styles.checkboxFeatureSub}>
-                  Adiciona quilômetros extras para deslocamento interno (hotel, atrações e restaurantes).
-                  {rawRouteKm ? ` (Estrada: ${rawRouteKm} km ➔ Efetivo: ${distanceKm} km)` : ''}
+                  Deslocamento local para passeios, hotel e restaurantes.
+                  {rawRouteKm ? ` (Estrada: ${rawRouteKm} km -> Efetivo: ${distanceKm} km)` : ''}
                 </Text>
               </View>
             </TouchableOpacity>
 
-            {/* Transporte */}
-            <Text style={styles.sectionLabel}>Combustível & Pedágios</Text>
+            {/* Combustível & Portagens */}
+            <Text style={styles.fieldLabel}>COMBUSTÍVEL & PORTAGENS</Text>
             <View style={styles.rowInputs}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.label}>Gasolina (R$/L)</Text>
+                <Text style={styles.fieldLabelSmall}>Gasolina (R$/L)</Text>
                 <TextInput
                   style={styles.input}
                   keyboardType="numeric"
@@ -481,7 +492,7 @@ export const TravelEstimatorModal: React.FC<Props> = ({
                 />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.label}>Consumo (Km/L)</Text>
+                <Text style={styles.fieldLabelSmall}>Consumo (Km/L)</Text>
                 <TextInput
                   style={styles.input}
                   keyboardType="numeric"
@@ -490,7 +501,7 @@ export const TravelEstimatorModal: React.FC<Props> = ({
                 />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.label}>Pedágios (R$)</Text>
+                <Text style={styles.fieldLabelSmall}>Portagens (R$)</Text>
                 <TextInput
                   style={styles.input}
                   keyboardType="numeric"
@@ -500,30 +511,30 @@ export const TravelEstimatorModal: React.FC<Props> = ({
               </View>
             </View>
 
-            {/* Checkbox de Estimativa Heurística de Pedágio */}
+            {/* Checkbox Estimativa de Portagem */}
             <TouchableOpacity
               style={styles.checkboxFeatureRow}
               onPress={toggleAutoToll}
               activeOpacity={0.7}
             >
               <View style={[styles.checkboxBox, autoTollEnabled && styles.checkboxBoxChecked]}>
-                {autoTollEnabled && <Text style={styles.checkboxCheckmark}>✓</Text>}
+                {autoTollEnabled && <Feather name="check" size={11} color="#0B0F19" />}
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.checkboxFeatureTitle}>
-                  Estimar pedágios automaticamente (~R$ 0,14/km)
+                  Estimar portagens automaticamente (~R$ 0,14/km)
                 </Text>
                 <Text style={styles.checkboxFeatureSub}>
-                  Calcula uma média de tarifas cobradas em rodovias concedidas brasileiras.
+                  Média tarifária cobrada nas rodovias concedidas do Brasil.
                 </Text>
               </View>
             </TouchableOpacity>
 
-            {/* Hospedagem e Alimentação */}
-            <Text style={styles.sectionLabel}>Hospedagem & Alimentação</Text>
+            {/* Alojamento e Alimentação */}
+            <Text style={styles.fieldLabel}>HOSPEDAGEM & ALIMENTAÇÃO</Text>
             <View style={styles.rowInputs}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.label}>Diária Quarto (R$)</Text>
+                <Text style={styles.fieldLabelSmall}>Diária (R$)</Text>
                 <TextInput
                   style={styles.input}
                   keyboardType="numeric"
@@ -532,7 +543,7 @@ export const TravelEstimatorModal: React.FC<Props> = ({
                 />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.label}>Qtd. Quartos</Text>
+                <Text style={styles.fieldLabelSmall}>Qtd. Quartos</Text>
                 <TextInput
                   style={styles.input}
                   keyboardType="numeric"
@@ -544,7 +555,7 @@ export const TravelEstimatorModal: React.FC<Props> = ({
 
             <View style={styles.rowInputs}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.label}>Refeição/Dia/Pessoa (R$)</Text>
+                <Text style={styles.fieldLabelSmall}>Refeição/Dia/Pessoa</Text>
                 <TextInput
                   style={styles.input}
                   keyboardType="numeric"
@@ -553,7 +564,7 @@ export const TravelEstimatorModal: React.FC<Props> = ({
                 />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.label}>Extras/Passeios (R$)</Text>
+                <Text style={styles.fieldLabelSmall}>Extras & Lazer (R$)</Text>
                 <TextInput
                   style={styles.input}
                   keyboardType="numeric"
@@ -563,34 +574,46 @@ export const TravelEstimatorModal: React.FC<Props> = ({
               </View>
             </View>
 
-            {/* Resumo */}
+            {/* Painel do Total Estimado */}
             <View style={styles.summaryCard}>
-              <Text style={styles.summaryTitle}>Discriminação dos Custos Estimados</Text>
+              <Text style={styles.summaryTitle}>DISCRIMINAÇÃO DOS CUSTOS</Text>
 
               <View style={styles.summaryLine}>
-                <Text style={styles.summaryLineLabel}>
-                  ⛽ Combustível + Pedágios ({numDistance} km):
-                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Feather name="truck" size={12} color="#94A3B8" />
+                  <Text style={styles.summaryLineLabel}>
+                    Transporte ({numDistance} km):
+                  </Text>
+                </View>
                 <Text style={styles.summaryLineVal}>R$ {transportTotal.toFixed(2)}</Text>
               </View>
 
               <View style={styles.summaryLine}>
-                <Text style={styles.summaryLineLabel}>
-                  🏨 Hospedagem ({nights} noites em {numRooms} qto):
-                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Feather name="home" size={12} color="#94A3B8" />
+                  <Text style={styles.summaryLineLabel}>
+                    Hospedagem ({nights} noites):
+                  </Text>
+                </View>
                 <Text style={styles.summaryLineVal}>R$ {hotelTotal.toFixed(2)}</Text>
               </View>
 
               <View style={styles.summaryLine}>
-                <Text style={styles.summaryLineLabel}>
-                  🍽️ Alimentação ({numDays} dias p/ {numPeople} pessoas):
-                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Feather name="coffee" size={12} color="#94A3B8" />
+                  <Text style={styles.summaryLineLabel}>
+                    Alimentação ({numDays} dias p/ {numPeople} pessoas):
+                  </Text>
+                </View>
                 <Text style={styles.summaryLineVal}>R$ {foodTotal.toFixed(2)}</Text>
               </View>
 
               {numExtra > 0 && (
                 <View style={styles.summaryLine}>
-                  <Text style={styles.summaryLineLabel}>🎟️ Passeios & Extras:</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Feather name="tag" size={12} color="#94A3B8" />
+                    <Text style={styles.summaryLineLabel}>Extras / Passeios:</Text>
+                  </View>
                   <Text style={styles.summaryLineVal}>R$ {numExtra.toFixed(2)}</Text>
                 </View>
               )}
@@ -599,7 +622,7 @@ export const TravelEstimatorModal: React.FC<Props> = ({
 
               <View style={styles.summaryTotalRow}>
                 <View>
-                  <Text style={styles.totalLabel}>CUSTO TOTAL ESTIMADO</Text>
+                  <Text style={styles.totalLabel}>ORÇAMENTO SUGERIDO</Text>
                   <Text style={styles.totalValue}>R$ {grandTotal.toFixed(2)}</Text>
                 </View>
                 <View style={{ alignItems: 'flex-end' }}>
@@ -609,23 +632,26 @@ export const TravelEstimatorModal: React.FC<Props> = ({
               </View>
             </View>
 
-            {/* Botão de Criação */}
+            {/* Ações */}
             <TouchableOpacity
               style={styles.saveAsEventBtn}
               onPress={handleCreateAsEvent}
               disabled={savingEvent}
-              activeOpacity={0.7}
+              activeOpacity={0.8}
             >
               {savingEvent ? (
-                <ActivityIndicator color="#0F172A" />
+                <ActivityIndicator color="#0B0F19" />
               ) : (
-                <Text style={styles.saveAsEventBtnText}>
-                  ✈️ Criar Viagem com essa Meta
-                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Feather name="send" size={14} color="#0B0F19" />
+                  <Text style={styles.saveAsEventBtnText}>
+                    Criar Viagem com essa Meta
+                  </Text>
+                </View>
               )}
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.closeModalBtn} onPress={onClose}>
+            <TouchableOpacity style={styles.closeModalBtn} onPress={onClose} activeOpacity={0.7}>
               <Text style={styles.closeModalBtnText}>Fechar</Text>
             </TouchableOpacity>
           </ScrollView>
@@ -638,33 +664,66 @@ export const TravelEstimatorModal: React.FC<Props> = ({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.75)',
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
     justifyContent: 'flex-end',
   },
   card: {
-    backgroundColor: '#1E293B',
+    backgroundColor: '#0B0F19',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingBottom: Platform.OS === 'android' ? 24 : 36,
     maxHeight: '94%',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  dragHandleBox: {
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  dragHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 14,
+    marginBottom: 12,
   },
-  title: { fontSize: 18, fontWeight: 'bold', color: '#F8FAFC' },
-  sub: { fontSize: 11, color: '#64748B', marginTop: 1 },
-  closeBtn: { padding: 4 },
-  closeBtnText: { color: '#94A3B8', fontSize: 18, fontWeight: 'bold' },
-  sectionLabel: {
-    color: '#38BDF8',
+  title: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#F8FAFC',
+    letterSpacing: -0.3,
+  },
+  sub: {
     fontSize: 11,
-    fontWeight: 'bold',
-    textTransform: 'uppercase',
-    marginTop: 10,
-    marginBottom: 8,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  closeBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#131927',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fieldLabel: {
+    color: '#64748B',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    marginBottom: 6,
+    marginTop: 4,
+  },
+  fieldLabelSmall: {
+    color: '#64748B',
+    fontSize: 10,
+    marginBottom: 4,
   },
   profilesRow: {
     flexDirection: 'row',
@@ -673,10 +732,10 @@ const styles = StyleSheet.create({
   },
   profileBtn: {
     flex: 1,
-    backgroundColor: '#0F172A',
+    backgroundColor: '#131927',
     borderWidth: 1,
-    borderColor: '#334155',
-    borderRadius: 10,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+    borderRadius: 12,
     paddingVertical: 10,
     paddingHorizontal: 6,
     alignItems: 'center',
@@ -693,51 +752,64 @@ const styles = StyleSheet.create({
     borderColor: '#10B981',
     backgroundColor: 'rgba(16, 185, 129, 0.15)',
   },
-  profileEmoji: { fontSize: 18, marginBottom: 2 },
-  profileBtnText: { color: '#94A3B8', fontSize: 12, fontWeight: 'bold' },
-  profileBtnTextActive: { color: '#F8FAFC' },
-  profileSubText: { color: '#64748B', fontSize: 9, marginTop: 2, textAlign: 'center' },
-  label: { color: '#94A3B8', fontSize: 11, marginBottom: 4 },
+  profileBtnText: {
+    color: '#94A3B8',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  profileBtnTextActive: {
+    color: '#F8FAFC',
+  },
+  profileSubText: {
+    color: '#64748B',
+    fontSize: 9,
+    marginTop: 2,
+    textAlign: 'center',
+  },
   rowInputs: {
     flexDirection: 'row',
     gap: 8,
     marginBottom: 8,
   },
   input: {
-    backgroundColor: '#0F172A',
+    backgroundColor: '#131927',
     color: '#F8FAFC',
-    borderRadius: 8,
-    padding: 10,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.06)',
     fontSize: 13,
   },
+  inputBold: {
+    fontWeight: '700',
+  },
   calcDistanceBtn: {
-    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+    backgroundColor: '#131927',
     borderWidth: 1,
-    borderColor: '#38BDF8',
-    borderRadius: 8,
+    borderColor: '#10B981',
+    borderRadius: 10,
     paddingVertical: 10,
     alignItems: 'center',
     marginBottom: 8,
   },
   calcDistanceBtnText: {
-    color: '#38BDF8',
+    color: '#10B981',
     fontSize: 12,
-    fontWeight: 'bold',
+    fontWeight: '700',
   },
   geoConfirmedBanner: {
-    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+    backgroundColor: 'rgba(16, 185, 129, 0.08)',
     borderWidth: 1,
-    borderColor: '#10B981',
-    borderRadius: 8,
+    borderColor: 'rgba(16, 185, 129, 0.25)',
+    borderRadius: 10,
     padding: 10,
     marginBottom: 10,
   },
   geoConfirmedTitle: {
     color: '#34D399',
     fontSize: 11,
-    fontWeight: 'bold',
+    fontWeight: '700',
     marginBottom: 2,
   },
   geoConfirmedText: {
@@ -748,36 +820,32 @@ const styles = StyleSheet.create({
   checkboxFeatureRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    backgroundColor: '#0F172A',
+    backgroundColor: '#131927',
     borderWidth: 1,
-    borderColor: '#334155',
-    borderRadius: 8,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 10,
     padding: 10,
-    marginBottom: 10,
+    marginBottom: 8,
     gap: 10,
   },
   checkboxBox: {
-    width: 20,
-    height: 20,
+    width: 18,
+    height: 18,
     borderRadius: 5,
     borderWidth: 1.5,
     borderColor: '#64748B',
     justifyContent: 'center',
     alignItems: 'center',
     marginTop: 2,
+    backgroundColor: '#0B0F19',
   },
   checkboxBoxChecked: {
-    backgroundColor: '#38BDF8',
-    borderColor: '#38BDF8',
-  },
-  checkboxCheckmark: {
-    color: '#0F172A',
-    fontSize: 12,
-    fontWeight: 'bold',
+    backgroundColor: '#10B981',
+    borderColor: '#10B981',
   },
   checkboxFeatureTitle: {
     color: '#F8FAFC',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
   },
   checkboxFeatureSub: {
@@ -787,18 +855,19 @@ const styles = StyleSheet.create({
     lineHeight: 14,
   },
   summaryCard: {
-    backgroundColor: '#0F172A',
-    borderRadius: 12,
-    padding: 14,
+    backgroundColor: '#131927',
+    borderRadius: 16,
+    padding: 16,
     marginTop: 10,
     marginBottom: 14,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
   summaryTitle: {
-    color: '#F8FAFC',
-    fontSize: 13,
-    fontWeight: 'bold',
+    color: '#64748B',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.6,
     marginBottom: 10,
   },
   summaryLine: {
@@ -806,11 +875,18 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 6,
   },
-  summaryLineLabel: { color: '#94A3B8', fontSize: 12 },
-  summaryLineVal: { color: '#F8FAFC', fontSize: 12, fontWeight: '600' },
+  summaryLineLabel: {
+    color: '#94A3B8',
+    fontSize: 11,
+  },
+  summaryLineVal: {
+    color: '#F8FAFC',
+    fontSize: 11,
+    fontWeight: '600',
+  },
   summaryDivider: {
     height: 1,
-    backgroundColor: '#334155',
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
     marginVertical: 10,
   },
   summaryTotalRow: {
@@ -818,32 +894,50 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  totalLabel: { color: '#94A3B8', fontSize: 11, fontWeight: 'bold' },
-  totalValue: { color: '#10B981', fontSize: 20, fontWeight: 'bold' },
-  perPersonLabel: { color: '#94A3B8', fontSize: 11 },
-  perPersonVal: { color: '#38BDF8', fontSize: 15, fontWeight: 'bold' },
+  totalLabel: {
+    color: '#64748B',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+  },
+  totalValue: {
+    color: '#34D399',
+    fontSize: 22,
+    fontWeight: '800',
+  },
+  perPersonLabel: {
+    color: '#64748B',
+    fontSize: 10,
+  },
+  perPersonVal: {
+    color: '#38BDF8',
+    fontSize: 14,
+    fontWeight: '700',
+  },
   saveAsEventBtn: {
     backgroundColor: '#10B981',
     borderRadius: 10,
-    paddingVertical: 13,
+    paddingVertical: 12,
     alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 8,
   },
   saveAsEventBtnText: {
-    color: '#0F172A',
-    fontWeight: 'bold',
-    fontSize: 14,
+    color: '#0B0F19',
+    fontWeight: '800',
+    fontSize: 13,
   },
   closeModalBtn: {
-    backgroundColor: '#334155',
+    backgroundColor: '#131927',
     borderRadius: 10,
     paddingVertical: 11,
     alignItems: 'center',
-    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
   closeModalBtnText: {
-    color: '#F8FAFC',
+    color: '#94A3B8',
     fontWeight: '600',
-    fontSize: 13,
+    fontSize: 12,
   },
 });

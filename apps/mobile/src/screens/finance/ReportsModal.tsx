@@ -10,7 +10,9 @@ import {
   Share,
   Alert,
   TextInput,
+  Platform,
 } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as XLSX from 'xlsx';
@@ -58,76 +60,69 @@ export const ReportsModal: React.FC<Props> = ({
   const [selectedPerson, setSelectedPerson] = useState<string | null>(null);
   const [peopleList, setPeopleList] = useState<string[]>([]);
 
-  // Datas para o modo personalizado
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
 
   const [loading, setLoading] = useState(false);
   const [metrics, setMetrics] = useState<ReportMetrics | null>(null);
 
-// Converte "05102026", "05/10/2026" ou "2026-10-05" de forma à prova de falhas para "2026-10-05"
-const normalizeToISODate = (input: string, fallback: string): string => {
-  const clean = input.trim();
-  if (!clean) return fallback;
+  const normalizeToISODate = (input: string, fallback: string): string => {
+    const clean = input.trim();
+    if (!clean) return fallback;
 
-  // Caso venha com barras (DD/MM/AAAA)
-  if (clean.includes('/')) {
-    const parts = clean.split('/');
-    if (parts.length === 3) {
-      const [d, m, y] = parts;
-      const year = y.length === 2 ? `20${y}` : y;
-      return `${year}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+    if (clean.includes('/')) {
+      const parts = clean.split('/');
+      if (parts.length === 3) {
+        const [d, m, y] = parts;
+        const year = y.length === 2 ? `20${y}` : y;
+        return `${year}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+      }
     }
-  }
 
-  // Caso venha apenas com 8 dígitos seguidos (DDMMAAAA)
-  const digitsOnly = clean.replace(/\D/g, '');
-  if (digitsOnly.length === 8) {
-    const d = digitsOnly.substring(0, 2);
-    const m = digitsOnly.substring(2, 4);
-    const y = digitsOnly.substring(4, 8);
-    return `${y}-${m}-${d}`;
-  }
-
-  // Caso já esteja no padrão ISO (AAAA-MM-DD)
-  if (clean.includes('-')) {
-    const parts = clean.split('-');
-    if (parts.length === 3 && parts[0].length === 4) {
-      return clean;
+    const digitsOnly = clean.replace(/\D/g, '');
+    if (digitsOnly.length === 8) {
+      const d = digitsOnly.substring(0, 2);
+      const m = digitsOnly.substring(2, 4);
+      const y = digitsOnly.substring(4, 8);
+      return `${y}-${m}-${d}`;
     }
-  }
 
-  return 'invalid';
-};
+    if (clean.includes('-')) {
+      const parts = clean.split('-');
+      if (parts.length === 3 && parts[0].length === 4) {
+        return clean;
+      }
+    }
 
-const applyDateMask = (text: string) => {
-  const digits = text.replace(/\D/g, '').slice(0, 8);
-  if (digits.length <= 2) return digits;
-  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
-  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
-};
+    return 'invalid';
+  };
 
-// Valida se dia, mês e ano formam uma data real no calendário gregoriano
-const isValidCalendarDate = (isoStr: string): boolean => {
-  const parts = isoStr.split('-');
-  if (parts.length !== 3) return false;
+  const applyDateMask = (text: string) => {
+    const digits = text.replace(/\D/g, '').slice(0, 8);
+    if (digits.length <= 2) return digits;
+    if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+    return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+  };
 
-  const year = parseInt(parts[0], 10);
-  const month = parseInt(parts[1], 10);
-  const day = parseInt(parts[2], 10);
+  const isValidCalendarDate = (isoStr: string): boolean => {
+    const parts = isoStr.split('-');
+    if (parts.length !== 3) return false;
 
-  if (isNaN(year) || isNaN(month) || isNaN(day)) return false;
-  if (year < 1900 || year > 2100) return false;
-  if (month < 1 || month > 12) return false;
+    const year = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10);
+    const day = parseInt(parts[2], 10);
 
-  // Verifica se o dia é compatível com o mês/ano (inclui anos bissextos)
-  const dateObj = new Date(year, month - 1, day);
-  return (
-    dateObj.getFullYear() === year &&
-    dateObj.getMonth() === month - 1 &&
-    dateObj.getDate() === day
-  );
-};
+    if (isNaN(year) || isNaN(month) || isNaN(day)) return false;
+    if (year < 1900 || year > 2100) return false;
+    if (month < 1 || month > 12) return false;
+
+    const dateObj = new Date(year, month - 1, day);
+    return (
+      dateObj.getFullYear() === year &&
+      dateObj.getMonth() === month - 1 &&
+      dateObj.getDate() === day
+    );
+  };
 
   const getDateRange = () => {
     const refDate = currentMonthDate;
@@ -166,7 +161,6 @@ const isValidCalendarDate = (isoStr: string): boolean => {
       startDate = start.toISOString().split('T')[0];
       endDate = end.toISOString().split('T')[0];
     } else {
-      // Modo custom (aceita tanto DD/MM/AAAA como AAAA-MM-DD)
       const defaultStart = new Date(refDate.getFullYear(), refDate.getMonth(), 1).toISOString().split('T')[0];
       const defaultEnd = new Date(refDate.getFullYear(), refDate.getMonth() + 1, 0).toISOString().split('T')[0];
 
@@ -195,7 +189,6 @@ const isValidCalendarDate = (isoStr: string): boolean => {
   };
 
   const generateReport = async () => {
-    // 1. Obter e validar o intervalo de datas
     const { startDate, endDate } = getDateRange();
 
     if (!isValidCalendarDate(startDate) || !isValidCalendarDate(endDate)) {
@@ -351,21 +344,21 @@ const isValidCalendarDate = (isoStr: string): boolean => {
   const handleShareText = async () => {
     if (!metrics) return;
 
-    let text = `📊 *MANACOST - RELATÓRIO FINANCEIRO*\n`;
-    text += `🗓️ Período: ${currentRangeStart.split('-').reverse().join('/')} até ${currentRangeEnd.split('-').reverse().join('/')}\n\n`;
+    let text = `*MANACOST - RELATÓRIO FINANCEIRO*\n`;
+    text += `Período: ${currentRangeStart.split('-').reverse().join('/')} até ${currentRangeEnd.split('-').reverse().join('/')}\n\n`;
 
     if (personFilter === 'third_party' && selectedPerson) {
-      text += `👤 *Extrato de Acerto: ${selectedPerson}*\n`;
+      text += `*Extrato de Acerto: ${selectedPerson}*\n`;
       text += `Total pago por você: R$ ${metrics.totalExpense.toFixed(2)}\n\n`;
       text += `*Discriminação dos Gastos:*\n`;
       metrics.filteredTransactions.forEach((tx) => {
-        const statusEmoji =
+        const statusLabel =
           tx.split_status === 'settled'
-            ? '✅ Acertado'
+            ? '[Acertado]'
             : tx.split_status === 'pending'
-            ? '⏳ A receber'
-            : '🎁 Presente';
-        text += `• ${tx.date} | ${tx.description}: R$ ${Number(tx.amount).toFixed(2)} (${statusEmoji})\n`;
+            ? '[A receber]'
+            : '[Presente]';
+        text += `• ${tx.date} | ${tx.description}: R$ ${Number(tx.amount).toFixed(2)} (${statusLabel})\n`;
       });
 
       const pendente = metrics.pendingReimbursement.find((p) => p.person === selectedPerson);
@@ -373,13 +366,13 @@ const isValidCalendarDate = (isoStr: string): boolean => {
         text += `\n*Total Pendente de Acerto:* R$ ${pendente.amount.toFixed(2)}\n`;
       }
     } else {
-      text += `💰 *Totais Consolidados:*\n`;
+      text += `*Totais Consolidados:*\n`;
       text += `• Receitas: R$ ${metrics.totalIncome.toFixed(2)}\n`;
       text += `• Despesas: R$ ${metrics.totalExpense.toFixed(2)}\n`;
       text += `• Saldo: R$ ${metrics.balance.toFixed(2)}\n\n`;
 
       if (metrics.totalExpense > 0) {
-        text += `🏷️ *Aderência à Regra 50/30/20:*\n`;
+        text += `*Aderência à Regra 50/30/20:*\n`;
         text += `• Necessidades: R$ ${metrics.needsSpent.toFixed(2)} (${(
           (metrics.needsSpent / metrics.totalExpense) *
           100
@@ -395,7 +388,7 @@ const isValidCalendarDate = (isoStr: string): boolean => {
       }
 
       if (metrics.topCategories.length > 0) {
-        text += `🏆 *Top 3 Categorias de Gastos:*\n`;
+        text += `*Top 3 Categorias de Gastos:*\n`;
         metrics.topCategories.forEach((c, idx) => {
           text += `${idx + 1}. ${c.name}: R$ ${c.amount.toFixed(2)}\n`;
         });
@@ -405,7 +398,7 @@ const isValidCalendarDate = (isoStr: string): boolean => {
     try {
       await Share.share({ message: text });
     } catch (err: any) {
-      Alert.alert('Erro ao compartilhar', err.message);
+      Alert.alert('Erro ao partilhar', err.message);
     }
   };
 
@@ -541,25 +534,30 @@ const isValidCalendarDate = (isoStr: string): boolean => {
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={styles.card}>
+          <View style={styles.dragHandleBox}>
+            <View style={styles.dragHandle} />
+          </View>
+
           <View style={styles.headerRow}>
             <View>
-              <Text style={styles.title}>Relatórios & Exportação</Text>
-              <Text style={styles.sub}>Auditoria e fechamento de gastos</Text>
+              <Text style={styles.title}>Relatórios & Auditoria</Text>
+              <Text style={styles.sub}>Fechamento analítico e conciliação de contas</Text>
             </View>
-            <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-              <Text style={styles.closeBtnText}>✕</Text>
+            <TouchableOpacity onPress={onClose} style={styles.closeBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Feather name="x" size={16} color="#94A3B8" />
             </TouchableOpacity>
           </View>
 
-          <ScrollView showsVerticalScrollIndicator={false}>
-            {/* Filtro de Período Ampliado */}
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
+            {/* Filtro de Período */}
             <View style={styles.periodHeaderRow}>
-              <Text style={styles.sectionLabel}>Período</Text>
+              <Text style={styles.fieldLabel}>INTERVALO DE COMPETÊNCIA</Text>
               <View style={styles.dateRangeBadge}>
-  <Text style={styles.dateRangeBadgeText}>
-    🗓️ {currentRangeStart.split('-').reverse().join('/')} até {currentRangeEnd.split('-').reverse().join('/')}
-  </Text>
-</View>
+                <Feather name="calendar" size={11} color="#38BDF8" style={{ marginRight: 5 }} />
+                <Text style={styles.dateRangeBadgeText}>
+                  {currentRangeStart.split('-').reverse().join('/')} até {currentRangeEnd.split('-').reverse().join('/')}
+                </Text>
+              </View>
             </View>
 
             <View style={styles.pillsRow}>
@@ -570,100 +568,120 @@ const isValidCalendarDate = (isoStr: string): boolean => {
                 { id: 'last_3_months', label: 'Últimos 3M' },
                 { id: 'current_year', label: 'Ano Atual' },
                 { id: 'last_year', label: 'Ano Anterior' },
-                { id: 'custom', label: '⚙️ Personalizado' },
-              ].map((p) => (
-                <TouchableOpacity
-                  key={p.id}
-                  style={[styles.pill, period === p.id && styles.pillActive]}
-                  onPress={() => setPeriod(p.id as PeriodFilter)}
-                >
-                  <Text style={[styles.pillText, period === p.id && styles.pillTextActive]}>
-                    {p.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+                { id: 'custom', label: 'Personalizado', icon: 'sliders' },
+              ].map((p) => {
+                const isActive = period === p.id;
+                return (
+                  <TouchableOpacity
+                    key={p.id}
+                    style={[styles.pill, isActive && styles.pillActive]}
+                    onPress={() => setPeriod(p.id as PeriodFilter)}
+                    activeOpacity={0.7}
+                  >
+                    {p.icon && (
+                      <Feather 
+                        name="sliders" 
+                        size={11} 
+                        color={isActive ? '#10B981' : '#94A3B8'} 
+                        style={{ marginRight: 5 }} 
+                      />
+                    )}
+                    <Text style={[styles.pillText, isActive && styles.pillTextActive]}>
+                      {p.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
 
-            {/* Inputs de data quando 'custom' estiver ativo */}
+            {/* Inputs de data personalizada */}
             {period === 'custom' && (
-  <View style={styles.customDateBox}>
-    <View style={styles.customDateCol}>
-      <Text style={styles.customDateLabel}>Data Inicial:</Text>
-      <TextInput
-        style={styles.customDateInput}
-        placeholder="05/10/2026"
-        placeholderTextColor="#64748B"
-        keyboardType="numeric"
-        maxLength={10}
-        value={customStart}
-        onChangeText={(val) => setCustomStart(applyDateMask(val))}
-      />
-    </View>
+              <View style={styles.customDateBox}>
+                <View style={styles.customDateCol}>
+                  <Text style={styles.customDateLabel}>Data Inicial</Text>
+                  <TextInput
+                    style={styles.customDateInput}
+                    placeholder="01/10/2026"
+                    placeholderTextColor="#64748B"
+                    keyboardType="numeric"
+                    maxLength={10}
+                    value={customStart}
+                    onChangeText={(val) => setCustomStart(applyDateMask(val))}
+                  />
+                </View>
 
-    <View style={styles.customDateCol}>
-      <Text style={styles.customDateLabel}>Data Final:</Text>
-      <TextInput
-        style={styles.customDateInput}
-        placeholder="20/10/2026"
-        placeholderTextColor="#64748B"
-        keyboardType="numeric"
-        maxLength={10}
-        value={customEnd}
-        onChangeText={(val) => setCustomEnd(applyDateMask(val))}
-      />
-    </View>
+                <View style={styles.customDateCol}>
+                  <Text style={styles.customDateLabel}>Data Final</Text>
+                  <TextInput
+                    style={styles.customDateInput}
+                    placeholder="31/10/2026"
+                    placeholderTextColor="#64748B"
+                    keyboardType="numeric"
+                    maxLength={10}
+                    value={customEnd}
+                    onChangeText={(val) => setCustomEnd(applyDateMask(val))}
+                  />
+                </View>
 
-    <TouchableOpacity 
-      style={styles.customDateApplyBtn}
-      onPress={generateReport}
-      activeOpacity={0.7}
-    >
-      <Text style={styles.customDateApplyText}>Aplicar</Text>
-    </TouchableOpacity>
-  </View>
-)}
+                <TouchableOpacity 
+                  style={styles.customDateApplyBtn}
+                  onPress={generateReport}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.customDateApplyText}>Aplicar</Text>
+                </TouchableOpacity>
+              </View>
+            )}
 
             {/* Filtro de Tipo */}
-            <Text style={styles.sectionLabel}>Tipo de Transação</Text>
+            <Text style={styles.fieldLabel}>TIPO DE OPERAÇÃO</Text>
             <View style={styles.pillsRow}>
               {[
-                { id: 'all', label: 'Tudo' },
-                { id: 'expense', label: 'Apenas Despesas' },
-                { id: 'income', label: 'Apenas Receitas' },
-              ].map((t) => (
-                <TouchableOpacity
-                  key={t.id}
-                  style={[styles.pill, type === t.id && styles.pillActive]}
-                  onPress={() => setType(t.id as TypeFilter)}
-                >
-                  <Text style={[styles.pillText, type === t.id && styles.pillTextActive]}>
-                    {t.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+                { id: 'all', label: 'Todas' },
+                { id: 'expense', label: 'Apenas Saídas' },
+                { id: 'income', label: 'Apenas Entradas' },
+              ].map((t) => {
+                const isActive = type === t.id;
+                return (
+                  <TouchableOpacity
+                    key={t.id}
+                    style={[styles.pill, isActive && styles.pillActive]}
+                    onPress={() => setType(t.id as TypeFilter)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.pillText, isActive && styles.pillTextActive]}>
+                      {t.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
 
-            {/* Filtro de Terceiros */}
-            <Text style={styles.sectionLabel}>Responsabilidade / Acertos</Text>
+            {/* Filtro de Responsabilidade */}
+            <Text style={styles.fieldLabel}>RESPONSABILIDADE / ACERTOS</Text>
             <View style={styles.pillsRow}>
               {[
-                { id: 'all', label: 'Todos os Lançamentos' },
-                { id: 'mine', label: 'Meus Gastos Pessoais' },
+                { id: 'all', label: 'Geral' },
+                { id: 'mine', label: 'Meus Gastos' },
                 { id: 'third_party', label: 'Gastos p/ Terceiros' },
-              ].map((pf) => (
-                <TouchableOpacity
-                  key={pf.id}
-                  style={[styles.pill, personFilter === pf.id && styles.pillActive]}
-                  onPress={() => {
-                    setPersonFilter(pf.id as PersonFilter);
-                    if (pf.id !== 'third_party') setSelectedPerson(null);
-                  }}
-                >
-                  <Text style={[styles.pillText, personFilter === pf.id && styles.pillTextActive]}>
-                    {pf.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+              ].map((pf) => {
+                const isActive = personFilter === pf.id;
+                return (
+                  <TouchableOpacity
+                    key={pf.id}
+                    style={[styles.pill, isActive && styles.pillActive]}
+                    onPress={() => {
+                      setPersonFilter(pf.id as PersonFilter);
+                      if (pf.id !== 'third_party') setSelectedPerson(null);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.pillText, isActive && styles.pillTextActive]}>
+                      {pf.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
 
             {personFilter === 'third_party' && (
@@ -671,53 +689,51 @@ const isValidCalendarDate = (isoStr: string): boolean => {
                 <TouchableOpacity
                   style={[styles.personChip, selectedPerson === null && styles.personChipActive]}
                   onPress={() => setSelectedPerson(null)}
+                  activeOpacity={0.7}
                 >
-                  <Text
-                    style={[
-                      styles.personChipText,
-                      selectedPerson === null && styles.personChipTextActive,
-                    ]}
-                  >
+                  <Text style={[styles.personChipText, selectedPerson === null && styles.personChipTextActive]}>
                     Todas as Pessoas
                   </Text>
                 </TouchableOpacity>
-                {peopleList.map((p) => (
-                  <TouchableOpacity
-                    key={p}
-                    style={[styles.personChip, selectedPerson === p && styles.personChipActive]}
-                    onPress={() => setSelectedPerson(p)}
-                  >
-                    <Text
-                      style={[
-                        styles.personChipText,
-                        selectedPerson === p && styles.personChipTextActive,
-                      ]}
+                {peopleList.map((p) => {
+                  const isSelected = selectedPerson === p;
+                  return (
+                    <TouchableOpacity
+                      key={p}
+                      style={[styles.personChip, isSelected && styles.personChipActive]}
+                      onPress={() => setSelectedPerson(p)}
+                      activeOpacity={0.7}
                     >
-                      👤 {p}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
+                      <Feather name="user" size={11} color={isSelected ? '#38BDF8' : '#94A3B8'} style={{ marginRight: 4 }} />
+                      <Text style={[styles.personChipText, isSelected && styles.personChipTextActive]}>
+                        {p}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </ScrollView>
             )}
 
-            {/* Resumo do Relatório */}
+            {/* Painel de Resultados */}
             {loading ? (
-              <ActivityIndicator size="large" color="#38BDF8" style={{ marginVertical: 30 }} />
+              <ActivityIndicator size="large" color="#10B981" style={{ marginVertical: 32 }} />
             ) : metrics ? (
               <View style={styles.resultsCard}>
                 <View style={styles.metricsGrid}>
                   <View style={styles.metricBox}>
                     <Text style={styles.metricLabel}>Receitas</Text>
-                    <Text style={[styles.metricVal, { color: '#10B981' }]}>
-                      R$ {metrics.totalIncome.toFixed(2)}
+                    <Text style={[styles.metricVal, { color: '#34D399' }]}>
+                      +R$ {metrics.totalIncome.toFixed(2)}
                     </Text>
                   </View>
+                  <View style={styles.metricDivider} />
                   <View style={styles.metricBox}>
                     <Text style={styles.metricLabel}>Despesas</Text>
-                    <Text style={[styles.metricVal, { color: '#EF4444' }]}>
-                      R$ {metrics.totalExpense.toFixed(2)}
+                    <Text style={[styles.metricVal, { color: '#F87171' }]}>
+                      -R$ {metrics.totalExpense.toFixed(2)}
                     </Text>
                   </View>
+                  <View style={styles.metricDivider} />
                   <View style={styles.metricBox}>
                     <Text style={styles.metricLabel}>Saldo Final</Text>
                     <Text
@@ -733,10 +749,16 @@ const isValidCalendarDate = (isoStr: string): boolean => {
 
                 {metrics.pendingReimbursement.length > 0 && (
                   <View style={styles.subCardHighlight}>
-                    <Text style={styles.subCardTitle}>⏳ Valores a Receber (Acertos Pendentes):</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                      <Feather name="clock" size={12} color="#FBBF24" />
+                      <Text style={styles.subCardHighlightTitle}>Acertos Pendentes a Receber:</Text>
+                    </View>
                     {metrics.pendingReimbursement.map((p) => (
                       <View key={p.person} style={styles.reimburseRow}>
-                        <Text style={styles.reimburseName}>👤 {p.person}</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                          <Feather name="user" size={11} color="#94A3B8" />
+                          <Text style={styles.reimburseName}>{p.person}</Text>
+                        </View>
                         <Text style={styles.reimburseVal}>R$ {p.amount.toFixed(2)}</Text>
                       </View>
                     ))}
@@ -745,27 +767,24 @@ const isValidCalendarDate = (isoStr: string): boolean => {
 
                 {metrics.totalExpense > 0 && (
                   <View style={styles.subCard}>
-                    <Text style={styles.subCardTitle}>Regra 50/30/20 do Período</Text>
+                    <Text style={styles.subCardTitle}>Aderência à Regra 50 • 30 • 20</Text>
                     <View style={styles.bucketRatioRow}>
                       <View style={{ flex: 1 }}>
                         <Text style={styles.bucketRatioLabel}>Necessidades</Text>
                         <Text style={styles.bucketRatioVal}>
-                          R$ {metrics.needsSpent.toFixed(2)} (
-                          {((metrics.needsSpent / metrics.totalExpense) * 100).toFixed(0)}%)
+                          R$ {metrics.needsSpent.toFixed(2)} ({((metrics.needsSpent / metrics.totalExpense) * 100).toFixed(0)}%)
                         </Text>
                       </View>
                       <View style={{ flex: 1 }}>
                         <Text style={styles.bucketRatioLabel}>Desejos</Text>
                         <Text style={styles.bucketRatioVal}>
-                          R$ {metrics.wantsSpent.toFixed(2)} (
-                          {((metrics.wantsSpent / metrics.totalExpense) * 100).toFixed(0)}%)
+                          R$ {metrics.wantsSpent.toFixed(2)} ({((metrics.wantsSpent / metrics.totalExpense) * 100).toFixed(0)}%)
                         </Text>
                       </View>
                       <View style={{ flex: 1 }}>
                         <Text style={styles.bucketRatioLabel}>Reserva</Text>
                         <Text style={styles.bucketRatioVal}>
-                          R$ {metrics.savingsSpent.toFixed(2)} (
-                          {((metrics.savingsSpent / metrics.totalExpense) * 100).toFixed(0)}%)
+                          R$ {metrics.savingsSpent.toFixed(2)} ({((metrics.savingsSpent / metrics.totalExpense) * 100).toFixed(0)}%)
                         </Text>
                       </View>
                     </View>
@@ -774,7 +793,7 @@ const isValidCalendarDate = (isoStr: string): boolean => {
 
                 {metrics.topCategories.length > 0 && (
                   <View style={styles.subCard}>
-                    <Text style={styles.subCardTitle}>Top Categorias</Text>
+                    <Text style={styles.subCardTitle}>Principais Categorias de Custo</Text>
                     {metrics.topCategories.map((c, idx) => (
                       <View key={c.name} style={styles.categoryRankRow}>
                         <Text style={styles.categoryRankName}>
@@ -793,9 +812,10 @@ const isValidCalendarDate = (isoStr: string): boolean => {
               <TouchableOpacity
                 style={styles.excelExportBtn}
                 onPress={handleExportExcel}
-                activeOpacity={0.7}
+                activeOpacity={0.8}
               >
-                <Text style={styles.excelExportBtnText}>📊 Exportar Planilha Excel (.xlsx)</Text>
+                <Feather name="file-text" size={14} color="#0B0F19" style={{ marginRight: 6 }} />
+                <Text style={styles.excelExportBtnText}>Exportar Planilha Excel (.xlsx)</Text>
               </TouchableOpacity>
 
               <View style={styles.secondaryActionsRow}>
@@ -804,7 +824,8 @@ const isValidCalendarDate = (isoStr: string): boolean => {
                   onPress={handleShareText}
                   activeOpacity={0.7}
                 >
-                  <Text style={styles.shareTextBtnText}>💬 WhatsApp / Texto</Text>
+                  <Feather name="share-2" size={12} color="#38BDF8" style={{ marginRight: 6 }} />
+                  <Text style={styles.shareTextBtnText}>Partilhar Texto</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -812,13 +833,14 @@ const isValidCalendarDate = (isoStr: string): boolean => {
                   onPress={handleExportCSV}
                   activeOpacity={0.7}
                 >
-                  <Text style={styles.csvExportBtnText}>📄 Exportar CSV</Text>
+                  <Feather name="download" size={12} color="#F8FAFC" style={{ marginRight: 6 }} />
+                  <Text style={styles.csvExportBtnText}>Exportar CSV</Text>
                 </TouchableOpacity>
               </View>
             </View>
 
-            <TouchableOpacity style={styles.closeModalBtn} onPress={onClose}>
-              <Text style={styles.closeModalBtnText}>Fechar</Text>
+            <TouchableOpacity style={styles.closeModalBtn} onPress={onClose} activeOpacity={0.7}>
+              <Text style={styles.closeModalBtnText}>Concluído</Text>
             </TouchableOpacity>
           </ScrollView>
         </View>
@@ -830,80 +852,120 @@ const isValidCalendarDate = (isoStr: string): boolean => {
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.75)',
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
     justifyContent: 'flex-end',
   },
   card: {
-    backgroundColor: '#1E293B',
+    backgroundColor: '#0B0F19',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingBottom: Platform.OS === 'android' ? 24 : 36,
     maxHeight: '92%',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  dragHandleBox: {
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  dragHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 14,
+    marginBottom: 12,
   },
-  title: { fontSize: 18, fontWeight: 'bold', color: '#F8FAFC' },
-  sub: { fontSize: 11, color: '#64748B', marginTop: 1 },
-  closeBtn: { padding: 4 },
-  closeBtnText: { color: '#94A3B8', fontSize: 18, fontWeight: 'bold' },
+  title: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#F8FAFC',
+    letterSpacing: -0.3,
+  },
+  sub: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  closeBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#131927',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   periodHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 10,
-    marginBottom: 8,
+    marginTop: 4,
+    marginBottom: 6,
   },
-  sectionLabel: {
-    color: '#38BDF8',
-    fontSize: 11,
-    fontWeight: 'bold',
-    textTransform: 'uppercase',
+  fieldLabel: {
+    color: '#64748B',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    marginBottom: 6,
+    marginTop: 4,
   },
   dateRangeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: 'rgba(56, 189, 248, 0.1)',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: '#38BDF8',
+    borderColor: 'rgba(56, 189, 248, 0.3)',
   },
   dateRangeBadgeText: {
     color: '#38BDF8',
     fontSize: 10,
-    fontWeight: 'bold',
+    fontWeight: '700',
   },
   pillsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 6,
-    marginBottom: 8,
+    marginBottom: 10,
   },
   pill: {
-    backgroundColor: '#0F172A',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#131927',
     paddingHorizontal: 11,
     paddingVertical: 7,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.05)',
   },
   pillActive: {
-    backgroundColor: '#38BDF8',
-    borderColor: '#38BDF8',
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    borderColor: '#10B981',
   },
-  pillText: { color: '#94A3B8', fontSize: 12, fontWeight: '600' },
-  pillTextActive: { color: '#0F172A', fontWeight: 'bold' },
+  pillText: {
+    color: '#94A3B8',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  pillTextActive: {
+    color: '#10B981',
+    fontWeight: '700',
+  },
   customDateBox: {
-    backgroundColor: '#0F172A',
+    backgroundColor: '#131927',
     padding: 12,
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.06)',
     marginBottom: 12,
-    marginTop: 4,
     flexDirection: 'row',
     alignItems: 'flex-end',
     gap: 8,
@@ -912,111 +974,163 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   customDateLabel: {
-    color: '#94A3B8',
+    color: '#64748B',
     fontSize: 10,
     marginBottom: 4,
+    fontWeight: '600',
   },
   customDateInput: {
-    backgroundColor: '#1E293B',
+    backgroundColor: '#0B0F19',
     color: '#F8FAFC',
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
     fontSize: 12,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
   customDateApplyBtn: {
-    backgroundColor: '#38BDF8',
-    paddingHorizontal: 12,
+    backgroundColor: '#10B981',
+    paddingHorizontal: 14,
     paddingVertical: 8,
-    borderRadius: 6,
+    borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
   },
   customDateApplyText: {
-    color: '#0F172A',
-    fontWeight: 'bold',
+    color: '#0B0F19',
+    fontWeight: '800',
     fontSize: 12,
   },
   peopleScroll: {
-    marginVertical: 6,
-    paddingBottom: 4,
+    marginBottom: 10,
   },
   personChip: {
-    backgroundColor: '#0F172A',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#131927',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 16,
     marginRight: 6,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
   personChipActive: {
-    backgroundColor: 'rgba(56, 189, 248, 0.2)',
+    backgroundColor: 'rgba(56, 189, 248, 0.15)',
     borderColor: '#38BDF8',
   },
-  personChipText: { color: '#94A3B8', fontSize: 11 },
-  personChipTextActive: { color: '#38BDF8', fontWeight: 'bold' },
+  personChipText: {
+    color: '#94A3B8',
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  personChipTextActive: {
+    color: '#38BDF8',
+    fontWeight: '700',
+  },
   resultsCard: {
-    backgroundColor: '#0F172A',
-    borderRadius: 12,
-    padding: 12,
-    marginVertical: 12,
+    backgroundColor: '#131927',
+    borderRadius: 14,
+    padding: 14,
+    marginVertical: 10,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.05)',
   },
   metricsGrid: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 10,
+    alignItems: 'center',
   },
   metricBox: {
     flex: 1,
     alignItems: 'center',
   },
-  metricLabel: { color: '#94A3B8', fontSize: 11 },
-  metricVal: { fontSize: 14, fontWeight: 'bold', marginTop: 2 },
+  metricDivider: {
+    width: 1,
+    height: 24,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  metricLabel: {
+    color: '#64748B',
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  metricVal: {
+    fontSize: 14,
+    fontWeight: '800',
+    marginTop: 2,
+    letterSpacing: -0.3,
+  },
   subCard: {
     borderTopWidth: 1,
-    borderTopColor: '#1E293B',
-    paddingTop: 8,
-    marginTop: 8,
-  },
-  subCardHighlight: {
-    backgroundColor: 'rgba(245, 158, 11, 0.1)',
-    borderRadius: 8,
-    padding: 10,
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: '#F59E0B',
+    borderTopColor: 'rgba(255, 255, 255, 0.06)',
+    paddingTop: 10,
+    marginTop: 10,
   },
   subCardTitle: {
-    color: '#CBD5E1',
-    fontSize: 11,
-    fontWeight: 'bold',
+    color: '#94A3B8',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.6,
     marginBottom: 6,
+  },
+  subCardHighlight: {
+    backgroundColor: 'rgba(245, 158, 11, 0.08)',
+    borderRadius: 10,
+    padding: 10,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.25)',
+  },
+  subCardHighlightTitle: {
+    color: '#FBBF24',
+    fontSize: 11,
+    fontWeight: '700',
   },
   reimburseRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 2,
+    alignItems: 'center',
+    paddingVertical: 3,
   },
-  reimburseName: { color: '#F8FAFC', fontSize: 12 },
-  reimburseVal: { color: '#F59E0B', fontSize: 12, fontWeight: 'bold' },
+  reimburseName: {
+    color: '#F8FAFC',
+    fontSize: 12,
+  },
+  reimburseVal: {
+    color: '#F59E0B',
+    fontSize: 12,
+    fontWeight: '700',
+  },
   bucketRatioRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
-  bucketRatioLabel: { color: '#64748B', fontSize: 10 },
-  bucketRatioVal: { color: '#F8FAFC', fontSize: 11, fontWeight: '600', marginTop: 1 },
+  bucketRatioLabel: {
+    color: '#64748B',
+    fontSize: 10,
+  },
+  bucketRatioVal: {
+    color: '#F8FAFC',
+    fontSize: 11,
+    fontWeight: '600',
+    marginTop: 1,
+  },
   categoryRankRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingVertical: 3,
   },
-  categoryRankName: { color: '#F8FAFC', fontSize: 12 },
-  categoryRankAmount: { color: '#EF4444', fontSize: 12, fontWeight: 'bold' },
+  categoryRankName: {
+    color: '#F8FAFC',
+    fontSize: 12,
+  },
+  categoryRankAmount: {
+    color: '#F87171',
+    fontSize: 12,
+    fontWeight: '700',
+  },
   exportActionsColumn: {
     flexDirection: 'column',
     gap: 8,
@@ -1024,15 +1138,17 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   excelExportBtn: {
+    flexDirection: 'row',
     backgroundColor: '#10B981',
-    paddingVertical: 13,
-    borderRadius: 8,
+    paddingVertical: 12,
+    borderRadius: 10,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   excelExportBtnText: {
-    color: '#0F172A',
-    fontWeight: 'bold',
-    fontSize: 14,
+    color: '#0B0F19',
+    fontWeight: '800',
+    fontSize: 13,
   },
   secondaryActionsRow: {
     flexDirection: 'row',
@@ -1040,30 +1156,48 @@ const styles = StyleSheet.create({
   },
   shareTextBtn: {
     flex: 1,
-    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+    flexDirection: 'row',
+    backgroundColor: '#131927',
     borderWidth: 1,
-    borderColor: '#38BDF8',
+    borderColor: 'rgba(56, 189, 248, 0.3)',
     paddingVertical: 11,
-    borderRadius: 8,
+    borderRadius: 10,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  shareTextBtnText: { color: '#38BDF8', fontWeight: 'bold', fontSize: 12 },
+  shareTextBtnText: {
+    color: '#38BDF8',
+    fontWeight: '700',
+    fontSize: 12,
+  },
   csvExportBtn: {
     flex: 1,
-    backgroundColor: '#334155',
+    flexDirection: 'row',
+    backgroundColor: '#131927',
     paddingVertical: 11,
-    borderRadius: 8,
+    borderRadius: 10,
     alignItems: 'center',
-  },
-  csvExportBtnText: { color: '#F8FAFC', fontWeight: '600', fontSize: 12 },
-  closeModalBtn: {
-    backgroundColor: '#1E293B',
-    paddingVertical: 11,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginBottom: 16,
+    justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
-  closeModalBtnText: { color: '#94A3B8', fontWeight: '600', fontSize: 13 },
+  csvExportBtnText: {
+    color: '#F8FAFC',
+    fontWeight: '600',
+    fontSize: 12,
+  },
+  closeModalBtn: {
+    backgroundColor: '#131927',
+    paddingVertical: 11,
+    borderRadius: 10,
+    alignItems: 'center',
+    marginTop: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  closeModalBtnText: {
+    color: '#94A3B8',
+    fontWeight: '600',
+    fontSize: 12,
+  },
 });

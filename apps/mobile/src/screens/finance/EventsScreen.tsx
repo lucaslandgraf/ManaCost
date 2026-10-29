@@ -12,7 +12,10 @@ import {
   Platform,
   StatusBar,
   RefreshControl,
+  KeyboardAvoidingView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Feather } from '@expo/vector-icons';
 import { supabase } from '../../config/supabase';
 
 interface BudgetEvent {
@@ -31,7 +34,6 @@ export function EventsScreen({ navigation }: any) {
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<'active' | 'archived'>('active');
 
-  // Modal criação
   const [modalVisible, setModalVisible] = useState(false);
   const [title, setTitle] = useState('');
   const [targetBudget, setTargetBudget] = useState('');
@@ -43,7 +45,6 @@ export function EventsScreen({ navigation }: any) {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // 1. Busca eventos
       const { data: eventsData, error } = await supabase
         .from('budget_events')
         .select('*')
@@ -52,7 +53,6 @@ export function EventsScreen({ navigation }: any) {
 
       if (error) throw error;
 
-      // 2. Busca gastos de cada evento para calcular total gasto
       const { data: expensesData } = await supabase
         .from('event_expenses')
         .select('event_id, amount');
@@ -83,7 +83,7 @@ export function EventsScreen({ navigation }: any) {
 
   const handleCreateEvent = async () => {
     if (!title.trim()) {
-      Alert.alert('Atenção', 'Informe o nome do evento/viagem.');
+      Alert.alert('Atenção', 'Informe o nome do evento ou viagem.');
       return;
     }
 
@@ -122,8 +122,8 @@ export function EventsScreen({ navigation }: any) {
     Alert.alert(
       nextStatus ? 'Concluir & Arquivar' : 'Reativar Evento',
       nextStatus
-        ? `Deseja arquivar "${event.title}"? O evento sairá da tela ativa e ficará salvo no histórico.`
-        : `Deseja reabrir "${event.title}" e movê-lo de volta para os eventos ativos?`,
+        ? `Pretende arquivar "${event.title}"? O evento sairá da visualização principal e ficará registado no histórico.`
+        : `Pretende reabrir "${event.title}" e movê-lo de volta para as viagens ativas?`,
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -142,7 +142,7 @@ export function EventsScreen({ navigation }: any) {
                 prev.map((e) => (e.id === event.id ? { ...e, is_archived: nextStatus } : e))
               );
             } catch (err: any) {
-              Alert.alert('Erro', err.message || 'Falha ao atualizar status.');
+              Alert.alert('Erro', err.message || 'Falha ao atualizar estado.');
             }
           },
         },
@@ -152,12 +152,12 @@ export function EventsScreen({ navigation }: any) {
 
   const handleDeleteEvent = (id: string, eventTitle: string) => {
     Alert.alert(
-      'Excluir Evento',
-      `Tem certeza de que deseja apagar "${eventTitle}" e todos os registros associados?`,
+      'Remover Evento',
+      `Tem a certeza de que deseja apagar "${eventTitle}" e todos os registos associados?`,
       [
         { text: 'Cancelar', style: 'cancel' },
         {
-          text: 'Excluir',
+          text: 'Remover',
           style: 'destructive',
           onPress: async () => {
             try {
@@ -165,7 +165,7 @@ export function EventsScreen({ navigation }: any) {
               await supabase.from('budget_events').delete().eq('id', id);
               fetchEvents();
             } catch (err: any) {
-              Alert.alert('Erro', err.message || 'Falha ao excluir evento.');
+              Alert.alert('Erro', err.message || 'Falha ao eliminar evento.');
             }
           },
         },
@@ -173,13 +173,14 @@ export function EventsScreen({ navigation }: any) {
     );
   };
 
-  // Filtragem pela aba ativa
   const filteredEvents = events.filter((ev) =>
     activeTab === 'archived' ? ev.is_archived : !ev.is_archived
   );
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['bottom']}>
+      <StatusBar barStyle="light-content" />
+
       {/* Cabeçalho */}
       <View style={styles.header}>
         <TouchableOpacity
@@ -187,30 +188,37 @@ export function EventsScreen({ navigation }: any) {
           style={styles.backBtn}
           activeOpacity={0.7}
         >
-          <Text style={styles.backBtnText}>‹</Text>
+          <Feather name="chevron-left" size={20} color="#10B981" />
         </TouchableOpacity>
-        <View style={{ flex: 1 }}>
+        <View style={{ flex: 1, paddingLeft: 4 }}>
           <Text style={styles.title}>Viagens & Eventos</Text>
-          <Text style={styles.sub}>Orçamentos fechados e dedicados</Text>
+          <Text style={styles.sub}>Orçamentos fechados e checklists de bagagem</Text>
         </View>
         <TouchableOpacity
           style={styles.newBtn}
           onPress={() => setModalVisible(true)}
-          activeOpacity={0.7}
+          activeOpacity={0.8}
         >
-          <Text style={styles.newBtnText}>+ Novo</Text>
+          <Feather name="plus" size={13} color="#0B0F19" style={{ marginRight: 4 }} />
+          <Text style={styles.newBtnText}>Novo</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Seletor de Abas: Ativos / Arquivados */}
+      {/* Seletor de Abas: Ativos vs. Concluídos */}
       <View style={styles.tabContainer}>
         <TouchableOpacity
           style={[styles.tabButton, activeTab === 'active' && styles.tabButtonActive]}
           onPress={() => setActiveTab('active')}
           activeOpacity={0.7}
         >
+          <Feather
+            name="send"
+            size={12}
+            color={activeTab === 'active' ? '#10B981' : '#64748B'}
+            style={{ marginRight: 6 }}
+          />
           <Text style={[styles.tabText, activeTab === 'active' && styles.tabTextActive]}>
-            ✈️ Em Andamento ({events.filter((e) => !e.is_archived).length})
+            Em Andamento ({events.filter((e) => !e.is_archived).length})
           </Text>
         </TouchableOpacity>
 
@@ -219,15 +227,24 @@ export function EventsScreen({ navigation }: any) {
           onPress={() => setActiveTab('archived')}
           activeOpacity={0.7}
         >
+          <Feather
+            name="archive"
+            size={12}
+            color={activeTab === 'archived' ? '#10B981' : '#64748B'}
+            style={{ marginRight: 6 }}
+          />
           <Text style={[styles.tabText, activeTab === 'archived' && styles.tabTextActive]}>
-            📁 Concluídos ({events.filter((e) => e.is_archived).length})
+            Concluídos ({events.filter((e) => e.is_archived).length})
           </Text>
         </TouchableOpacity>
       </View>
 
-      {/* Lista */}
+      {/* Lista de Viagens com espaçamento extra para a barra inferior do sistema */}
       {loading ? (
-        <ActivityIndicator size="large" color="#38BDF8" style={{ marginTop: 40 }} />
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color="#10B981" />
+          <Text style={styles.loadingText}>A carregar orçamentos de viagem...</Text>
+        </View>
       ) : (
         <FlatList
           data={filteredEvents}
@@ -239,19 +256,21 @@ export function EventsScreen({ navigation }: any) {
                 setRefreshing(true);
                 fetchEvents();
               }}
-              tintColor="#fff"
+              tintColor="#10B981"
             />
           }
-          contentContainerStyle={{ paddingBottom: 40 }}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.listContent}
           renderItem={({ item }) => {
             const spent = item.total_spent || 0;
             const target = item.target_budget || 0;
             const progress = target > 0 ? Math.min((spent / target) * 100, 100) : 0;
+            const isOverBudget = target > 0 && spent > target;
 
             return (
               <TouchableOpacity
                 style={[styles.card, item.is_archived && styles.cardArchived]}
-                activeOpacity={0.8}
+                activeOpacity={0.85}
                 onPress={() =>
                   navigation.navigate('EventDetails', {
                     eventId: item.id,
@@ -262,14 +281,21 @@ export function EventsScreen({ navigation }: any) {
                 }
               >
                 <View style={styles.cardHeader}>
+                  <View style={styles.iconCircle}>
+                    <Feather name="send" size={15} color="#38BDF8" />
+                  </View>
+
                   <View style={{ flex: 1, paddingRight: 8 }}>
                     <Text style={[styles.cardTitle, item.is_archived && styles.cardTitleArchived]} numberOfLines={1}>
                       {item.title}
                     </Text>
-                    {item.is_archived && (
+                    {item.is_archived ? (
                       <View style={styles.archivedBadge}>
-                        <Text style={styles.archivedBadgeText}>✓ CONCLUÍDO</Text>
+                        <Feather name="check" size={9} color="#94A3B8" style={{ marginRight: 3 }} />
+                        <Text style={styles.archivedBadgeText}>CONCLUÍDO</Text>
                       </View>
+                    ) : (
+                      <Text style={styles.currencySubText}>Moeda oficial: {item.currency}</Text>
                     )}
                   </View>
 
@@ -278,36 +304,44 @@ export function EventsScreen({ navigation }: any) {
                       <Text style={styles.currencyBadgeText}>{item.currency}</Text>
                     </View>
 
-                    {/* Botão de Arquivar / Desarquivar */}
                     <TouchableOpacity
                       onPress={() => handleToggleArchive(item)}
-                      style={styles.archiveActionBtn}
+                      style={styles.actionIconBtn}
                       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                     >
-                      <Text style={styles.archiveActionBtnText}>
-                        {item.is_archived ? '🔄' : '📦'}
-                      </Text>
+                      <Feather
+                        name={item.is_archived ? 'rotate-ccw' : 'archive'}
+                        size={13}
+                        color="#94A3B8"
+                      />
                     </TouchableOpacity>
 
-                    {/* Botão de Excluir */}
                     <TouchableOpacity
                       onPress={() => handleDeleteEvent(item.id, item.title)}
-                      style={styles.deleteActionBtn}
+                      style={styles.actionIconBtn}
                       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                     >
-                      <Text style={styles.deleteActionBtnText}>🗑️</Text>
+                      <Feather name="trash-2" size={13} color="#F87171" />
                     </TouchableOpacity>
                   </View>
                 </View>
 
-                <View style={styles.cardBody}>
-                  <Text style={styles.spentText}>
-                    Gasto: {item.currency} {spent.toFixed(2)}
-                  </Text>
-                  {target > 0 && (
-                    <Text style={styles.targetText}>
-                      Meta: {item.currency} {target.toFixed(2)}
+                {/* Métricas e Barra de Progresso */}
+                <View style={styles.cardMetricsRow}>
+                  <View>
+                    <Text style={styles.metricLabel}>Total gasto</Text>
+                    <Text style={[styles.spentText, isOverBudget && { color: '#F87171' }]}>
+                      {item.currency} {spent.toFixed(2)}
                     </Text>
+                  </View>
+
+                  {target > 0 && (
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={styles.metricLabel}>Meta estipulada</Text>
+                      <Text style={styles.targetText}>
+                        {item.currency} {target.toFixed(2)}
+                      </Text>
+                    </View>
                   )}
                 </View>
 
@@ -321,9 +355,9 @@ export function EventsScreen({ navigation }: any) {
                           backgroundColor:
                             item.is_archived
                               ? '#64748B'
-                              : progress >= 100
-                              ? '#EF4444'
-                              : '#38BDF8',
+                              : isOverBudget
+                              ? '#F87171'
+                              : '#10B981',
                         },
                       ]}
                     />
@@ -333,59 +367,72 @@ export function EventsScreen({ navigation }: any) {
             );
           }}
           ListEmptyComponent={
-            <Text style={styles.emptyText}>
-              {activeTab === 'active'
-                ? 'Nenhum evento ativo no momento.\nToque em "+ Novo" para planejar uma viagem.'
-                : 'Nenhum evento arquivado no histórico.'}
-            </Text>
+            <View style={styles.emptyContainer}>
+              <Feather name="send" size={32} color="#64748B" style={{ marginBottom: 8 }} />
+              <Text style={styles.emptyText}>
+                {activeTab === 'active'
+                  ? 'Nenhuma viagem ativa no momento.\nToque em "+ Novo" para criar um orçamento dedicado.'
+                  : 'Nenhum evento arquivado no histórico.'}
+              </Text>
+            </View>
           }
         />
       )}
-      <View style={styles.bottomBarBarrier} />
 
       {/* Modal Criar Evento */}
-      <Modal visible={modalVisible} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
+      <Modal visible={modalVisible} transparent animationType="slide" onRequestClose={() => setModalVisible(false)}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.modalOverlay}
+        >
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Novo Evento / Viagem</Text>
+            <View style={styles.dragHandleBox}>
+              <View style={styles.dragHandle} />
+            </View>
 
-            <Text style={styles.inputLabel}>Nome do Evento:</Text>
+            <View style={styles.modalHeaderRow}>
+              <Text style={styles.modalTitle}>Novo Orçamento de Viagem</Text>
+              <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.closeBtn}>
+                <Feather name="x" size={16} color="#94A3B8" />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.fieldLabel}>NOME DO EVENTO OU DESTINO</Text>
             <TextInput
               style={styles.input}
-              placeholder="Ex: Eurotrip 2026, Fim de Semana Praia"
+              placeholder="Ex: Eurotrip 2026, Florianópolis, Casamento"
               placeholderTextColor="#64748B"
               value={title}
               onChangeText={setTitle}
             />
 
-            <Text style={styles.inputLabel}>Orçamento Previsto (Opcional):</Text>
+            <Text style={styles.fieldLabel}>META DE GASTOS / TETO MÁXIMO (OPCIONAL)</Text>
             <TextInput
-              style={styles.input}
-              placeholder="0.00"
+              style={[styles.input, styles.inputBold]}
+              placeholder="0,00"
               placeholderTextColor="#64748B"
-              keyboardType="numeric"
+              keyboardType="decimal-pad"
               value={targetBudget}
               onChangeText={setTargetBudget}
             />
 
-            <Text style={styles.inputLabel}>Moeda:</Text>
+            <Text style={styles.fieldLabel}>MOEDA PRINCIPAL</Text>
             <View style={styles.currencyRow}>
-              {['BRL', 'EUR', 'USD'].map((c) => (
-                <TouchableOpacity
-                  key={c}
-                  style={[styles.currencyBtn, currency === c && styles.currencyBtnActive]}
-                  onPress={() => setCurrency(c)}
-                >
-                  <Text
-                    style={[
-                      styles.currencyBtnText,
-                      currency === c && styles.currencyBtnTextActive,
-                    ]}
+              {['BRL', 'EUR', 'USD'].map((c) => {
+                const isActive = currency === c;
+                return (
+                  <TouchableOpacity
+                    key={c}
+                    style={[styles.currencyBtn, isActive && styles.currencyBtnActive]}
+                    onPress={() => setCurrency(c)}
+                    activeOpacity={0.7}
                   >
-                    {c}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+                    <Text style={[styles.currencyBtnText, isActive && styles.currencyBtnTextActive]}>
+                      {c}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
 
             <View style={styles.modalActions}>
@@ -393,6 +440,7 @@ export function EventsScreen({ navigation }: any) {
                 style={styles.cancelBtn}
                 onPress={() => setModalVisible(false)}
                 disabled={saving}
+                activeOpacity={0.7}
               >
                 <Text style={styles.cancelBtnText}>Cancelar</Text>
               </TouchableOpacity>
@@ -400,72 +448,83 @@ export function EventsScreen({ navigation }: any) {
                 style={styles.saveBtn}
                 onPress={handleCreateEvent}
                 disabled={saving}
+                activeOpacity={0.8}
               >
-                <Text style={styles.saveBtnText}>{saving ? 'Salvando...' : 'Criar'}</Text>
+                <Text style={styles.saveBtnText}>{saving ? 'A criar...' : 'Criar Viagem'}</Text>
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0F172A',
-    paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 28) + 16 : 48,
-  },
-  bottomBarBarrier: {
-    height: Platform.OS === 'android' ? 68 : 0,
-    backgroundColor: '#0F172A',
-    width: '100%',
+    backgroundColor: '#0B0F19',
+    paddingHorizontal: 16,
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 28) + 12 : 44,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
-    gap: 10,
+    marginBottom: 14,
   },
   backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-    backgroundColor: '#1E293B',
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#131927',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
-  backBtnText: { color: '#38BDF8', fontSize: 26, fontWeight: 'bold', lineHeight: 28 },
-  title: { fontSize: 18, fontWeight: 'bold', color: '#F8FAFC' },
-  sub: { fontSize: 11, color: '#64748B', marginTop: 1 },
+  title: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#F8FAFC',
+    letterSpacing: -0.3,
+  },
+  sub: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 1,
+  },
   newBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#10B981',
-    paddingVertical: 8,
+    paddingVertical: 7,
     paddingHorizontal: 14,
-    borderRadius: 8,
+    borderRadius: 20,
   },
-  newBtnText: { color: '#F8FAFC', fontWeight: 'bold', fontSize: 13 },
+  newBtnText: {
+    color: '#0B0F19',
+    fontWeight: '800',
+    fontSize: 12,
+  },
   tabContainer: {
     flexDirection: 'row',
-    backgroundColor: '#1E293B',
+    backgroundColor: '#131927',
     borderRadius: 10,
     padding: 3,
-    marginBottom: 16,
+    marginBottom: 14,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.05)',
   },
   tabButton: {
     flex: 1,
+    flexDirection: 'row',
     paddingVertical: 8,
     alignItems: 'center',
+    justifyContent: 'center',
     borderRadius: 8,
   },
   tabButtonActive: {
-    backgroundColor: '#0F172A',
+    backgroundColor: '#0B0F19',
   },
   tabText: {
     color: '#64748B',
@@ -473,140 +532,260 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   tabTextActive: {
-    color: '#38BDF8',
-    fontWeight: 'bold',
+    color: '#10B981',
+    fontWeight: '700',
+  },
+  listContent: {
+    paddingBottom: Platform.OS === 'android' ? 140 : 90,
   },
   card: {
-    backgroundColor: '#1E293B',
-    borderRadius: 12,
-    padding: 16,
+    backgroundColor: '#131927',
+    borderRadius: 14,
+    padding: 14,
     marginBottom: 10,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.05)',
   },
   cardArchived: {
-    opacity: 0.65,
-    borderColor: '#1E293B',
+    opacity: 0.6,
   },
   cardHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     marginBottom: 10,
+  },
+  iconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#0B0F19',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.04)',
   },
   cardTitle: {
     color: '#F8FAFC',
-    fontSize: 15,
-    fontWeight: 'bold',
+    fontSize: 14,
+    fontWeight: '700',
   },
   cardTitleArchived: {
     color: '#94A3B8',
   },
+  currencySubText: {
+    color: '#64748B',
+    fontSize: 10,
+    marginTop: 1,
+  },
   archivedBadge: {
-    backgroundColor: 'rgba(100, 116, 139, 0.2)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
     alignSelf: 'flex-start',
-    marginTop: 4,
+    marginTop: 2,
   },
   archivedBadgeText: {
     color: '#94A3B8',
     fontSize: 9,
-    fontWeight: 'bold',
+    fontWeight: '700',
   },
   actionsRightRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
   },
   currencyBadge: {
-    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
   },
-  currencyBadgeText: { color: '#38BDF8', fontSize: 11, fontWeight: 'bold' },
-  archiveActionBtn: {
+  currencyBadgeText: {
+    color: '#34D399',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  actionIconBtn: {
     padding: 4,
   },
-  archiveActionBtnText: {
-    fontSize: 14,
-  },
-  deleteActionBtn: {
-    padding: 4,
-  },
-  deleteActionBtnText: {
-    fontSize: 14,
-  },
-  cardBody: {
+  cardMetricsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-end',
+    marginBottom: 6,
   },
-  spentText: { color: '#EF4444', fontSize: 13, fontWeight: 'bold' },
-  targetText: { color: '#94A3B8', fontSize: 12 },
+  metricLabel: {
+    color: '#64748B',
+    fontSize: 10,
+  },
+  spentText: {
+    color: '#F8FAFC',
+    fontSize: 15,
+    fontWeight: '800',
+    marginTop: 2,
+  },
+  targetText: {
+    color: '#94A3B8',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 2,
+  },
   progressTrack: {
     height: 4,
-    backgroundColor: '#0F172A',
+    backgroundColor: '#0B0F19',
     borderRadius: 2,
-    marginTop: 10,
     overflow: 'hidden',
   },
-  progressBar: { height: '100%', borderRadius: 2 },
+  progressBar: {
+    height: '100%',
+    borderRadius: 2,
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
   emptyText: {
     color: '#64748B',
     textAlign: 'center',
-    marginTop: 40,
-    fontSize: 13,
+    fontSize: 12,
     lineHeight: 18,
+  },
+  center: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    color: '#64748B',
+    fontSize: 12,
+    marginTop: 8,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.75)',
-    justifyContent: 'center',
-    padding: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'flex-end',
   },
   modalCard: {
-    backgroundColor: '#1E293B',
-    borderRadius: 16,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: '#334155',
+    backgroundColor: '#0B0F19',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 20,
+    paddingBottom: Platform.OS === 'android' ? 24 : 36,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.08)',
   },
-  modalTitle: { color: '#F8FAFC', fontSize: 17, fontWeight: 'bold', marginBottom: 14 },
-  inputLabel: { color: '#94A3B8', fontSize: 12, marginBottom: 4 },
-  input: {
-    backgroundColor: '#0F172A',
-    color: '#F8FAFC',
-    borderRadius: 8,
-    padding: 10,
-    borderWidth: 1,
-    borderColor: '#334155',
+  dragHandleBox: {
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  dragHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  modalHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 12,
-    fontSize: 14,
   },
-  currencyRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
+  modalTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#F8FAFC',
+    letterSpacing: -0.3,
+  },
+  closeBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#131927',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fieldLabel: {
+    color: '#64748B',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    marginBottom: 6,
+    marginTop: 4,
+  },
+  input: {
+    backgroundColor: '#131927',
+    color: '#F8FAFC',
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 10,
+    fontSize: 13,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  inputBold: {
+    fontWeight: '700',
+  },
+  currencyRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 16,
+  },
   currencyBtn: {
     flex: 1,
     paddingVertical: 8,
-    borderRadius: 6,
-    backgroundColor: '#0F172A',
+    borderRadius: 8,
+    backgroundColor: '#131927',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
-  currencyBtnActive: { borderColor: '#38BDF8', backgroundColor: 'rgba(56, 189, 248, 0.15)' },
-  currencyBtnText: { color: '#94A3B8', fontSize: 12, fontWeight: '600' },
-  currencyBtnTextActive: { color: '#38BDF8', fontWeight: 'bold' },
-  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10 },
-  cancelBtn: { paddingVertical: 10, paddingHorizontal: 14 },
-  cancelBtnText: { color: '#94A3B8', fontWeight: '600' },
+  currencyBtnActive: {
+    borderColor: '#10B981',
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+  },
+  currencyBtnText: {
+    color: '#94A3B8',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  currencyBtnTextActive: {
+    color: '#10B981',
+    fontWeight: '700',
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 4,
+  },
+  cancelBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: '#131927',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  cancelBtnText: {
+    color: '#94A3B8',
+    fontWeight: '600',
+    fontSize: 13,
+  },
   saveBtn: {
+    flex: 2,
+    paddingVertical: 12,
+    borderRadius: 10,
     backgroundColor: '#10B981',
-    paddingVertical: 10,
-    paddingHorizontal: 18,
-    borderRadius: 8,
+    alignItems: 'center',
   },
-  saveBtnText: { color: '#F8FAFC', fontWeight: 'bold' },
+  saveBtnText: {
+    color: '#0B0F19',
+    fontWeight: '800',
+    fontSize: 13,
+  },
 });

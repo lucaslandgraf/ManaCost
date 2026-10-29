@@ -10,7 +10,9 @@ import {
   ActivityIndicator,
   SafeAreaView,
   Linking,
+  Platform,
 } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { WebView } from 'react-native-webview';
 import { supabase } from '../../config/supabase';
 
@@ -48,13 +50,11 @@ const FALLBACK_FLYER_URLS: Record<string, string> = {
 };
 
 export const DealsModal: React.FC<DealsModalProps> = ({ visible, onClose }) => {
-  const [activeTab, setActiveTab] = useState<'products' | 'flyers'>('flyers');
+  const [activeTab, setActiveTab] = useState<'flyers' | 'products'>('flyers');
 
-  // Controle de visualização interna do Encarte
   const [previewFlyer, setPreviewFlyer] = useState<{ name: string; url: string } | null>(null);
   const [loadingWeb, setLoadingWeb] = useState(true);
 
-  // Estados de Produtos e Encartes
   const [deals, setDeals] = useState<Deal[]>([]);
   const [loadingDeals, setLoadingDeals] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -168,30 +168,35 @@ export const DealsModal: React.FC<DealsModalProps> = ({ visible, onClose }) => {
   }, [deals, selectedStore, searchQuery]);
 
   return (
-    <Modal visible={visible} animationType="slide" transparent>
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.modalOverlay}>
         <SafeAreaView style={styles.container}>
           {previewFlyer ? (
             <View style={{ flex: 1 }}>
               <View style={styles.previewHeader}>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.previewTitle} numberOfLines={1}>
-                    📰 {previewFlyer.name}
-                  </Text>
-                  <Text style={styles.previewSubtitle}>Folheto da semana em Londrina</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Feather name="book-open" size={15} color="#F8FAFC" />
+                    <Text style={styles.previewTitle} numberOfLines={1}>
+                      {previewFlyer.name}
+                    </Text>
+                  </View>
+                  <Text style={styles.previewSubtitle}>Folheto oficial da semana em Londrina</Text>
                 </View>
                 <TouchableOpacity
                   onPress={() => setPreviewFlyer(null)}
                   style={styles.closePreviewBtn}
+                  activeOpacity={0.7}
                 >
-                  <Text style={styles.closePreviewText}>✕ Fechar</Text>
+                  <Feather name="x" size={14} color="#F8FAFC" style={{ marginRight: 4 }} />
+                  <Text style={styles.closePreviewText}>Fechar</Text>
                 </TouchableOpacity>
               </View>
 
               {loadingWeb && (
                 <View style={styles.webLoadingOverlay}>
-                  <ActivityIndicator size="large" color="#38BDF8" />
-                  <Text style={styles.loadingText}>Carregando encarte...</Text>
+                  <ActivityIndicator size="large" color="#10B981" />
+                  <Text style={styles.loadingText}>A carregar folheto...</Text>
                 </View>
               )}
 
@@ -218,34 +223,41 @@ export const DealsModal: React.FC<DealsModalProps> = ({ visible, onClose }) => {
             </View>
           ) : (
             <>
+              {/* Barra de Arraste Superior */}
+              <View style={styles.dragHandleBox}>
+                <View style={styles.dragHandle} />
+              </View>
+
               {/* Cabeçalho */}
               <View style={styles.header}>
                 <View>
                   <Text style={styles.title}>Economia em Londrina</Text>
                   <Text style={styles.subtitle}>Encartes e promoções ativas da região</Text>
                 </View>
-                <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-                  <Text style={styles.closeBtnText}>✕</Text>
+                <TouchableOpacity onPress={onClose} style={styles.closeBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Feather name="x" size={16} color="#94A3B8" />
                 </TouchableOpacity>
               </View>
 
-              {/* Seletor de Abas */}
+              {/* Seletor de Abas Segmentadas */}
               <View style={styles.tabBar}>
                 <TouchableOpacity
                   style={[styles.tabButton, activeTab === 'flyers' && styles.tabButtonActive]}
                   onPress={() => setActiveTab('flyers')}
+                  activeOpacity={0.7}
                 >
                   <Text style={[styles.tabText, activeTab === 'flyers' && styles.tabTextActive]}>
-                    📰 Encartes & Folhetos
+                    Encartes
                   </Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
                   style={[styles.tabButton, activeTab === 'products' && styles.tabButtonActive]}
                   onPress={() => setActiveTab('products')}
+                  activeOpacity={0.7}
                 >
                   <Text style={[styles.tabText, activeTab === 'products' && styles.tabTextActive]}>
-                    🔍 Produtos & Preços
+                    Produtos
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -255,19 +267,20 @@ export const DealsModal: React.FC<DealsModalProps> = ({ visible, onClose }) => {
                 <View style={{ flex: 1 }}>
                   {loadingFlyers ? (
                     <View style={styles.centerContainer}>
-                      <ActivityIndicator size="large" color="#38BDF8" />
-                      <Text style={styles.loadingText}>Carregando encartes...</Text>
+                      <ActivityIndicator size="large" color="#10B981" />
+                      <Text style={styles.loadingText}>A carregar encartes...</Text>
                     </View>
                   ) : (
                     <FlatList
                       data={flyers}
                       keyExtractor={(item) => String(item.id || item.store_name)}
                       contentContainerStyle={styles.flyersList}
+                      showsVerticalScrollIndicator={false}
                       renderItem={({ item }) => (
                         <TouchableOpacity
                           style={styles.flyerCard}
                           onPress={() => handleOpenFlyer(item)}
-                          activeOpacity={0.7}
+                          activeOpacity={0.75}
                         >
                           <View style={{ flex: 1 }}>
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -275,13 +288,13 @@ export const DealsModal: React.FC<DealsModalProps> = ({ visible, onClose }) => {
                               <View
                                 style={[
                                   styles.categoryBadge,
-                                  { backgroundColor: `${item.badge_color || '#38BDF8'}20` },
+                                  { backgroundColor: `${item.badge_color || '#10B981'}20` },
                                 ]}
                               >
                                 <Text
                                   style={[
                                     styles.categoryBadgeText,
-                                    { color: item.badge_color || '#38BDF8' },
+                                    { color: item.badge_color || '#10B981' },
                                   ]}
                                 >
                                   {item.category === 'instagram'
@@ -293,10 +306,10 @@ export const DealsModal: React.FC<DealsModalProps> = ({ visible, onClose }) => {
                               </View>
                             </View>
                             <Text style={styles.flyerActionHint}>
-                              Visualizar lâminas dentro do app
+                              Toque para abrir lâminas no ecrã
                             </Text>
                           </View>
-                          <Text style={styles.flyerArrow}>👁️</Text>
+                          <Feather name="chevron-right" size={18} color="#64748B" />
                         </TouchableOpacity>
                       )}
                     />
@@ -308,23 +321,23 @@ export const DealsModal: React.FC<DealsModalProps> = ({ visible, onClose }) => {
               {activeTab === 'products' && (
                 <View style={{ flex: 1 }}>
                   <View style={styles.searchContainer}>
-                    <TextInput
-                      style={styles.searchInput}
-                      placeholder="Pesquisar produto ou mercado..."
-                      placeholderTextColor="#64748B"
-                      value={searchQuery}
-                      onChangeText={setSearchQuery}
-                      autoCorrect={false}
-                      autoCapitalize="none"
-                    />
-                    {searchQuery.length > 0 && (
-                      <TouchableOpacity
-                        onPress={() => setSearchQuery('')}
-                        style={styles.clearSearchBtn}
-                      >
-                        <Text style={styles.clearSearchText}>✕</Text>
-                      </TouchableOpacity>
-                    )}
+                    <View style={styles.searchBox}>
+                      <Feather name="search" size={14} color="#64748B" style={{ marginRight: 8 }} />
+                      <TextInput
+                        style={styles.searchInput}
+                        placeholder="Pesquisar produto ou mercado..."
+                        placeholderTextColor="#64748B"
+                        value={searchQuery}
+                        onChangeText={setSearchQuery}
+                        autoCorrect={false}
+                        autoCapitalize="none"
+                      />
+                      {searchQuery.length > 0 && (
+                        <TouchableOpacity onPress={() => setSearchQuery('')}>
+                          <Feather name="x" size={14} color="#94A3B8" />
+                        </TouchableOpacity>
+                      )}
+                    </View>
                   </View>
 
                   <View style={styles.storeFilterContainer}>
@@ -343,6 +356,7 @@ export const DealsModal: React.FC<DealsModalProps> = ({ visible, onClose }) => {
                               isSelected && styles.storeChipSelected,
                             ]}
                             onPress={() => setSelectedStore(item)}
+                            activeOpacity={0.7}
                           >
                             <Text
                               style={[
@@ -361,13 +375,14 @@ export const DealsModal: React.FC<DealsModalProps> = ({ visible, onClose }) => {
                   {loadingDeals ? (
                     <View style={styles.centerContainer}>
                       <ActivityIndicator size="large" color="#10B981" />
-                      <Text style={styles.loadingText}>Carregando preços...</Text>
+                      <Text style={styles.loadingText}>A carregar preços...</Text>
                     </View>
                   ) : (
                     <FlatList
                       data={filteredDeals}
                       keyExtractor={(item) => item.id}
                       contentContainerStyle={styles.listContent}
+                      showsVerticalScrollIndicator={false}
                       renderItem={({ item }) => {
                         const safePrice = Number(item.deal_price || 0);
 
@@ -375,7 +390,7 @@ export const DealsModal: React.FC<DealsModalProps> = ({ visible, onClose }) => {
                           <View style={styles.dealCard}>
                             <View style={styles.dealInfo}>
                               <Text style={styles.storeBadge}>{item.store_name?.toUpperCase()}</Text>
-                              <Text style={styles.productName}>{item.product_name}</Text>
+                              <Text style={styles.productName} numberOfLines={2}>{item.product_name}</Text>
                               {item.valid_until && (
                                 <Text style={styles.validUntil}>
                                   Válido até: {item.valid_until}
@@ -383,7 +398,7 @@ export const DealsModal: React.FC<DealsModalProps> = ({ visible, onClose }) => {
                               )}
                             </View>
                             <View style={styles.priceContainer}>
-                              <Text style={styles.priceLabel}>Por apenas</Text>
+                              <Text style={styles.priceLabel}>Valor anunciado</Text>
                               <Text style={styles.dealPrice}>
                                 R$ {safePrice.toFixed(2).replace('.', ',')}
                               </Text>
@@ -391,15 +406,20 @@ export const DealsModal: React.FC<DealsModalProps> = ({ visible, onClose }) => {
                           </View>
                         );
                       }}
+                      ListEmptyComponent={
+                        <View style={styles.centerContainer}>
+                          <Text style={styles.emptyText}>Nenhuma oferta encontrada.</Text>
+                        </View>
+                      }
                     />
                   )}
                 </View>
               )}
 
-              {/* Botão Fechar Modal Geral */}
+              {/* Rodapé */}
               <View style={styles.footer}>
-                <TouchableOpacity style={styles.actionBtn} onPress={onClose}>
-                  <Text style={styles.actionBtnText}>Fechar</Text>
+                <TouchableOpacity style={styles.actionBtn} onPress={onClose} activeOpacity={0.8}>
+                  <Text style={styles.actionBtnText}>Concluído</Text>
                 </TouchableOpacity>
               </View>
             </>
@@ -413,14 +433,26 @@ export const DealsModal: React.FC<DealsModalProps> = ({ visible, onClose }) => {
 const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
     justifyContent: 'flex-end',
   },
   container: {
     height: '92%',
-    backgroundColor: '#0F172A',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    backgroundColor: '#0B0F19',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  dragHandleBox: {
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  dragHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
   previewHeader: {
     flexDirection: 'row',
@@ -429,40 +461,44 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#1E293B',
-    backgroundColor: '#0F172A',
+    borderBottomColor: 'rgba(255, 255, 255, 0.06)',
+    backgroundColor: '#0B0F19',
   },
   previewTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
+    fontSize: 15,
+    fontWeight: '700',
     color: '#F8FAFC',
   },
   previewSubtitle: {
     fontSize: 11,
-    color: '#94A3B8',
+    color: '#64748B',
   },
   closePreviewBtn: {
-    backgroundColor: '#334155',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#131927',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
   closePreviewText: {
     color: '#F8FAFC',
-    fontWeight: 'bold',
+    fontWeight: '600',
     fontSize: 12,
   },
   webView: {
     flex: 1,
-    backgroundColor: '#0F172A',
+    backgroundColor: '#0B0F19',
   },
   webLoadingOverlay: {
     position: 'absolute',
-    top: 0,
+    top: 50,
     right: 0,
     bottom: 0,
     left: 0,
-    backgroundColor: '#0F172A',
+    backgroundColor: '#0B0F19',
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 10,
@@ -472,132 +508,154 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: 16,
+    paddingTop: 6,
     paddingBottom: 10,
   },
-  title: { fontSize: 18, fontWeight: 'bold', color: '#F8FAFC' },
-  subtitle: { fontSize: 12, color: '#94A3B8', marginTop: 2 },
-  closeBtn: { padding: 6 },
-  closeBtnText: { color: '#94A3B8', fontSize: 20, fontWeight: 'bold' },
+  title: { fontSize: 17, fontWeight: '800', color: '#F8FAFC', letterSpacing: -0.3 },
+  subtitle: { fontSize: 11, color: '#64748B', marginTop: 1 },
+  closeBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#131927',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   tabBar: {
     flexDirection: 'row',
-    backgroundColor: '#1E293B',
-    marginHorizontal: 20,
-    borderRadius: 12,
-    padding: 4,
+    backgroundColor: '#131927',
+    marginHorizontal: 16,
+    borderRadius: 10,
+    padding: 3,
     marginBottom: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
   },
   tabButton: {
     flex: 1,
-    paddingVertical: 10,
+    paddingVertical: 8,
     alignItems: 'center',
     borderRadius: 8,
   },
   tabButtonActive: {
-    backgroundColor: '#0F172A',
+    backgroundColor: '#0B0F19',
   },
   tabText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
     color: '#64748B',
   },
   tabTextActive: {
-    color: '#38BDF8',
-    fontWeight: 'bold',
+    color: '#10B981',
+    fontWeight: '700',
   },
   flyersList: {
-    paddingHorizontal: 20,
-    paddingBottom: 16,
+    paddingHorizontal: 16,
+    paddingBottom: 24,
     gap: 8,
   },
   flyerCard: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#1E293B',
-    padding: 14,
+    backgroundColor: '#131927',
+    padding: 12,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.05)',
   },
   flyerStoreName: {
-    fontSize: 15,
-    fontWeight: 'bold',
+    fontSize: 14,
+    fontWeight: '700',
     color: '#F8FAFC',
   },
   categoryBadge: {
     paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 6,
+    borderRadius: 4,
   },
   categoryBadgeText: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '700',
     textTransform: 'uppercase',
   },
   flyerActionHint: {
-    fontSize: 12,
-    color: '#94A3B8',
-    marginTop: 3,
-  },
-  flyerArrow: {
-    fontSize: 16,
-    marginLeft: 10,
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 2,
   },
   searchContainer: {
+    paddingHorizontal: 16,
+    marginBottom: 8,
+  },
+  searchBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1E293B',
-    marginHorizontal: 20,
+    backgroundColor: '#131927',
     borderRadius: 10,
     paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
-  searchInput: { flex: 1, height: 42, color: '#F8FAFC', fontSize: 14 },
-  clearSearchBtn: { padding: 6 },
-  clearSearchText: { color: '#94A3B8', fontSize: 14, fontWeight: 'bold' },
-  storeFilterContainer: { marginVertical: 8 },
-  storeFilterList: { paddingHorizontal: 20, gap: 8 },
+  searchInput: {
+    flex: 1,
+    paddingVertical: 8,
+    color: '#F8FAFC',
+    fontSize: 13,
+  },
+  storeFilterContainer: { marginBottom: 10 },
+  storeFilterList: { paddingHorizontal: 16, gap: 6 },
   storeChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 20,
-    backgroundColor: '#1E293B',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 14,
+    backgroundColor: '#131927',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
   },
-  storeChipSelected: { backgroundColor: '#10B981' },
-  storeChipText: { color: '#94A3B8', fontSize: 13, fontWeight: '600' },
-  storeChipTextSelected: { color: '#FFFFFF', fontWeight: 'bold' },
-  listContent: { paddingHorizontal: 20, paddingBottom: 16 },
+  storeChipSelected: {
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    borderColor: '#10B981',
+  },
+  storeChipText: { color: '#94A3B8', fontSize: 11, fontWeight: '500' },
+  storeChipTextSelected: { color: '#10B981', fontWeight: '700' },
+  listContent: { paddingHorizontal: 16, paddingBottom: 24 },
   dealCard: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#1E293B',
-    padding: 14,
+    backgroundColor: '#131927',
+    padding: 12,
     borderRadius: 12,
-    marginBottom: 10,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.04)',
     borderLeftWidth: 3,
     borderLeftColor: '#10B981',
   },
-  dealInfo: { flex: 1, paddingRight: 10 },
+  dealInfo: { flex: 1, paddingRight: 8 },
   storeBadge: {
-    color: '#34D399',
-    fontSize: 10,
+    color: '#10B981',
+    fontSize: 9,
     fontWeight: '800',
-    marginBottom: 4,
+    marginBottom: 2,
   },
-  productName: { color: '#F8FAFC', fontSize: 14, fontWeight: 'bold' },
-  validUntil: { color: '#64748B', fontSize: 11, marginTop: 4 },
+  productName: { color: '#F8FAFC', fontSize: 13, fontWeight: '600' },
+  validUntil: { color: '#64748B', fontSize: 10, marginTop: 2 },
   priceContainer: { alignItems: 'flex-end' },
-  priceLabel: { color: '#94A3B8', fontSize: 10, marginBottom: 2 },
-  dealPrice: { color: '#34D399', fontSize: 16, fontWeight: 'bold' },
-  centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  loadingText: { color: '#94A3B8', marginTop: 10, fontSize: 13 },
-  footer: { paddingHorizontal: 20, paddingBottom: 16, paddingTop: 8 },
+  priceLabel: { color: '#64748B', fontSize: 9, marginBottom: 1 },
+  dealPrice: { color: '#34D399', fontSize: 16, fontWeight: '800', letterSpacing: -0.3 },
+  centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 40 },
+  loadingText: { color: '#64748B', marginTop: 8, fontSize: 12 },
+  emptyText: { color: '#64748B', fontSize: 13 },
+  footer: { paddingHorizontal: 16, paddingBottom: Platform.OS === 'android' ? 24 : 32, paddingTop: 6 },
   actionBtn: {
-    backgroundColor: '#334155',
+    backgroundColor: '#131927',
     paddingVertical: 12,
     borderRadius: 10,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
-  actionBtnText: { color: '#F8FAFC', fontWeight: 'bold', fontSize: 14 },
+  actionBtnText: { color: '#F8FAFC', fontWeight: '700', fontSize: 13 },
 });

@@ -14,7 +14,9 @@ import {
   RefreshControl,
   ScrollView,
   Share,
+  KeyboardAvoidingView,
 } from 'react-native';
+import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as XLSX from 'xlsx';
@@ -42,7 +44,6 @@ interface PurchaseItem {
 export function EventDetailsScreen({ route, navigation }: any) {
   const { eventId, title: initialTitle, currency = 'BRL', targetBudget: initialBudget = 0 } = route.params;
 
-  // Estados do evento
   const [currentEventTitle, setCurrentEventTitle] = useState(initialTitle);
   const [currentTargetBudget, setCurrentTargetBudget] = useState(Number(initialBudget) || 0);
   const [eventDescription, setEventDescription] = useState<string | null>(null);
@@ -61,29 +62,25 @@ export function EventDetailsScreen({ route, navigation }: any) {
   const [modalVisible, setModalVisible] = useState(false);
   const [scannerVisible, setScannerVisible] = useState(false);
 
-  // Modal de Relatórios da Viagem / Orçamento Isolado
   const [reportModalVisible, setReportModalVisible] = useState(false);
 
-  // Estados do formulário de criação de gastos
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('Geral');
 
-  // Estados do modal de visualização e edição de gastos
   const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editDesc, setEditDesc] = useState('');
   const [editAmount, setEditAmount] = useState('');
   const [editCategory, setEditCategory] = useState('');
-  const [editDate, setEditDate] = useState(''); // Estado para edição de data (DD/MM/AAAA)
+  const [editDate, setEditDate] = useState('');
   const [loadingItems, setLoadingItems] = useState(false);
   const [receiptItems, setReceiptItems] = useState<PurchaseItem[]>([]);
   const [savingEdit, setSavingEdit] = useState(false);
 
   const categories = ['Transporte', 'Hospedagem', 'Alimentação', 'Passeios', 'Compras', 'Geral'];
 
-  // Funções utilitárias de Data
   const applyDateMask = (text: string) => {
     const digits = text.replace(/\D/g, '').slice(0, 8);
     if (digits.length <= 2) return digits;
@@ -165,18 +162,18 @@ export function EventDetailsScreen({ route, navigation }: any) {
   const remainingBudget = currentTargetBudget - totalSpent;
   const progress =
     currentTargetBudget > 0 ? Math.min((totalSpent / currentTargetBudget) * 100, 100) : 0;
+  const isOverBudget = currentTargetBudget > 0 && totalSpent > currentTargetBudget;
 
-  // Compartilhamento via WhatsApp / Texto
   const handleShareWhatsApp = async () => {
-    let text = `✈️ *RELATÓRIO DE VIAGEM: ${currentEventTitle.toUpperCase()}*\n`;
+    let text = `*RELATÓRIO DE VIAGEM: ${currentEventTitle.toUpperCase()}*\n`;
     text += `Moeda: ${currency}\n\n`;
 
     if (currentTargetBudget > 0) {
-      text += `🎯 *Meta Prevista:* ${currency} ${currentTargetBudget.toFixed(2)}\n`;
+      text += `Meta Prevista: ${currency} ${currentTargetBudget.toFixed(2)}\n`;
     }
-    text += `💸 *Total Gasto:* ${currency} ${totalSpent.toFixed(2)}\n`;
+    text += `Total Gasto: ${currency} ${totalSpent.toFixed(2)}\n`;
     if (currentTargetBudget > 0) {
-      text += `📊 *Saldo Disponível:* ${currency} ${remainingBudget.toFixed(2)} (${remainingBudget >= 0 ? 'Dentro da meta' : 'Meta estourada'})\n`;
+      text += `Saldo Disponível: ${currency} ${remainingBudget.toFixed(2)} (${remainingBudget >= 0 ? 'Dentro da meta' : 'Meta ultrapassada'})\n`;
     }
     text += `\n*Detalhamento dos Gastos (${expenses.length} lançamentos):*\n`;
 
@@ -186,20 +183,19 @@ export function EventDetailsScreen({ route, navigation }: any) {
         text += `• ${dFormat} | ${ex.description} (${ex.category}): ${currency} ${Number(ex.amount).toFixed(2)}\n`;
       });
     } else {
-      text += `Nenhum lançamento registrado nesta viagem.\n`;
+      text += `Nenhum lançamento registado nesta viagem.\n`;
     }
 
     try {
       await Share.share({ message: text });
     } catch (err: any) {
-      Alert.alert('Erro ao compartilhar', err.message);
+      Alert.alert('Erro ao partilhar', err.message);
     }
   };
 
-  // Exportação em Planilha Excel (.xlsx) nativa
   const handleExportExcel = async () => {
     if (expenses.length === 0) {
-      Alert.alert('Aviso', 'Não existem despesas registradas nesta viagem para exportar.');
+      Alert.alert('Aviso', 'Não existem despesas registadas nesta viagem para exportar.');
       return;
     }
 
@@ -214,7 +210,6 @@ export function EventDetailsScreen({ route, navigation }: any) {
         };
       });
 
-      // Linha em branco e Totais Consolidados no rodapé
       dataRows.push(
         { 'Data': '', 'Descrição': '', 'Categoria': '', 'Valor': '' },
         { 'Data': 'RESUMO', 'Descrição': 'META ORÇAMENTÁRIA (TETO)', 'Categoria': '', 'Valor': currentTargetBudget },
@@ -261,10 +256,9 @@ export function EventDetailsScreen({ route, navigation }: any) {
     }
   };
 
-  // Exportação em CSV (com UTF-8 BOM)
   const handleExportCSV = async () => {
-    if (expenses.length === 0) {
-      Alert.alert('Aviso', 'Não existem despesas registradas nesta viagem para exportar.');
+    if (!expenses.length) {
+      Alert.alert('Aviso', 'Não existem despesas registadas nesta viagem para exportar.');
       return;
     }
 
@@ -287,7 +281,7 @@ export function EventDetailsScreen({ route, navigation }: any) {
       const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
 
       await FileSystem.writeAsStringAsync(fileUri, csvContent, {
-        encoding: FileSystem.EncodingType.UTF8,
+        encoding: FileSystem.EncodingType.Base64,
       });
 
       if (await Sharing.isAvailableAsync()) {
@@ -333,7 +327,7 @@ export function EventDetailsScreen({ route, navigation }: any) {
       setCurrentEventTitle(newEventTitleInput.trim());
       setCurrentTargetBudget(parsedBudget);
       setEditEventModalVisible(false);
-      Alert.alert('Sucesso', 'Configurações do evento atualizadas!');
+      Alert.alert('Sucesso', 'Configurações da viagem atualizadas!');
     } catch (err: any) {
       Alert.alert('Erro', err.message || 'Falha ao atualizar evento.');
     } finally {
@@ -354,24 +348,24 @@ export function EventDetailsScreen({ route, navigation }: any) {
       setIsArchived(nextState);
       setEditEventModalVisible(false);
       Alert.alert(
-        nextState ? 'Viagem Concluída 📦' : 'Viagem Reativada ✈️',
+        nextState ? 'Viagem Concluída' : 'Viagem Reativada',
         nextState
-          ? 'O evento foi arquivado e agora está no histórico.'
+          ? 'O evento foi arquivado e agora consta no histórico.'
           : 'O evento voltou para a lista de viagens ativas.'
       );
     } catch (err: any) {
-      Alert.alert('Erro', err.message || 'Falha ao alterar status do evento.');
+      Alert.alert('Erro', err.message || 'Falha ao alterar estado do evento.');
     }
   };
 
   const handleDeleteWholeEvent = () => {
     Alert.alert(
-      'Excluir Evento',
-      `Tem certeza de que deseja apagar "${currentEventTitle}" e todos os registros vinculados a ele?`,
+      'Remover Viagem',
+      `Tem a certeza de que deseja apagar "${currentEventTitle}" e todos os registos vinculados?`,
       [
         { text: 'Cancelar', style: 'cancel' },
         {
-          text: 'Excluir Definitivamente',
+          text: 'Remover Definitivamente',
           style: 'destructive',
           onPress: async () => {
             try {
@@ -436,8 +430,8 @@ export function EventDetailsScreen({ route, navigation }: any) {
         ]);
 
         Alert.alert(
-          'Guardado Offline 📴',
-          'Está sem ligação à rede. A despesa ficou guardada no dispositivo e será sincronizada assim que a internet regressar.'
+          'Guardado Offline',
+          'Sem ligação à rede. A despesa ficou guardada no telemóvel e será sincronizada assim que a internet regressar.'
         );
 
         setModalVisible(false);
@@ -448,7 +442,6 @@ export function EventDetailsScreen({ route, navigation }: any) {
       }
 
       const { error } = await supabase.from('event_expenses').insert([payload]);
-
       if (error) throw error;
 
       setModalVisible(false);
@@ -457,49 +450,7 @@ export function EventDetailsScreen({ route, navigation }: any) {
       setCategory('Geral');
       fetchExpenses();
     } catch (err: any) {
-      try {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-        if (user) {
-          const numVal = parseFloat(amount.replace(',', '.'));
-          const payload = {
-            event_id: eventId,
-            user_id: user.id,
-            description: description.trim(),
-            amount: numVal,
-            category,
-            expense_date: new Date().toISOString().split('T')[0],
-          };
-
-          const enqueued = await enqueueOfflineAction('event_expenses', payload);
-
-          setExpenses((prev) => [
-            {
-              id: enqueued.id,
-              description: payload.description,
-              amount: payload.amount,
-              category: payload.category,
-              expense_date: payload.expense_date,
-              is_offline_pending: true,
-            },
-            ...prev,
-          ]);
-
-          Alert.alert(
-            'Guardado Offline 📴',
-            'A ligação oscilou, mas a despesa foi guardada localmente e será sincronizada assim que possível.'
-          );
-
-          setModalVisible(false);
-          setDescription('');
-          setAmount('');
-          setCategory('Geral');
-          return;
-        }
-      } catch {}
-
-      Alert.alert('Erro', err.message || 'Falha ao salvar o lançamento.');
+      Alert.alert('Erro', err.message || 'Falha ao registar o lançamento.');
     }
   };
 
@@ -508,7 +459,6 @@ export function EventDetailsScreen({ route, navigation }: any) {
     setEditDesc(item.description);
     setEditAmount(String(item.amount));
     setEditCategory(item.category);
-    // Transforma AAAA-MM-DD em DD/MM/AAAA para exibir no formulário de edição
     setEditDate(item.expense_date ? item.expense_date.split('-').reverse().join('/') : '');
     setIsEditing(false);
     setReceiptItems([]);
@@ -563,7 +513,7 @@ export function EventDetailsScreen({ route, navigation }: any) {
           description: editDesc.trim(),
           amount: numVal,
           category: editCategory,
-          expense_date: isoDate, // Salva a data atualizada
+          expense_date: isoDate,
         })
         .eq('id', selectedExpense.id);
 
@@ -579,7 +529,7 @@ export function EventDetailsScreen({ route, navigation }: any) {
 
       setIsEditing(false);
       fetchExpenses();
-      Alert.alert('Sucesso', 'Gasto atualizado com sucesso!');
+      Alert.alert('Sucesso', 'Gasto atualizado!');
     } catch (err: any) {
       Alert.alert('Erro', err.message || 'Falha ao atualizar despesa.');
     } finally {
@@ -588,10 +538,10 @@ export function EventDetailsScreen({ route, navigation }: any) {
   };
 
   const handleDeleteExpense = (id: string, desc: string) => {
-    Alert.alert('Apagar Gasto', `Deseja remover "${desc}" deste evento?`, [
+    Alert.alert('Remover Gasto', `Deseja remover "${desc}" desta viagem?`, [
       { text: 'Cancelar', style: 'cancel' },
       {
-        text: 'Apagar',
+        text: 'Remover',
         style: 'destructive',
         onPress: async () => {
           await supabase.from('event_expenses').delete().eq('id', id);
@@ -608,85 +558,87 @@ export function EventDetailsScreen({ route, navigation }: any) {
 
   return (
     <View style={styles.container}>
-      {/* Cabeçalho */}
-      <View style={styles.header}>
+      <StatusBar barStyle="light-content" />
+
+      {/* Top Header Separado: Navegação e Ações em Linha Superior */}
+      <View style={styles.topNavRow}>
         <TouchableOpacity
           onPress={() => navigation.goBack()}
           style={styles.backButton}
           activeOpacity={0.7}
         >
-          <Text style={styles.backButtonText}>‹</Text>
+          <Feather name="chevron-left" size={20} color="#10B981" />
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.headerTitleContainer}
-          onPress={() => {
-            setNewEventTitleInput(currentEventTitle);
-            setNewEventBudgetInput(currentTargetBudget > 0 ? String(currentTargetBudget) : '');
-            setEditEventModalVisible(true);
-          }}
-          activeOpacity={0.7}
-        >
-          <View style={styles.titleRow}>
-            <Text style={styles.headerTitle} numberOfLines={1}>
-              {currentEventTitle}
-            </Text>
-            {isArchived && (
-              <View style={styles.archivedHeaderBadge}>
-                <Text style={styles.archivedHeaderBadgeText}>ARQUIVADO</Text>
-              </View>
-            )}
-            <Text style={styles.editTitleIcon}>✏️</Text>
-          </View>
-          <Text style={styles.headerSub}>Despesas do evento ({currency}) • Toque p/ configurar</Text>
-        </TouchableOpacity>
+        <View style={styles.navActionsGroup}>
+          <TouchableOpacity
+            style={styles.headerIconBtn}
+            onPress={() => setReportModalVisible(true)}
+            activeOpacity={0.7}
+          >
+            <Feather name="bar-chart-2" size={15} color="#38BDF8" />
+          </TouchableOpacity>
 
-        {/* Botão de Relatórios & Exportação */}
-        <TouchableOpacity
-          style={styles.reportButton}
-          onPress={() => setReportModalVisible(true)}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.reportButtonIcon}>📊</Text>
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.headerIconBtn}
+            onPress={() =>
+              navigation.navigate('EventChecklist', {
+                eventId,
+                title: currentEventTitle,
+              })
+            }
+            activeOpacity={0.7}
+          >
+            <Feather name="check-square" size={15} color="#38BDF8" />
+          </TouchableOpacity>
 
-        {/* Botão de Checklist da Viagem */}
-        <TouchableOpacity
-          style={styles.checklistButton}
-          onPress={() =>
-            navigation.navigate('EventChecklist', {
-              eventId,
-              title: currentEventTitle,
-            })
-          }
-          activeOpacity={0.7}
-        >
-          <Text style={styles.checklistButtonIcon}>📋</Text>
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.headerIconBtn}
+            onPress={() => setScannerVisible(true)}
+            activeOpacity={0.7}
+          >
+            <MaterialCommunityIcons name="qrcode-scan" size={16} color="#38BDF8" />
+          </TouchableOpacity>
 
-        {/* Botão de Scanner NFC-e */}
-        <TouchableOpacity
-          style={styles.scanButton}
-          onPress={() => setScannerVisible(true)}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.scanButtonIcon}>📷</Text>
-        </TouchableOpacity>
-
-        {/* Botão de Lançar Gasto Manual */}
-        <TouchableOpacity
-          style={styles.addButton}
-          onPress={() => setModalVisible(true)}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.addButtonText}>+ Gasto</Text>
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.addButton}
+            onPress={() => setModalVisible(true)}
+            activeOpacity={0.8}
+          >
+            <Feather name="plus" size={12} color="#0B0F19" style={{ marginRight: 3 }} />
+            <Text style={styles.addButtonText}>Gasto</Text>
+          </TouchableOpacity>
+        </View>
       </View>
+
+      {/* Bloco dedicado para o Título da Viagem */}
+      <TouchableOpacity
+        style={styles.eventTitleCard}
+        onPress={() => {
+          setNewEventTitleInput(currentEventTitle);
+          setNewEventBudgetInput(currentTargetBudget > 0 ? String(currentTargetBudget) : '');
+          setEditEventModalVisible(true);
+        }}
+        activeOpacity={0.7}
+      >
+        <View style={styles.titleContentRow}>
+          <Text style={styles.headerTitle} numberOfLines={1}>
+            {currentEventTitle}
+          </Text>
+          {isArchived && (
+            <View style={styles.archivedHeaderBadge}>
+              <Text style={styles.archivedHeaderBadgeText}>ARQUIVADO</Text>
+            </View>
+          )}
+          <Feather name="settings" size={13} color="#64748B" style={{ marginLeft: 6 }} />
+        </View>
+        <Text style={styles.headerSub}>Despesas em {currency} • Toque para configurar</Text>
+      </TouchableOpacity>
 
       {/* Card de Resumo do Orçamento */}
       <TouchableOpacity
         style={styles.summaryCard}
-        activeOpacity={0.7}
+        activeOpacity={0.8}
         onPress={() => {
           setNewEventTitleInput(currentEventTitle);
           setNewEventBudgetInput(currentTargetBudget > 0 ? String(currentTargetBudget) : '');
@@ -695,25 +647,23 @@ export function EventDetailsScreen({ route, navigation }: any) {
       >
         <View style={styles.summaryRow}>
           <View>
-            <Text style={styles.summaryLabel}>Total Gasto</Text>
-            <Text style={styles.summarySpent}>
+            <Text style={styles.summaryLabel}>TOTAL GASTO</Text>
+            <Text style={[styles.summarySpent, isOverBudget && { color: '#F87171' }]}>
               {currency} {totalSpent.toFixed(2)}
             </Text>
           </View>
 
           {currentTargetBudget > 0 ? (
             <View style={{ alignItems: 'flex-end' }}>
-              <View style={styles.metaHeaderRow}>
-                <Text style={styles.summaryLabel}>Meta Prevista</Text>
-                <Text style={styles.editMetaIcon}>✏️</Text>
-              </View>
+              <Text style={styles.summaryLabel}>META PREVISTA</Text>
               <Text style={styles.summaryTarget}>
                 {currency} {currentTargetBudget.toFixed(2)}
               </Text>
             </View>
           ) : (
             <View style={styles.setBudgetBtn}>
-              <Text style={styles.setBudgetText}>+ Definir meta</Text>
+              <Feather name="plus" size={11} color="#10B981" style={{ marginRight: 3 }} />
+              <Text style={styles.setBudgetText}>Definir meta</Text>
             </View>
           )}
         </View>
@@ -727,9 +677,9 @@ export function EventDetailsScreen({ route, navigation }: any) {
                   width: `${progress}%`,
                   backgroundColor: isArchived
                     ? '#64748B'
-                    : progress >= 100
-                    ? '#EF4444'
-                    : '#38BDF8',
+                    : isOverBudget
+                    ? '#F87171'
+                    : '#10B981',
                 },
               ]}
             />
@@ -737,24 +687,28 @@ export function EventDetailsScreen({ route, navigation }: any) {
         )}
       </TouchableOpacity>
 
-      {/* Memória de Cálculo / Estimativa Salva da Simulação */}
+      {/* Memória de Cálculo da Simulação */}
       {eventDescription ? (
         <View style={styles.simulationCard}>
-          <View style={styles.simulationHeader}>
-            <Text style={styles.simulationTitle}>🧭 Memória de Cálculo da Simulação</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+            <Feather name="compass" size={13} color="#38BDF8" />
+            <Text style={styles.simulationTitle}>Estimativa & Memória de Cálculo:</Text>
           </View>
           <Text style={styles.simulationBodyText}>{eventDescription}</Text>
         </View>
       ) : null}
 
-      {/* Lista de Despesas */}
+      {/* Cabeçalho da Lista */}
       <View style={styles.listHeaderRow}>
-        <Text style={styles.listSectionTitle}>Lançamentos</Text>
-        <Text style={styles.listSectionCount}>{expenses.length} registro(s)</Text>
+        <Text style={styles.listSectionTitle}>Lançamentos Registados</Text>
+        <Text style={styles.listSectionCount}>{expenses.length} lançamento(s)</Text>
       </View>
 
+      {/* Lista de Gastos */}
       {loading ? (
-        <ActivityIndicator size="large" color="#38BDF8" style={{ marginTop: 40 }} />
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color="#10B981" />
+        </View>
       ) : (
         <FlatList
           data={expenses}
@@ -766,11 +720,11 @@ export function EventDetailsScreen({ route, navigation }: any) {
                 setRefreshing(true);
                 fetchExpenses();
               }}
-              tintColor="#fff"
+              tintColor="#10B981"
             />
           }
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 100 }}
+          contentContainerStyle={{ paddingBottom: Platform.OS === 'android' ? 100 : 80 }}
           renderItem={({ item }: { item: Expense }) => (
             <TouchableOpacity
               style={[styles.expenseItem, item.is_offline_pending && styles.expenseItemOffline]}
@@ -779,15 +733,16 @@ export function EventDetailsScreen({ route, navigation }: any) {
             >
               <View style={{ flex: 1, paddingRight: 8 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text style={styles.expenseDesc}>{item.description}</Text>
+                  <Text style={styles.expenseDesc} numberOfLines={1}>{item.description}</Text>
                   {item.is_offline_pending && (
                     <View style={styles.offlineTag}>
-                      <Text style={styles.offlineTagText}>📴 Pendente</Text>
+                      <Feather name="wifi-off" size={9} color="#F59E0B" style={{ marginRight: 3 }} />
+                      <Text style={styles.offlineTagText}>Offline</Text>
                     </View>
                   )}
                 </View>
                 <Text style={styles.expenseSub}>
-                  {item.category} • {item.expense_date}
+                  {item.category} • {item.expense_date.split('-').reverse().join('/')}
                 </Text>
               </View>
               <Text style={styles.expenseAmount}>
@@ -796,59 +751,69 @@ export function EventDetailsScreen({ route, navigation }: any) {
             </TouchableOpacity>
           )}
           ListEmptyComponent={
-            <Text style={styles.emptyText}>
-              Nenhum gasto lançado para esta viagem ainda.{'\n'}Toque em "+ Gasto" ou escaneie uma NFC-e.
-            </Text>
+            <View style={styles.emptyContainer}>
+              <Feather name="credit-card" size={28} color="#64748B" style={{ marginBottom: 6 }} />
+              <Text style={styles.emptyText}>
+                Nenhum gasto lançado para esta viagem ainda.{'\n'}Toque em "Gasto" ou faça a leitura da NFC-e.
+              </Text>
+            </View>
           }
         />
       )}
-      <View style={styles.bottomBarBarrier} />
 
-      {/* Modal de Relatórios da Viagem / Orçamento Isolado */}
+      {/* Modal de Relatório da Viagem */}
       <Modal visible={reportModalVisible} transparent animationType="slide" onRequestClose={() => setReportModalVisible(false)}>
         <View style={styles.bottomModalOverlay}>
           <View style={styles.bottomModalCard}>
+            <View style={styles.dragHandleBox}>
+              <View style={styles.dragHandle} />
+            </View>
+
             <View style={styles.bottomModalHeader}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.modalTitle} numberOfLines={1}>📊 Relatório: {currentEventTitle}</Text>
-                <Text style={styles.reportSubtitle}>Consolidação e fechamento de gastos</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Feather name="bar-chart-2" size={15} color="#38BDF8" />
+                  <Text style={styles.modalTitle} numberOfLines={1}>Relatório: {currentEventTitle}</Text>
+                </View>
+                <Text style={styles.reportSubtitle}>Consolidação e fecho de contas da viagem</Text>
               </View>
-              <TouchableOpacity onPress={() => setReportModalVisible(false)}>
-                <Text style={styles.closeBtnText}>✕</Text>
+              <TouchableOpacity onPress={() => setReportModalVisible(false)} style={styles.closeBtn}>
+                <Feather name="x" size={16} color="#94A3B8" />
               </TouchableOpacity>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false}>
-              {/* Card de Indicadores do Relatório */}
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 20 }}>
               <View style={styles.reportMetricsCard}>
                 <View style={styles.reportMetricBox}>
-                  <Text style={styles.reportMetricLabel}>Meta Prevista</Text>
+                  <Text style={styles.reportMetricLabel}>Meta</Text>
                   <Text style={[styles.reportMetricVal, { color: '#38BDF8' }]}>
                     {currency} {currentTargetBudget.toFixed(2)}
                   </Text>
                 </View>
+                <View style={styles.reportMetricDivider} />
                 <View style={styles.reportMetricBox}>
-                  <Text style={styles.reportMetricLabel}>Total Realizado</Text>
-                  <Text style={[styles.reportMetricVal, { color: '#EF4444' }]}>
+                  <Text style={styles.reportMetricLabel}>Realizado</Text>
+                  <Text style={[styles.reportMetricVal, { color: '#F87171' }]}>
                     {currency} {totalSpent.toFixed(2)}
                   </Text>
                 </View>
+                <View style={styles.reportMetricDivider} />
                 <View style={styles.reportMetricBox}>
-                  <Text style={styles.reportMetricLabel}>Saldo Restante</Text>
-                  <Text style={[styles.reportMetricVal, { color: remainingBudget >= 0 ? '#10B981' : '#F59E0B' }]}>
+                  <Text style={styles.reportMetricLabel}>Saldo</Text>
+                  <Text style={[styles.reportMetricVal, { color: remainingBudget >= 0 ? '#34D399' : '#F59E0B' }]}>
                     {currency} {remainingBudget.toFixed(2)}
                   </Text>
                 </View>
               </View>
 
-              {/* Botões de Ação para Exportação */}
               <View style={styles.reportActionsContainer}>
                 <TouchableOpacity
                   style={styles.exportExcelBtn}
                   onPress={handleExportExcel}
-                  activeOpacity={0.7}
+                  activeOpacity={0.8}
                 >
-                  <Text style={styles.exportExcelBtnText}>📊 Exportar Planilha Excel (.xlsx)</Text>
+                  <Feather name="file-text" size={14} color="#0B0F19" style={{ marginRight: 6 }} />
+                  <Text style={styles.exportExcelBtnText}>Exportar Planilha Excel (.xlsx)</Text>
                 </TouchableOpacity>
 
                 <View style={styles.secondaryExportRow}>
@@ -857,7 +822,8 @@ export function EventDetailsScreen({ route, navigation }: any) {
                     onPress={handleShareWhatsApp}
                     activeOpacity={0.7}
                   >
-                    <Text style={styles.shareWhatsAppBtnText}>💬 WhatsApp / Texto</Text>
+                    <Feather name="share-2" size={12} color="#38BDF8" style={{ marginRight: 4 }} />
+                    <Text style={styles.shareWhatsAppBtnText}>Partilhar Texto</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
@@ -865,7 +831,8 @@ export function EventDetailsScreen({ route, navigation }: any) {
                     onPress={handleExportCSV}
                     activeOpacity={0.7}
                   >
-                    <Text style={styles.exportCsvBtnText}>📄 Exportar CSV</Text>
+                    <Feather name="download" size={12} color="#F8FAFC" style={{ marginRight: 6 }} />
+                    <Text style={styles.exportCsvBtnText}>Exportar CSV</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -873,21 +840,34 @@ export function EventDetailsScreen({ route, navigation }: any) {
               <TouchableOpacity
                 style={styles.closeFullBtn}
                 onPress={() => setReportModalVisible(false)}
+                activeOpacity={0.7}
               >
-                <Text style={styles.closeFullBtnText}>Fechar</Text>
+                <Text style={styles.closeFullBtnText}>Concluído</Text>
               </TouchableOpacity>
             </ScrollView>
           </View>
         </View>
       </Modal>
 
-      {/* Modal para Editar Nome, Meta, Arquivar e Excluir */}
-      <Modal visible={editEventModalVisible} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Configurações do Evento</Text>
+      {/* Modal Configurações do Evento */}
+      <Modal visible={editEventModalVisible} transparent animationType="slide" onRequestClose={() => setEditEventModalVisible(false)}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.bottomModalOverlay}
+        >
+          <View style={styles.bottomModalCard}>
+            <View style={styles.dragHandleBox}>
+              <View style={styles.dragHandle} />
+            </View>
 
-            <Text style={styles.label}>Nome do Evento:</Text>
+            <View style={styles.bottomModalHeader}>
+              <Text style={styles.modalTitle}>Ajustar Evento</Text>
+              <TouchableOpacity onPress={() => setEditEventModalVisible(false)} style={styles.closeBtn}>
+                <Feather name="x" size={16} color="#94A3B8" />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.fieldLabel}>NOME DO EVENTO</Text>
             <TextInput
               style={styles.input}
               placeholder="Ex: Mochilão Europa, Eurotrip 2026"
@@ -896,21 +876,16 @@ export function EventDetailsScreen({ route, navigation }: any) {
               onChangeText={setNewEventTitleInput}
             />
 
-            <Text style={styles.label}>Meta de Gastos / Orçamento ({currency}):</Text>
+            <Text style={styles.fieldLabel}>META DE GASTOS ({currency})</Text>
             <TextInput
-              style={styles.input}
-              placeholder="0.00 (deixe em branco se não tiver teto)"
+              style={[styles.input, styles.inputBold]}
+              placeholder="0,00 (deixe em branco para sem teto)"
               placeholderTextColor="#64748B"
-              keyboardType="numeric"
+              keyboardType="decimal-pad"
               value={newEventBudgetInput}
               onChangeText={setNewEventBudgetInput}
             />
 
-            <Text style={styles.hintNotice}>
-              💡 Se preenchido, exibirá uma barra de progresso. Deixe em branco para remover a meta.
-            </Text>
-
-            {/* Botão de Arquivar / Reativar */}
             <TouchableOpacity
               style={[
                 styles.archiveEventBtn,
@@ -919,18 +894,24 @@ export function EventDetailsScreen({ route, navigation }: any) {
               onPress={handleToggleArchiveCurrentEvent}
               activeOpacity={0.7}
             >
+              <Feather
+                name={isArchived ? 'rotate-ccw' : 'archive'}
+                size={13}
+                color={isArchived ? '#F59E0B' : '#38BDF8'}
+                style={{ marginRight: 6 }}
+              />
               <Text style={[styles.archiveEventBtnText, isArchived && styles.archiveEventBtnTextActive]}>
-                {isArchived ? '🔄 Reativar Viagem (Tornar Ativa)' : '📦 Concluir e Arquivar Viagem'}
+                {isArchived ? 'Reativar Viagem' : 'Concluir e Arquivar Viagem'}
               </Text>
             </TouchableOpacity>
 
-            {/* Botão de Excluir Evento */}
             <TouchableOpacity
               style={styles.deleteEventBtn}
               onPress={handleDeleteWholeEvent}
               activeOpacity={0.7}
             >
-              <Text style={styles.deleteEventBtnText}>🗑️ Excluir este evento</Text>
+              <Feather name="trash-2" size={13} color="#F87171" style={{ marginRight: 6 }} />
+              <Text style={styles.deleteEventBtnText}>Excluir definitivamente</Text>
             </TouchableOpacity>
 
             <View style={styles.modalActions}>
@@ -947,44 +928,59 @@ export function EventDetailsScreen({ route, navigation }: any) {
                 disabled={savingEvent}
               >
                 <Text style={styles.saveBtnText}>
-                  {savingEvent ? 'Salvando...' : 'Salvar'}
+                  {savingEvent ? 'A guardar...' : 'Gravar Alterações'}
                 </Text>
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
-      {/* Modal de Criação Manual de Gasto */}
-      <Modal visible={modalVisible} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Novo Gasto no Evento</Text>
+      {/* Modal Lançar Gasto Manual */}
+      <Modal visible={modalVisible} transparent animationType="slide" onRequestClose={() => setModalVisible(false)}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.bottomModalOverlay}
+        >
+          <View style={styles.bottomModalCard}>
+            <View style={styles.dragHandleBox}>
+              <View style={styles.dragHandle} />
+            </View>
 
+            <View style={styles.bottomModalHeader}>
+              <Text style={styles.modalTitle}>Novo Gasto na Viagem</Text>
+              <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.closeBtn}>
+                <Feather name="x" size={16} color="#94A3B8" />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.fieldLabel}>DESCRIÇÃO</Text>
             <TextInput
               style={styles.input}
-              placeholder="Descrição (ex: Passagem de Trem, Jantar)"
+              placeholder="Ex: Passagem de comboio, Jantar Osteria"
               placeholderTextColor="#64748B"
               value={description}
               onChangeText={setDescription}
             />
 
+            <Text style={styles.fieldLabel}>VALOR ({currency})</Text>
             <TextInput
-              style={styles.input}
-              placeholder={`Valor em ${currency} (ex: 45.50)`}
+              style={[styles.input, styles.inputBold]}
+              placeholder="0,00"
               placeholderTextColor="#64748B"
-              keyboardType="numeric"
+              keyboardType="decimal-pad"
               value={amount}
               onChangeText={setAmount}
             />
 
-            <Text style={styles.categoryLabel}>Categoria:</Text>
+            <Text style={styles.fieldLabel}>CATEGORIA</Text>
             <View style={styles.categoryWrap}>
               {categories.map((cat) => (
                 <TouchableOpacity
                   key={cat}
                   style={[styles.catBadge, category === cat && styles.catBadgeActive]}
                   onPress={() => setCategory(cat)}
+                  activeOpacity={0.7}
                 >
                   <Text style={[styles.catBadgeText, category === cat && styles.catBadgeTextActive]}>
                     {cat}
@@ -998,14 +994,14 @@ export function EventDetailsScreen({ route, navigation }: any) {
                 <Text style={styles.cancelBtnText}>Cancelar</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.saveBtn} onPress={handleCreateExpense}>
-                <Text style={styles.saveBtnText}>Lançar</Text>
+                <Text style={styles.saveBtnText}>Lançar Gasto</Text>
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
-      {/* Modal de Detalhes / Edição / Itens da Nota */}
+      {/* Modal Detalhe do Gasto / NFC-e */}
       <Modal
         visible={detailModalVisible}
         transparent
@@ -1014,17 +1010,21 @@ export function EventDetailsScreen({ route, navigation }: any) {
       >
         <View style={styles.bottomModalOverlay}>
           <View style={styles.bottomModalCard}>
+            <View style={styles.dragHandleBox}>
+              <View style={styles.dragHandle} />
+            </View>
+
             <View style={styles.bottomModalHeader}>
-              <Text style={styles.modalTitle}>Detalhe do Gasto</Text>
-              <TouchableOpacity onPress={() => setDetailModalVisible(false)}>
-                <Text style={styles.closeBtnText}>✕</Text>
+              <Text style={styles.modalTitle}>Detalhe do Lançamento</Text>
+              <TouchableOpacity onPress={() => setDetailModalVisible(false)} style={styles.closeBtn}>
+                <Feather name="x" size={16} color="#94A3B8" />
               </TouchableOpacity>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false}>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
               {isEditing ? (
-                <View style={{ paddingTop: 4 }}>
-                  <Text style={styles.label}>Descrição</Text>
+                <View>
+                  <Text style={styles.fieldLabel}>DESCRIÇÃO</Text>
                   <TextInput
                     style={styles.input}
                     value={editDesc}
@@ -1033,18 +1033,17 @@ export function EventDetailsScreen({ route, navigation }: any) {
                     placeholderTextColor="#64748B"
                   />
 
-                  <Text style={styles.label}>Valor ({currency})</Text>
+                  <Text style={styles.fieldLabel}>VALOR ({currency})</Text>
                   <TextInput
-                    style={styles.input}
+                    style={[styles.input, styles.inputBold]}
                     value={editAmount}
                     onChangeText={setEditAmount}
-                    keyboardType="numeric"
-                    placeholder="0.00"
+                    keyboardType="decimal-pad"
+                    placeholder="0,00"
                     placeholderTextColor="#64748B"
                   />
 
-                  {/* Campo de Edição da Data da Compra */}
-                  <Text style={styles.label}>Data da Compra (DD/MM/AAAA)</Text>
+                  <Text style={styles.fieldLabel}>DATA DA DESPESA (DD/MM/AAAA)</Text>
                   <TextInput
                     style={styles.input}
                     value={editDate}
@@ -1055,13 +1054,14 @@ export function EventDetailsScreen({ route, navigation }: any) {
                     placeholderTextColor="#64748B"
                   />
 
-                  <Text style={styles.label}>Categoria:</Text>
+                  <Text style={styles.fieldLabel}>CATEGORIA</Text>
                   <View style={styles.categoryWrap}>
                     {categories.map((cat) => (
                       <TouchableOpacity
                         key={cat}
                         style={[styles.catBadge, editCategory === cat && styles.catBadgeActive]}
                         onPress={() => setEditCategory(cat)}
+                        activeOpacity={0.7}
                       >
                         <Text
                           style={[
@@ -1089,7 +1089,7 @@ export function EventDetailsScreen({ route, navigation }: any) {
                       disabled={savingEdit}
                     >
                       <Text style={styles.saveBtnText}>
-                        {savingEdit ? 'Salvando...' : 'Salvar'}
+                        {savingEdit ? 'A guardar...' : 'Gravar'}
                       </Text>
                     </TouchableOpacity>
                   </View>
@@ -1097,10 +1097,12 @@ export function EventDetailsScreen({ route, navigation }: any) {
               ) : (
                 <View>
                   <Text style={styles.detailDesc}>{selectedExpense?.description}</Text>
-                  <Text style={styles.detailDate}>Data: {selectedExpense?.expense_date ? selectedExpense.expense_date.split('-').reverse().join('/') : ''}</Text>
+                  <Text style={styles.detailDate}>
+                    {selectedExpense?.category} • {selectedExpense?.expense_date ? selectedExpense.expense_date.split('-').reverse().join('/') : ''}
+                  </Text>
 
                   <View style={styles.detailAmountCard}>
-                    <Text style={styles.detailAmountLabel}>Valor Pago</Text>
+                    <Text style={styles.detailAmountLabel}>TOTAL GASTO</Text>
                     <Text style={styles.detailAmountVal}>
                       - {currency} {Number(selectedExpense?.amount || 0).toFixed(2)}
                     </Text>
@@ -1110,8 +1112,10 @@ export function EventDetailsScreen({ route, navigation }: any) {
                     <TouchableOpacity
                       style={styles.actionBtnEdit}
                       onPress={() => setIsEditing(true)}
+                      activeOpacity={0.7}
                     >
-                      <Text style={styles.actionBtnEditText}>✏️ Editar</Text>
+                      <Feather name="edit-2" size={12} color="#38BDF8" style={{ marginRight: 4 }} />
+                      <Text style={styles.actionBtnEditText}>Editar</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={styles.actionBtnDelete}
@@ -1119,19 +1123,21 @@ export function EventDetailsScreen({ route, navigation }: any) {
                         selectedExpense &&
                         handleDeleteExpense(selectedExpense.id, selectedExpense.description)
                       }
+                      activeOpacity={0.7}
                     >
-                      <Text style={styles.actionBtnDeleteText}>🗑️ Excluir</Text>
+                      <Feather name="trash-2" size={12} color="#F87171" style={{ marginRight: 4 }} />
+                      <Text style={styles.actionBtnDeleteText}>Excluir</Text>
                     </TouchableOpacity>
                   </View>
 
-                  {/* Se for uma NFC-e, lista os produtos */}
+                  {/* Lista de itens se for nota SEFAZ */}
                   {selectedExpense?.description.startsWith('NFC-e:') && (
                     <>
-                      <Text style={styles.sectionTitle}>ITENS DISCRIMINADOS NA NOTA:</Text>
+                      <Text style={styles.fieldLabel}>ITENS DISCRIMINADOS NO CUPOM</Text>
                       {loadingItems ? (
                         <ActivityIndicator
                           size="small"
-                          color="#38BDF8"
+                          color="#10B981"
                           style={{ marginVertical: 14 }}
                         />
                       ) : receiptItems.length > 0 ? (
@@ -1161,9 +1167,10 @@ export function EventDetailsScreen({ route, navigation }: any) {
                                 </Text>
                               </View>
                               <View style={styles.discountRow}>
-                                <Text style={styles.discountHighlight}>
-                                  🎉 Descontos do mercado:
-                                </Text>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                  <Feather name="tag" size={12} color="#34D399" />
+                                  <Text style={styles.discountHighlight}>Economia obtida:</Text>
+                                </View>
                                 <Text style={styles.discountValue}>
                                   - R$ {economiaDesconto.toFixed(2)}
                                 </Text>
@@ -1174,7 +1181,7 @@ export function EventDetailsScreen({ route, navigation }: any) {
                       ) : (
                         <View style={styles.emptyItemsBox}>
                           <Text style={styles.emptyItemsText}>
-                            Nenhum item detalhado encontrado para este cupom.
+                            Nenhum item discriminado encontrado para este cupom.
                           </Text>
                         </View>
                       )}
@@ -1184,8 +1191,9 @@ export function EventDetailsScreen({ route, navigation }: any) {
                   <TouchableOpacity
                     style={styles.closeFullBtn}
                     onPress={() => setDetailModalVisible(false)}
+                    activeOpacity={0.8}
                   >
-                    <Text style={styles.closeFullBtnText}>Fechar</Text>
+                    <Text style={styles.closeFullBtnText}>Concluído</Text>
                   </TouchableOpacity>
                 </View>
               )}
@@ -1194,7 +1202,7 @@ export function EventDetailsScreen({ route, navigation }: any) {
         </View>
       </Modal>
 
-      {/* Leitor de NFC-e conectado ao Evento */}
+      {/* Leitor de NFC-e com vínculo do Evento */}
       <ScannerScreen
         visible={scannerVisible}
         eventId={eventId}
@@ -1208,306 +1216,263 @@ export function EventDetailsScreen({ route, navigation }: any) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0F172A',
-    paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 28) + 16 : 48,
+    backgroundColor: '#0B0F19',
+    paddingHorizontal: 16,
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 28) + 12 : 44,
   },
-  bottomBarBarrier: {
-    height: Platform.OS === 'android' ? 68 : 0,
-    backgroundColor: '#0F172A',
-    width: '100%',
-  },
-  header: {
+  topNavRow: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
-    gap: 8,
+    marginBottom: 8,
   },
   backButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-    backgroundColor: '#1E293B',
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#131927',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
-  backButtonText: {
-    color: '#38BDF8',
-    fontSize: 26,
-    fontWeight: 'bold',
-    lineHeight: 28,
+  navActionsGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
-  headerTitleContainer: { flex: 1 },
-  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#F8FAFC', maxWidth: '75%' },
-  archivedHeaderBadge: {
-    backgroundColor: 'rgba(100, 116, 139, 0.25)',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  archivedHeaderBadgeText: {
-    color: '#94A3B8',
-    fontSize: 9,
-    fontWeight: 'bold',
-  },
-  editTitleIcon: { fontSize: 12 },
-  headerSub: { fontSize: 11, color: '#64748B', marginTop: 1 },
-  reportButton: {
-    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+  headerIconBtn: {
+    backgroundColor: '#131927',
     borderWidth: 1,
-    borderColor: '#38BDF8',
-    width: 36,
-    height: 36,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+    width: 34,
+    height: 34,
     borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  reportButtonIcon: { fontSize: 16 },
-  checklistButton: {
-    backgroundColor: 'rgba(56, 189, 248, 0.15)',
-    borderWidth: 1,
-    borderColor: '#38BDF8',
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  checklistButtonIcon: { fontSize: 16 },
-  scanButton: {
-    backgroundColor: 'rgba(56, 189, 248, 0.15)',
-    borderWidth: 1,
-    borderColor: '#38BDF8',
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  scanButtonIcon: { fontSize: 16 },
   addButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#10B981',
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 8,
   },
-  addButtonText: { color: '#F8FAFC', fontWeight: 'bold', fontSize: 13 },
-  summaryCard: {
-    backgroundColor: '#1E293B',
-    borderRadius: 14,
-    padding: 16,
-    marginBottom: 14,
+  addButtonText: {
+    color: '#0B0F19',
+    fontWeight: '800',
+    fontSize: 12,
+  },
+  eventTitleCard: {
+    backgroundColor: '#131927',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  titleContentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#F8FAFC',
+    letterSpacing: -0.3,
+    flexShrink: 1,
+  },
+  archivedHeaderBadge: {
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+    marginLeft: 6,
+  },
+  archivedHeaderBadgeText: {
+    color: '#94A3B8',
+    fontSize: 8,
+    fontWeight: '700',
+  },
+  headerSub: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  summaryCard: {
+    backgroundColor: '#131927',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
   },
   summaryRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  summaryLabel: { color: '#94A3B8', fontSize: 12, marginBottom: 4 },
-  summarySpent: { color: '#EF4444', fontSize: 22, fontWeight: 'bold' },
-  summaryTarget: { color: '#F8FAFC', fontSize: 18, fontWeight: '600' },
+  summaryLabel: {
+    color: '#64748B',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    marginBottom: 2,
+  },
+  summarySpent: {
+    color: '#F8FAFC',
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: -0.5,
+  },
+  summaryTarget: {
+    color: '#94A3B8',
+    fontSize: 15,
+    fontWeight: '600',
+  },
   setBudgetBtn: {
-    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
     borderWidth: 1,
-    borderColor: '#38BDF8',
+    borderColor: '#10B981',
     paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 6,
+    paddingVertical: 4,
+    borderRadius: 14,
   },
   setBudgetText: {
-    color: '#38BDF8',
-    fontSize: 12,
-    fontWeight: 'bold',
+    color: '#10B981',
+    fontSize: 11,
+    fontWeight: '700',
   },
   progressTrack: {
-    height: 6,
-    backgroundColor: '#0F172A',
-    borderRadius: 3,
+    height: 4,
+    backgroundColor: '#0B0F19',
+    borderRadius: 2,
     overflow: 'hidden',
-    marginTop: 12,
+    marginTop: 10,
   },
-  progressBar: { height: '100%', borderRadius: 3 },
+  progressBar: {
+    height: '100%',
+    borderRadius: 2,
+  },
   simulationCard: {
-    backgroundColor: 'rgba(30, 41, 59, 0.7)',
+    backgroundColor: '#131927',
     borderRadius: 12,
-    padding: 14,
-    marginBottom: 16,
+    padding: 12,
+    marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#334155',
-    borderLeftWidth: 4,
-    borderLeftColor: '#38BDF8',
-  },
-  simulationHeader: {
-    marginBottom: 6,
+    borderColor: 'rgba(56, 189, 248, 0.25)',
   },
   simulationTitle: {
     color: '#38BDF8',
-    fontSize: 13,
-    fontWeight: 'bold',
+    fontSize: 11,
+    fontWeight: '700',
   },
   simulationBodyText: {
-    color: '#CBD5E1',
-    fontSize: 12,
-    lineHeight: 18,
+    color: '#94A3B8',
+    fontSize: 11,
+    lineHeight: 16,
   },
   listHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 8,
   },
-  listSectionTitle: { color: '#F8FAFC', fontSize: 16, fontWeight: 'bold' },
-  listSectionCount: { color: '#64748B', fontSize: 12 },
+  listSectionTitle: {
+    color: '#F8FAFC',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  listSectionCount: {
+    color: '#64748B',
+    fontSize: 11,
+  },
   expenseItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#1E293B',
-    padding: 14,
-    borderRadius: 10,
+    backgroundColor: '#131927',
+    padding: 12,
+    borderRadius: 12,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.04)',
   },
   expenseItemOffline: {
-    borderColor: '#F59E0B',
+    borderColor: 'rgba(245, 158, 11, 0.4)',
     borderStyle: 'dashed',
   },
   offlineTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: 'rgba(245, 158, 11, 0.15)',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
     borderRadius: 4,
   },
   offlineTagText: {
     color: '#F59E0B',
-    fontSize: 10,
-    fontWeight: 'bold',
+    fontSize: 9,
+    fontWeight: '700',
   },
-  expenseDesc: { color: '#F8FAFC', fontSize: 15, fontWeight: '500' },
-  expenseSub: { color: '#64748B', fontSize: 12, marginTop: 2 },
-  expenseAmount: { color: '#EF4444', fontSize: 15, fontWeight: 'bold' },
+  expenseDesc: {
+    color: '#F8FAFC',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  expenseSub: {
+    color: '#64748B',
+    fontSize: 11,
+    marginTop: 2,
+  },
+  expenseAmount: {
+    color: '#F87171',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    paddingVertical: 36,
+  },
   emptyText: {
     textAlign: 'center',
     color: '#64748B',
-    marginTop: 36,
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 12,
+    lineHeight: 16,
   },
-  modalOverlay: {
+  center: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.75)',
     justifyContent: 'center',
-    padding: 20,
-  },
-  modalContent: {
-    backgroundColor: '#1E293B',
-    borderRadius: 16,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  modalTitle: { fontSize: 18, fontWeight: 'bold', color: '#F8FAFC', marginBottom: 4 },
-  reportSubtitle: { fontSize: 11, color: '#64748B', marginBottom: 14 },
-  label: { color: '#94A3B8', fontSize: 12, marginBottom: 6 },
-  hintNotice: { color: '#64748B', fontSize: 11, marginBottom: 12, lineHeight: 15 },
-  input: {
-    backgroundColor: '#0F172A',
-    color: '#F8FAFC',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  archiveEventBtn: {
-    borderWidth: 1,
-    borderColor: '#38BDF8',
-    backgroundColor: 'rgba(56, 189, 248, 0.1)',
-    paddingVertical: 11,
-    borderRadius: 8,
     alignItems: 'center',
-    marginTop: 4,
-    marginBottom: 8,
   },
-  archiveEventBtnActive: {
-    borderColor: '#F59E0B',
-    backgroundColor: 'rgba(245, 158, 11, 0.1)',
-  },
-  archiveEventBtnText: {
-    color: '#38BDF8',
-    fontWeight: 'bold',
-    fontSize: 13,
-  },
-  archiveEventBtnTextActive: {
-    color: '#F59E0B',
-  },
-  categoryLabel: { color: '#94A3B8', fontSize: 12, marginBottom: 8 },
-  categoryWrap: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 16,
-  },
-  catBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: '#0F172A',
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  catBadgeActive: {
-    backgroundColor: '#38BDF8',
-    borderColor: '#38BDF8',
-  },
-  catBadgeText: { color: '#94A3B8', fontSize: 12, fontWeight: '600' },
-  catBadgeTextActive: { color: '#0F172A' },
-  deleteEventBtn: {
-    borderWidth: 1,
-    borderColor: '#EF4444',
-    backgroundColor: 'rgba(239, 68, 68, 0.1)',
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  deleteEventBtnText: {
-    color: '#EF4444',
-    fontWeight: 'bold',
-    fontSize: 13,
-  },
-  modalActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 12,
-    marginTop: 4,
-  },
-  cancelBtn: { paddingVertical: 10, paddingHorizontal: 16 },
-  cancelBtnText: { color: '#94A3B8', fontWeight: '600' },
-  saveBtn: {
-    backgroundColor: '#10B981',
-    paddingVertical: 10,
-    paddingHorizontal: 18,
-    borderRadius: 8,
-  },
-  saveBtnText: { color: '#F8FAFC', fontWeight: 'bold' },
   bottomModalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.75)',
     justifyContent: 'flex-end',
   },
   bottomModalCard: {
-    backgroundColor: '#1E293B',
+    backgroundColor: '#0B0F19',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingBottom: Platform.OS === 'android' ? 24 : 36,
     maxHeight: '90%',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  dragHandleBox: {
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  dragHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
   bottomModalHeader: {
     flexDirection: 'row',
@@ -1515,152 +1480,351 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
-  closeBtnText: { color: '#94A3B8', fontSize: 18, fontWeight: 'bold', padding: 4 },
-  detailDesc: { color: '#F8FAFC', fontSize: 18, fontWeight: 'bold' },
-  detailDate: { color: '#94A3B8', fontSize: 12, marginTop: 4 },
+  modalTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#F8FAFC',
+    letterSpacing: -0.3,
+  },
+  reportSubtitle: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 1,
+  },
+  closeBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#131927',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fieldLabel: {
+    color: '#64748B',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    marginBottom: 6,
+    marginTop: 4,
+  },
+  input: {
+    backgroundColor: '#131927',
+    color: '#F8FAFC',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+    fontSize: 13,
+  },
+  inputBold: {
+    fontWeight: '700',
+  },
+  archiveEventBtn: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(56, 189, 248, 0.3)',
+    backgroundColor: 'rgba(56, 189, 248, 0.08)',
+    paddingVertical: 10,
+    borderRadius: 10,
+    alignItems: 'center',
+    marginTop: 6,
+    marginBottom: 6,
+  },
+  archiveEventBtnActive: {
+    borderColor: '#F59E0B',
+    backgroundColor: 'rgba(245, 158, 11, 0.1)',
+  },
+  archiveEventBtnText: {
+    color: '#38BDF8',
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  archiveEventBtnTextActive: {
+    color: '#F59E0B',
+  },
+  deleteEventBtn: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(248, 113, 113, 0.3)',
+    backgroundColor: 'rgba(248, 113, 113, 0.08)',
+    paddingVertical: 10,
+    borderRadius: 10,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  deleteEventBtnText: {
+    color: '#F87171',
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  categoryWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 14,
+  },
+  catBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: '#131927',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  catBadgeActive: {
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    borderColor: '#10B981',
+  },
+  catBadgeText: {
+    color: '#94A3B8',
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  catBadgeTextActive: {
+    color: '#10B981',
+    fontWeight: '700',
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 4,
+  },
+  cancelBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: '#131927',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  cancelBtnText: {
+    color: '#94A3B8',
+    fontWeight: '600',
+    fontSize: 13,
+  },
+  saveBtn: {
+    flex: 2,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: '#10B981',
+    alignItems: 'center',
+  },
+  saveBtnText: {
+    color: '#0B0F19',
+    fontWeight: '800',
+    fontSize: 13,
+  },
+  detailDesc: {
+    color: '#F8FAFC',
+    fontSize: 17,
+    fontWeight: '800',
+    letterSpacing: -0.3,
+  },
+  detailDate: {
+    color: '#64748B',
+    fontSize: 11,
+    marginTop: 2,
+  },
   detailAmountCard: {
-    backgroundColor: '#0F172A',
-    borderRadius: 12,
+    backgroundColor: '#131927',
+    borderRadius: 14,
     padding: 14,
     alignItems: 'center',
     marginVertical: 12,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.05)',
   },
-  detailAmountLabel: { color: '#94A3B8', fontSize: 12 },
-  detailAmountVal: { fontSize: 24, fontWeight: 'bold', color: '#EF4444', marginTop: 2 },
-  topActionsRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
+  detailAmountLabel: {
+    color: '#64748B',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+  },
+  detailAmountVal: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#F87171',
+    marginTop: 2,
+    letterSpacing: -0.5,
+  },
+  topActionsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 14,
+  },
   actionBtnEdit: {
     flex: 1,
-    paddingVertical: 10,
-    borderRadius: 8,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    paddingVertical: 9,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#38BDF8',
+    borderColor: 'rgba(56, 189, 248, 0.3)',
     backgroundColor: 'rgba(56, 189, 248, 0.1)',
     alignItems: 'center',
   },
-  actionBtnEditText: { color: '#38BDF8', fontWeight: 'bold', fontSize: 13 },
+  actionBtnEditText: {
+    color: '#38BDF8',
+    fontWeight: '700',
+    fontSize: 12,
+  },
   actionBtnDelete: {
     flex: 1,
-    paddingVertical: 10,
-    borderRadius: 8,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    paddingVertical: 9,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#EF4444',
-    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    borderColor: 'rgba(248, 113, 113, 0.3)',
+    backgroundColor: 'rgba(248, 113, 113, 0.1)',
     alignItems: 'center',
   },
-  actionBtnDeleteText: { color: '#EF4444', fontWeight: 'bold', fontSize: 13 },
-  sectionTitle: {
-    color: '#94A3B8',
-    fontSize: 11,
-    fontWeight: 'bold',
-    marginBottom: 6,
-    textTransform: 'uppercase',
+  actionBtnDeleteText: {
+    color: '#F87171',
+    fontWeight: '700',
+    fontSize: 12,
   },
   itemsList: {
-    backgroundColor: '#0F172A',
-    borderRadius: 10,
-    padding: 12,
+    backgroundColor: '#131927',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     marginBottom: 10,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.05)',
   },
   itemRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 6,
+    paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#1E293B',
+    borderBottomColor: 'rgba(255, 255, 255, 0.04)',
   },
-  itemName: { color: '#F8FAFC', fontSize: 13, fontWeight: '500' },
-  itemSub: { color: '#64748B', fontSize: 11, marginTop: 2 },
-  itemTotal: { color: '#F8FAFC', fontSize: 13, fontWeight: 'bold' },
+  itemName: {
+    color: '#F8FAFC',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  itemSub: {
+    color: '#64748B',
+    fontSize: 10,
+    marginTop: 1,
+  },
+  itemTotal: {
+    color: '#F8FAFC',
+    fontSize: 12,
+    fontWeight: '700',
+  },
   discountCard: {
-    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+    backgroundColor: 'rgba(16, 185, 129, 0.08)',
     borderWidth: 1,
-    borderColor: '#10B981',
+    borderColor: 'rgba(16, 185, 129, 0.25)',
     borderRadius: 10,
     padding: 12,
-    marginBottom: 14,
+    marginBottom: 12,
   },
   discountRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: 2,
   },
-  discountLabel: { color: '#94A3B8', fontSize: 12 },
+  discountLabel: {
+    color: '#64748B',
+    fontSize: 11,
+  },
   discountOriginal: {
-    color: '#94A3B8',
-    fontSize: 12,
+    color: '#64748B',
+    fontSize: 11,
     textDecorationLine: 'line-through',
   },
-  discountHighlight: { color: '#34D399', fontSize: 13, fontWeight: 'bold' },
-  discountValue: { color: '#34D399', fontSize: 13, fontWeight: 'bold' },
+  discountHighlight: {
+    color: '#34D399',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  discountValue: {
+    color: '#34D399',
+    fontSize: 12,
+    fontWeight: '700',
+  },
   emptyItemsBox: {
-    backgroundColor: '#0F172A',
+    backgroundColor: '#131927',
     borderRadius: 10,
     padding: 14,
-    marginBottom: 14,
+    marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.04)',
   },
-  emptyItemsText: { color: '#64748B', fontSize: 12, textAlign: 'center' },
+  emptyItemsText: {
+    color: '#64748B',
+    fontSize: 11,
+    textAlign: 'center',
+  },
   closeFullBtn: {
-    backgroundColor: '#334155',
+    backgroundColor: '#131927',
     paddingVertical: 12,
     borderRadius: 10,
     alignItems: 'center',
-    marginTop: 8,
-    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
-  closeFullBtnText: { color: '#F8FAFC', fontWeight: 'bold', fontSize: 14 },
-  metaHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginBottom: 4,
-  },
-  editMetaIcon: {
-    fontSize: 10,
+  closeFullBtnText: {
+    color: '#F8FAFC',
+    fontWeight: '700',
+    fontSize: 13,
   },
   reportMetricsCard: {
     flexDirection: 'row',
-    backgroundColor: '#0F172A',
+    backgroundColor: '#131927',
     borderRadius: 12,
     padding: 12,
-    marginBottom: 14,
+    marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255, 255, 255, 0.05)',
   },
   reportMetricBox: {
     flex: 1,
     alignItems: 'center',
   },
+  reportMetricDivider: {
+    width: 1,
+    height: 24,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+  },
   reportMetricLabel: {
-    color: '#94A3B8',
-    fontSize: 11,
-    marginBottom: 3,
+    color: '#64748B',
+    fontSize: 10,
+    fontWeight: '600',
   },
   reportMetricVal: {
     fontSize: 13,
-    fontWeight: 'bold',
+    fontWeight: '800',
+    marginTop: 2,
+    letterSpacing: -0.3,
   },
   reportActionsContainer: {
     flexDirection: 'column',
     gap: 8,
-    marginBottom: 8,
+    marginBottom: 10,
   },
   exportExcelBtn: {
+    flexDirection: 'row',
+    justifyContent: 'center',
     backgroundColor: '#10B981',
-    paddingVertical: 13,
-    borderRadius: 8,
+    paddingVertical: 12,
+    borderRadius: 10,
     alignItems: 'center',
   },
   exportExcelBtnText: {
-    color: '#0F172A',
-    fontWeight: 'bold',
-    fontSize: 14,
+    color: '#0B0F19',
+    fontWeight: '800',
+    fontSize: 13,
   },
   secondaryExportRow: {
     flexDirection: 'row',
@@ -1668,24 +1832,30 @@ const styles = StyleSheet.create({
   },
   shareWhatsAppBtn: {
     flex: 1,
-    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    backgroundColor: '#131927',
     borderWidth: 1,
-    borderColor: '#38BDF8',
+    borderColor: 'rgba(56, 189, 248, 0.3)',
     paddingVertical: 11,
-    borderRadius: 8,
+    borderRadius: 10,
     alignItems: 'center',
   },
   shareWhatsAppBtnText: {
     color: '#38BDF8',
-    fontWeight: 'bold',
+    fontWeight: '700',
     fontSize: 12,
   },
   exportCsvBtn: {
     flex: 1,
-    backgroundColor: '#334155',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    backgroundColor: '#131927',
     paddingVertical: 11,
-    borderRadius: 8,
+    borderRadius: 10,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
   exportCsvBtnText: {
     color: '#F8FAFC',
