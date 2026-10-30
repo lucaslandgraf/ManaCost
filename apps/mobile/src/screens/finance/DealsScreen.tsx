@@ -18,6 +18,7 @@ import { WebView } from 'react-native-webview';
 import { supabase } from '../../config/supabase';
 import { useBasket } from '../../context/BasketContext';
 import { BasketModal } from './BasketModal';
+import { PriceSearchScreen } from './PriceSearchScreen';
 
 interface MatchItem {
   id: string;
@@ -64,12 +65,18 @@ interface ProductImageWithFallbackProps {
   name?: string;
 }
 
+interface PriceSearchScreenProps {
+  onBack: () => void;
+  embedded?: boolean;
+}
+
 const CATALOG_PAGE_SIZE = 100;
 
 const STORES_LIST = [
   'Todas',
   'Super Muffato',
   'Hiper Condor',
+  'Super Angeloni',
   'Atacadão',
   'Santarém',
   'Viscardi',
@@ -82,6 +89,7 @@ const FALLBACK_FLYER_URLS: Record<string, string> = {
   'Super Muffato': 'https://www.supermuffato.com.br/lojas-fisicas?tab=encartes&loja=26',
   'Max Atacadista': 'https://www.maxatacadista.com.br/lojas/encartes-e-videos/?loja=110',
   'Hiper Condor': 'https://institucional.condor.com.br/ofertas/cidade/londrina',
+  'Super Angeloni': 'https://docs.google.com/gview?embedded=true&url=https://statics.angeloni.com.br/encartes/Tematica/SemanalAngeloni_PR.pdf',
   'Santarém Supermercado': 'https://www.instagram.com/supermercados_santarem/',
   'Almeida Mercados': 'https://www.tiendeo.com.br/londrina/almeida-mercados',
   'Viscardi': 'https://www.instagram.com/viscardioficial/',
@@ -153,7 +161,7 @@ export const ProductImageWithFallback: React.FC<ProductImageWithFallbackProps> =
 };
 
 export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
-  const [activeTab, setActiveTab] = useState<'matches' | 'catalog' | 'flyers'>('matches');
+  const [activeTab, setActiveTab] = useState<'matches' | 'catalog' | 'sefaz' | 'flyers'>('matches');
 
   const [matches, setMatches] = useState<ProductMatch[]>([]);
   const [lastUpdated, setLastUpdated] = useState<string>('');
@@ -289,6 +297,7 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
         if (selectedStore.includes('Almeida')) storeKeyword = 'Almeida';
         else if (selectedStore.includes('Muffato')) storeKeyword = 'Muffato';
         else if (selectedStore.includes('Condor')) storeKeyword = 'Condor';
+        else if (selectedStore.includes('Angeloni')) storeKeyword = 'Angeloni';
         else if (selectedStore.includes('Atacadão')) storeKeyword = 'Atacad';
         else if (selectedStore.includes('Amigão')) storeKeyword = 'Amigão';
         else if (selectedStore.includes('Carrefour')) storeKeyword = 'Carrefour';
@@ -323,10 +332,12 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
   const fetchFlyers = async () => {
     setLoadingFlyers(true);
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('weekly_flyers')
         .select('*')
         .order('store_name', { ascending: true });
+
+      if (error) throw error;
 
       if (data && data.length > 0) {
         setFlyers(data as Flyer[]);
@@ -335,14 +346,15 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
           { id: '1', store_name: 'Super Muffato', flyer_url: FALLBACK_FLYER_URLS['Super Muffato'], category: 'encarte', badge_color: '#10B981' },
           { id: '2', store_name: 'Max Atacadista', flyer_url: FALLBACK_FLYER_URLS['Max Atacadista'], category: 'encarte', badge_color: '#F59E0B' },
           { id: '3', store_name: 'Hiper Condor', flyer_url: FALLBACK_FLYER_URLS['Hiper Condor'], category: 'encarte', badge_color: '#38BDF8' },
-          { id: '4', store_name: 'Santarém Supermercado', flyer_url: FALLBACK_FLYER_URLS['Santarém Supermercado'], category: 'instagram', badge_color: '#EC4899' },
-          { id: '5', store_name: 'Almeida Mercados', flyer_url: FALLBACK_FLYER_URLS['Almeida Mercados'], category: 'tabloide', badge_color: '#8B5CF6' },
-          { id: '6', store_name: 'Viscardi', flyer_url: FALLBACK_FLYER_URLS['Viscardi'], category: 'instagram', badge_color: '#EC4899' },
-          { id: '7', store_name: 'Atacadão Tiradentes', flyer_url: FALLBACK_FLYER_URLS['Atacadão Tiradentes'], category: 'encarte', badge_color: '#F97316' },
-          { id: '8', store_name: 'Tonhão Maxi', flyer_url: FALLBACK_FLYER_URLS['Tonhão Maxi'], category: 'encarte', badge_color: '#14B8A6' },
-          { id: '9', store_name: 'Super Golff', flyer_url: FALLBACK_FLYER_URLS['Super Golff'], category: 'encarte', badge_color: '#6366F1' },
-          { id: '10', store_name: 'Amigão Supermercados', flyer_url: FALLBACK_FLYER_URLS['Amigão Supermercados'], category: 'encarte', badge_color: '#EAB308' },
-          { id: '11', store_name: 'Carrefour', flyer_url: FALLBACK_FLYER_URLS['Carrefour'], category: 'encarte', badge_color: '#0284C7' },
+          { id: '4', store_name: 'Super Angeloni', flyer_url: FALLBACK_FLYER_URLS['Super Angeloni'], category: 'encarte', badge_color: '#EAB308' },
+          { id: '5', store_name: 'Santarém Supermercado', flyer_url: FALLBACK_FLYER_URLS['Santarém Supermercado'], category: 'instagram', badge_color: '#EC4899' },
+          { id: '6', store_name: 'Almeida Mercados', flyer_url: FALLBACK_FLYER_URLS['Almeida Mercados'], category: 'tabloide', badge_color: '#8B5CF6' },
+          { id: '7', store_name: 'Viscardi', flyer_url: FALLBACK_FLYER_URLS['Viscardi'], category: 'instagram', badge_color: '#EC4899' },
+          { id: '8', store_name: 'Atacadão Tiradentes', flyer_url: FALLBACK_FLYER_URLS['Atacadão Tiradentes'], category: 'encarte', badge_color: '#F97316' },
+          { id: '9', store_name: 'Tonhão Maxi', flyer_url: FALLBACK_FLYER_URLS['Tonhão Maxi'], category: 'encarte', badge_color: '#14B8A6' },
+          { id: '10', store_name: 'Super Golff', flyer_url: FALLBACK_FLYER_URLS['Super Golff'], category: 'encarte', badge_color: '#6366F1' },
+          { id: '11', store_name: 'Amigão Supermercados', flyer_url: FALLBACK_FLYER_URLS['Amigão Supermercados'], category: 'encarte', badge_color: '#EAB308' },
+          { id: '12', store_name: 'Carrefour', flyer_url: FALLBACK_FLYER_URLS['Carrefour'], category: 'encarte', badge_color: '#0284C7' },
         ]);
       }
     } catch (e) {
@@ -385,10 +397,15 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
     if (!flyer) return;
 
     const storeName = typeof flyer.store_name === 'string' ? flyer.store_name : '';
-    const rawUrl = typeof flyer.flyer_url === 'string' ? flyer.flyer_url : '';
-    const targetUrl = rawUrl || flyer.url || FALLBACK_FLYER_URLS[storeName] || '';
+    let rawUrl = typeof flyer.flyer_url === 'string' ? flyer.flyer_url : '';
+    let targetUrl = rawUrl || flyer.url || FALLBACK_FLYER_URLS[storeName] || '';
 
     if (!targetUrl) return;
+
+    // Se for ficheiro PDF e não estiver envelopado pelo visualizador do Google Docs, envolve-o para leitura transparente no WebView
+    if (targetUrl.toLowerCase().endsWith('.pdf') && !targetUrl.includes('docs.google.com/gview')) {
+      targetUrl = `https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(targetUrl)}`;
+    }
 
     const isInstagram =
       flyer.category === 'instagram' ||
@@ -417,28 +434,51 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
     return ['Todos', ...Array.from(set)];
   }, [matches]);
 
-  const filteredMatches = useMemo(() => {
+ const filteredMatches = useMemo(() => {
     return matches.filter((item) => {
+      // 1. Filtro de Categoria
       const matchesCategory =
         selectedCategory === 'Todos' || item.category === selectedCategory;
+
+      // 2. Filtro de Busca por Texto
       const matchesSearch =
         !search.trim() ||
         item.display_name.toLowerCase().includes(search.toLowerCase());
-      return matchesCategory && matchesSearch;
+
+      // 3. Filtro por Loja Vencedora
+      if (selectedStore === 'Todas') {
+        return matchesCategory && matchesSearch;
+      }
+
+      let storeKey = selectedStore.toLowerCase();
+      if (storeKey.includes('muffato')) storeKey = 'muffato';
+      else if (storeKey.includes('condor')) storeKey = 'condor';
+      else if (storeKey.includes('angeloni')) storeKey = 'angeloni';
+      else if (storeKey.includes('atacad')) storeKey = 'atacad';
+      else if (storeKey.includes('amigão') || storeKey.includes('amigao')) storeKey = 'amig';
+      else if (storeKey.includes('carrefour')) storeKey = 'carrefour';
+      else if (storeKey.includes('santarém') || storeKey.includes('santarem')) storeKey = 'santar';
+      else if (storeKey.includes('viscardi')) storeKey = 'viscardi';
+      else if (storeKey.includes('almeida')) storeKey = 'almeida';
+
+      const matchesStore = (item.cheapest_store || '').toLowerCase().includes(storeKey);
+
+      return matchesCategory && matchesSearch && matchesStore;
     });
-  }, [matches, selectedCategory, search]);
+  }, [matches, selectedCategory, search, selectedStore]);
 
   const toggleExpand = (id: string) => {
-    setExpandedId((prev) => (prev === id ? null : id));
+    setExpandedId((previousId) => (previousId === id ? null : id));
   };
 
   const getStoreBadgeColor = (storeName: string) => {
-    const s = storeName.toLowerCase();
-    if (s.includes('condor')) return '#0284C7';
-    if (s.includes('muffato')) return '#059669';
-    if (s.includes('atacad')) return '#EA580C';
-    if (s.includes('santarem')) return '#DB2777';
-    if (s.includes('almeida')) return '#7C3AED';
+    const name = storeName.toLowerCase();
+    if (name.includes('condor')) return '#0284C7';
+    if (name.includes('muffato')) return '#059669';
+    if (name.includes('angeloni')) return '#EAB308';
+    if (name.includes('atacad')) return '#EA580C';
+    if (name.includes('santarem') || name.includes('santarém')) return '#DB2777';
+    if (name.includes('almeida')) return '#7C3AED';
     return '#475569';
   };
 
@@ -547,7 +587,17 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
           activeOpacity={0.7}
         >
           <Text style={[styles.tabText, activeTab === 'catalog' && styles.tabTextActive]}>
-            Menor Preço
+            Ofertas
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.tabButton, activeTab === 'sefaz' && styles.tabButtonActive]}
+          onPress={() => setActiveTab('sefaz')}
+          activeOpacity={0.7}
+        >
+          <Text style={[styles.tabText, activeTab === 'sefaz' && styles.tabTextActive]}>
+            SEFAZ-PR
           </Text>
         </TouchableOpacity>
 
@@ -562,8 +612,8 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
         </TouchableOpacity>
       </View>
 
-      {/* Barra de Pesquisa e Filtros */}
-      {activeTab !== 'flyers' && (
+      {/* Barra de Pesquisa e Filtros (apenas para Comparativo e Catálogo) */}
+{(activeTab === 'matches' || activeTab === 'catalog') && (
         <>
           <View style={styles.searchContainer}>
             <View style={styles.searchBox}>
@@ -618,36 +668,36 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
           </View>
 
           {/* Filtro de Lojas */}
-          {activeTab === 'catalog' && (
-            <View style={styles.storesFilterContainer}>
-              <FlatList
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                data={STORES_LIST}
-                keyExtractor={(item) => item}
-                contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}
-                renderItem={({ item }) => (
-                  <TouchableOpacity
-                    style={[
-                      styles.storeChip,
-                      selectedStore === item && styles.storeChipActive,
-                    ]}
-                    onPress={() => setSelectedStore(item)}
-                    activeOpacity={0.7}
-                  >
-                    <Text
-                      style={[
-                        styles.storeChipText,
-                        selectedStore === item && styles.storeChipTextActive,
-                      ]}
-                    >
-                      {item === 'Todas' ? 'Todas as Lojas' : item}
-                    </Text>
-                  </TouchableOpacity>
-                )}
-              />
-            </View>
-          )}
+{(activeTab === 'catalog' || activeTab === 'matches') && (
+  <View style={styles.storesFilterContainer}>
+    <FlatList
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      data={STORES_LIST}
+      keyExtractor={(item) => item}
+      contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}
+      renderItem={({ item }) => (
+        <TouchableOpacity
+          style={[
+            styles.storeChip,
+            selectedStore === item && styles.storeChipActive,
+          ]}
+          onPress={() => setSelectedStore(item)}
+          activeOpacity={0.7}
+        >
+          <Text
+            style={[
+              styles.storeChipText,
+              selectedStore === item && styles.storeChipTextActive,
+            ]}
+          >
+            {item === 'Todas' ? 'Todas as Lojas' : item}
+          </Text>
+        </TouchableOpacity>
+      )}
+    />
+  </View>
+)}
         </>
       )}
 
@@ -661,20 +711,27 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
             </View>
           ) : (
             <FlatList
-              data={filteredMatches}
-              keyExtractor={(item) => item.id}
-              refreshControl={
-                <RefreshControl
-                  refreshing={refreshing}
-                  onRefresh={onRefresh}
-                  tintColor="#10B981"
-                />
-              }
-              contentContainerStyle={[
-                styles.listContent,
-                items.length > 0 && { paddingBottom: 110 },
-              ]}
-              showsVerticalScrollIndicator={false}
+  data={filteredMatches}
+  keyExtractor={(item) => item.id}
+  // --- Adicione estas props de otimização ---
+  initialNumToRender={8}
+  maxToRenderPerBatch={8}
+  windowSize={5}
+  removeClippedSubviews={Platform.OS === 'android'}
+  updateCellsBatchingPeriod={50}
+  // ------------------------------------------
+  refreshControl={
+    <RefreshControl
+      refreshing={refreshing}
+      onRefresh={onRefresh}
+      tintColor="#10B981"
+    />
+  }
+  contentContainerStyle={[
+    styles.listContent,
+    items.length > 0 && { paddingBottom: 110 },
+  ]}
+  showsVerticalScrollIndicator={false}
               renderItem={({ item }) => {
                 const isExpanded = expandedId === item.id;
                 const inBasket = items.some((basketItem) => basketItem.id === item.id);
@@ -1011,6 +1068,13 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
         </View>
       )}
 
+      {/* ABA SEFAZ-PR / NOTA PARANÁ */}
+      {activeTab === 'sefaz' && (
+        <View style={{ flex: 1 }}>
+          <PriceSearchScreen embedded={true} onBack={() => setActiveTab('matches')} />
+        </View>
+      )}
+
       {/* Barra Flutuante da Cesta Inteligente */}
       {items.length > 0 && activeTab !== 'flyers' && (
         <TouchableOpacity
@@ -1101,6 +1165,7 @@ const styles = StyleSheet.create({
   tabButton: {
     flex: 1,
     paddingVertical: 7,
+    paddingHorizontal: 2,
     alignItems: 'center',
     borderRadius: 8,
   },
@@ -1108,7 +1173,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#0B0F19',
   },
   tabText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
     color: '#64748B',
   },

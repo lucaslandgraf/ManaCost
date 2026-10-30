@@ -34,8 +34,9 @@ interface ProdutoPreco {
   };
 }
 
-interface PriceSearchScreenProps {
+export interface PriceSearchScreenProps {
   onBack: () => void;
+  embedded?: boolean;
 }
 
 const PRESET_QUERIES = ['Gasolina Comum', 'Etanol', 'Leite Integral', 'Arroz 5kg', 'Café 500g', 'Ovos'];
@@ -119,7 +120,7 @@ function decodeGeohash(geohash: string): { latitude: number; longitude: number }
   };
 }
 
-export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack }) => {
+export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack, embedded = false }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [radius, setRadius] = useState<number>(10);
   const [results, setResults] = useState<ProdutoPreco[]>([]);
@@ -299,28 +300,30 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack }) 
   };
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="light-content" />
+    <View style={[styles.container, embedded && styles.containerEmbedded]}>
+      {!embedded && <StatusBar barStyle="light-content" />}
 
-      {/* Top Bar / Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} style={styles.backBtn} activeOpacity={0.7}>
-          <Feather name="chevron-left" size={18} color="#10B981" />
-          <Text style={styles.backBtnText}>Voltar</Text>
-        </TouchableOpacity>
-        <Text style={styles.title}>Menor Preço Paraná</Text>
+      {/* Top Bar / Header: só aparece se aberto standalone fora das abas */}
+      {!embedded && (
+        <View style={styles.header}>
+          <TouchableOpacity onPress={onBack} style={styles.backBtn} activeOpacity={0.7}>
+            <Feather name="chevron-left" size={18} color="#10B981" />
+            <Text style={styles.backBtnText}>Voltar</Text>
+          </TouchableOpacity>
+          <Text style={styles.title}>Menor Preço Paraná</Text>
 
-        <TouchableOpacity
-          style={styles.basketTopBtn}
-          onPress={() => setBasketVisible(true)}
-          activeOpacity={0.7}
-        >
-          <Feather name="shopping-bag" size={13} color="#10B981" />
-          {totalItems > 0 && (
-            <Text style={styles.basketTopBtnText}>({totalItems})</Text>
-          )}
-        </TouchableOpacity>
-      </View>
+          <TouchableOpacity
+            style={styles.basketTopBtn}
+            onPress={() => setBasketVisible(true)}
+            activeOpacity={0.7}
+          >
+            <Feather name="shopping-bag" size={13} color="#10B981" />
+            {totalItems > 0 && (
+              <Text style={styles.basketTopBtnText}>({totalItems})</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Caixa de Pesquisa */}
       <View style={styles.searchBar}>
@@ -540,7 +543,10 @@ const styles = StyleSheet.create({
   container: { 
     flex: 1, 
     backgroundColor: '#0B0F19', 
-    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 28) + 12 : 44 
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 28) + 12 : 44,
+  },
+  containerEmbedded: {
+    paddingTop: 0,
   },
   header: {
     flexDirection: 'row',

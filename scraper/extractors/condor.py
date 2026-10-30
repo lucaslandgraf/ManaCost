@@ -1,10 +1,9 @@
 import logging
 import time
+import re
 from datetime import datetime, timedelta
 from typing import Any, Dict, List
 import requests
-import random
-import time
 
 try:
     from normalizer import standardize_units
@@ -67,16 +66,18 @@ class CondorScraper:
                 pricing = item.get("pricing", {})
                 stock_info = item.get("quantity", {})
 
-                # Prioriza preço promocional se existir, senão pega o preço normal
                 promo_p = pricing.get("promotionalPrice")
                 normal_p = pricing.get("price")
                 final_price = promo_p if promo_p and promo_p > 0 else normal_p
+
+                unit_type = str(item.get("unit") or pricing.get("unit") or "").lower()
 
                 product = {
                     "id": item.get("id"),
                     "name": item.get("name"),
                     "brand": item.get("brandName"),
                     "price": final_price,
+                    "unit": unit_type,
                     "in_stock": stock_info.get("inStock", 0) > 0,
                     "image_url": item.get("image"),
                 }
@@ -106,27 +107,35 @@ def scrape_condor_deals() -> list[dict]:
             items = scraper.search(query, max_items=6)
             added_count = 0
             for item in items:
-                raw_name = item.get("name")
+                raw_name = item.get("name", "")
                 price = item.get("price")
                 in_stock = item.get("in_stock", True)
+                unit_type = item.get("unit", "")
 
-                if raw_name and price and float(price) > 0 and in_stock:
-                    deals.append({
-                        "store_name": "Hiper Condor",
-                        "product_name": standardize_units(raw_name),
-                        "deal_price": float(price),
-                        "category": query.split()[0].capitalize(),
-                        "valid_until": valid_until,
-                        "image_url": item.get("image_url"),
-                    })
-                    added_count += 1
+                if not raw_name or not price or float(price) <= 0 or not in_stock:
+                    continue
+
+                # Garante que cortes de carne com preço por quilo recebam 1KG explícito
+                clean_name = raw_name.strip()
+                if unit_type in ("kg", "kilo") or re.search(r'\bkg\b', clean_name, re.I):
+                    if not re.search(r'\d+\s*(?:kg|g)\b', clean_name, re.I):
+                        clean_name = f"{clean_name} 1KG"
+
+                deals.append({
+                    "store_name": "Hiper Condor",
+                    "product_name": standardize_units(clean_name),
+                    "deal_price": float(price),
+                    "category": query.split()[0].capitalize(),
+                    "valid_until": valid_until,
+                    "image_url": item.get("image_url"),
+                })
+                added_count += 1
             print(f"  -> '{query}': {added_count} produtos adicionados")
         except Exception as e:
             print(f"[Condor] Erro no termo '{query}': {e}")
 
         time.sleep(0.8)
 
-    # Deduplicação por nome do produto
     unique_deals = {}
     for deal in deals:
         unique_deals[deal["product_name"]] = deal

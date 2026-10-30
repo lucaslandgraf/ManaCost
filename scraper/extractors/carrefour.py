@@ -19,25 +19,7 @@ except ImportError:
         SHORT_SEARCH_TERMS = ["arroz", "feijao", "leite", "oleo", "cafe", "acucar", "frango", "carne", "cerveja"]
 
 
-def _clean_price(val) -> float:
-    if not val:
-        return 0.0
-    text = str(val).strip().replace("R$", "").strip()
-    if "," in text and "." in text:
-        text = text.replace(".", "").replace(",", ".")
-    elif "," in text:
-        text = text.replace(",", ".")
-    try:
-        return float(re.sub(r"[^\d.]", "", text))
-    except (ValueError, TypeError):
-        return 0.0
-
-
 def scrape_carrefour_deals() -> list[dict]:
-    """
-    Coleta produtos do Carrefour (Londrina) via API VTEX oficial.
-    Aceita status 200 e 206 (Partial Content padrão da paginação VTEX).
-    """
     deals = []
     valid_until = (datetime.now() + timedelta(days=6)).strftime("%Y-%m-%d")
 
@@ -59,22 +41,22 @@ def scrape_carrefour_deals() -> list[dict]:
 
     for query in SHORT_SEARCH_TERMS:
         encoded_term = urllib.parse.quote(query)
+        # Ordenar por relevância (ScoreDESC) em vez de Preço Mínimo evita que sachês e sacolas dominem os primeiros resultados
         url = (
             f"https://carrefourbrfood.vtexcommercestable.com.br/api/catalog_system/pub/products/search/{encoded_term}"
-            f"?_from=0&_to=19&O=OrderByPriceASC"
+            f"?_from=0&_to=19&O=OrderByScoreDESC"
         )
 
         try:
             resp = requests.get(url, headers=headers, timeout=12)
 
-            # 200 e 206 são respostas de SUCESSO na VTEX (206 = Partial Content da paginação)
             if resp.status_code in (200, 206):
                 products = resp.json()
                 added = 0
 
                 if isinstance(products, list):
                     for item in products:
-                        name = item.get("productName") or item.get("productTitle") or ""
+                        raw_name = item.get("productName") or item.get("productTitle") or ""
                         
                         items_list = item.get("items", [])
                         if not items_list:
@@ -89,13 +71,23 @@ def scrape_carrefour_deals() -> list[dict]:
                         price = float(comm.get("Price", 0.0) or 0.0)
                         available = comm.get("AvailableQuantity", 0) > 0
 
+                        # Se for inferior a 70 cêntimos ou tiver cara de fração de atacado, descarta
+                        if price < 0.70:
+                            continue
+
+                        norm_name = standardize_units(raw_name.strip())
+
+                        # Ignora caixas com centenas de unidades por menos de R$ 5
+                        if re.search(r'\b([2-9]\d|\d{3,})\s*(UNIDADES?|UN|SACHES?)\b', norm_name.upper()) and price < 5.00:
+                            continue
+
                         images = first_sku.get("images", [])
                         img_url = images[0].get("imageUrl") if images else None
 
-                        if available and price > 0 and name:
+                        if available and price > 0 and norm_name:
                             deals.append({
                                 "store_name": "Carrefour",
-                                "product_name": standardize_units(name.strip()),
+                                "product_name": norm_name,
                                 "deal_price": price,
                                 "category": query.capitalize(),
                                 "valid_until": valid_until,
@@ -121,5 +113,3 @@ def scrape_carrefour_deals() -> list[dict]:
 if __name__ == "__main__":
     res = scrape_carrefour_deals()
     print(f"Total coletado: {len(res)}")
-    if res:
-        print(f"Exemplo de produto: {res[0]}")

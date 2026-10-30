@@ -3,8 +3,6 @@ import time
 import urllib.parse
 from datetime import datetime, timedelta
 import requests
-import random
-import time
 
 try:
     from normalizer import standardize_units
@@ -72,9 +70,19 @@ def scrape_almeida_deals() -> list[dict]:
                 added_count = 0
 
                 for item in products:
-                    raw_name = item.get("name", "").strip()
-                    # Remove reticências que o OpenCart insere no autocomplete
+                    # Dá prioridade a nomes completos caso existam no nó
+                    raw_name = (
+                        item.get("full_name") or
+                        item.get("product_name") or
+                        item.get("name") or
+                        ""
+                    ).strip()
+
                     clean_name = re.sub(r"\.{2,}$", "", raw_name).strip()
+
+                    # Padroniza carnes e hortifrúti ao quilo para 1KG se não houver gramagem numérica
+                    if re.search(r'\bkg\b', clean_name, re.I) and not re.search(r'\d+\s*(?:kg|g)\b', clean_name, re.I):
+                        clean_name = f"{clean_name} 1KG"
 
                     special_price = _clean_price(item.get("special"))
                     regular_price = _clean_price(item.get("price"))

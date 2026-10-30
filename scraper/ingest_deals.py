@@ -8,6 +8,7 @@ from extractors.almeida import scrape_almeida_deals
 from extractors.condor import scrape_condor_deals
 from extractors.amigao import scrape_amigao_deals      
 from extractors.carrefour import scrape_carrefour_deals 
+from extractors.angeloni import scrape_angeloni_deals
 
 load_dotenv()
 
@@ -21,11 +22,11 @@ if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 def run_ingestion():
-    print("Iniciando ingestao de ofertas de Londrina (Muffato, Almeida, Condor, Amigão e Carrefour)...")
+    print("Iniciando ingestao de ofertas (Muffato, Almeida, Condor, Amigão, Carrefour e Angeloni)...")
 
     all_deals = []
 
-    # 1. Super Muffato (API VTEX Londrina)
+    # 1. Super Muffato (API VTEX)
     try:
         muffato_deals = scrape_muffato_deals()
         all_deals.extend(muffato_deals)
@@ -33,7 +34,7 @@ def run_ingestion():
     except Exception as e:
         print(f"Falha no Super Muffato: {e}")
 
-    # 2. Rede Almeida (Parsing de Encarte / Londrina)
+    # 2. Rede Almeida (Parsing de Encarte)
     try:
         almeida_deals = scrape_almeida_deals()
         all_deals.extend(almeida_deals)
@@ -65,17 +66,22 @@ def run_ingestion():
     except Exception as e:
         print(f"Falha no Carrefour: {e}")
 
-    # Validação executada apenas após a tentativa de recolha de todos os mercados
+    # 6. Super Angeloni (VTEX IO)
+    try:
+        angeloni_deals = scrape_angeloni_deals()
+        all_deals.extend(angeloni_deals)
+        print(f"Super Angeloni: {len(angeloni_deals)} ofertas adicionadas.")
+    except Exception as e:
+        print(f"Falha no Super Angeloni: {e}")
+
     if not all_deals:
         print("Nenhuma oferta capturada. Abortando execução.")
         return
 
-    # Validade padrão de 7 dias aplicada a todos os itens recolhidos
     valid_until_date = (date.today() + timedelta(days=7)).isoformat()
     for deal in all_deals:
         deal["valid_until"] = valid_until_date
 
-    # Upsert em lote no Supabase
     print(f"Persistindo {len(all_deals)} ofertas no Supabase via upsert...")
     supabase.table("flyer_deals").upsert(
         all_deals,

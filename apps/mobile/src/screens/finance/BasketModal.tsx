@@ -8,15 +8,15 @@ import {
   StyleSheet,
   SafeAreaView,
   Alert,
-  Platform,
+  Share,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useBasket } from '../../context/BasketContext';
 
-interface StoreGroup {
+interface StoreSplit {
   store_name: string;
-  total_price: number;
   items_count: number;
+  total_price: number;
 }
 
 interface BasketModalProps {
@@ -27,7 +27,7 @@ interface BasketModalProps {
 export const BasketModal: React.FC<BasketModalProps> = ({ visible, onClose }) => {
   const { items, removeItem, updateQuantity, clearBasket } = useBasket();
 
-  // Soma global considerando quantidades
+  // 1. Soma global
   const totalBasketPrice = useMemo(() => {
     return items.reduce((acc: number, item: any) => {
       const price = Number(item.valor ?? item.min_price) || 0;
@@ -36,8 +36,8 @@ export const BasketModal: React.FC<BasketModalProps> = ({ visible, onClose }) =>
     }, 0);
   }, [items]);
 
-  // Agrupamento ordenado do mais barato para o mais caro
-  const storeRanking = useMemo(() => {
+  // 2. Divisão Real de Compras por Supermercado
+  const storeSplits = useMemo(() => {
     if (items.length === 0) return [];
 
     const map: Record<string, { total: number; count: number }> = {};
@@ -58,22 +58,68 @@ export const BasketModal: React.FC<BasketModalProps> = ({ visible, onClose }) =>
       map[store].count += qty;
     });
 
-    return Object.entries(map)
-      .map(([store_name, data]): StoreGroup => ({
+    return Object.entries(map).map(
+      ([store_name, data]): StoreSplit => ({
         store_name,
-        total_price: data.total,
         items_count: data.count,
-      }))
-      .sort((a, b) => a.total_price - b.total_price);
+        total_price: data.total,
+      })
+    );
   }, [items]);
 
-  const bestStorePrice = storeRanking.length > 0 ? storeRanking[0].total_price : 0;
+  // 3. Exportar lista formatada para WhatsApp / Compartilhar
+  const handleShareList = async () => {
+    if (items.length === 0) return;
+
+    // Agrupa itens por loja para listar com detalhes no texto
+    const itemsByStore: Record<string, any[]> = {};
+    items.forEach((item: any) => {
+      const store =
+        item.estabelecimento?.nome ||
+        item.cheapest_store ||
+        item.store_name ||
+        'Geral';
+      if (!itemsByStore[store]) itemsByStore[store] = [];
+      itemsByStore[store].push(item);
+    });
+
+    let message = '🛒 *Lista de Compras • Radar de Ofertas*\n\n';
+
+    Object.entries(itemsByStore).forEach(([store, storeItems]) => {
+      const storeTotal = storeItems.reduce((acc, it) => {
+        const p = Number(it.valor ?? it.min_price) || 0;
+        const q = Number(it.quantidade) || 1;
+        return acc + p * q;
+      }, 0);
+
+      message += `📍 *${store.toUpperCase()}* (Total: R$ ${storeTotal.toFixed(2).replace('.', ',')})\n`;
+
+      storeItems.forEach((it) => {
+        const p = Number(it.valor ?? it.min_price) || 0;
+        const q = Number(it.quantidade) || 1;
+        const name = it.descricao || it.display_name || 'Item';
+        message += `  • ${q}x ${name} - R$ ${(p * q).toFixed(2).replace('.', ',')}\n`;
+      });
+      message += '\n';
+    });
+
+    message += `💰 *TOTAL GERAL: R$ ${totalBasketPrice.toFixed(2).replace('.', ',')}*`;
+
+    try {
+      await Share.share({
+        message,
+        title: 'Minha Lista de Compras',
+      });
+    } catch (error) {
+      console.warn('Erro ao compartilhar lista:', error);
+    }
+  };
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.modalOverlay}>
         <SafeAreaView style={styles.container}>
-          {/* Indicador de Gaveta / Puxador */}
+          {/* Indicador de Gaveta */}
           <View style={styles.dragHandleBox}>
             <View style={styles.dragHandle} />
           </View>
@@ -81,9 +127,9 @@ export const BasketModal: React.FC<BasketModalProps> = ({ visible, onClose }) =>
           {/* Cabeçalho */}
           <View style={styles.header}>
             <View>
-              <Text style={styles.title}>Cesta Inteligente</Text>
+              <Text style={styles.title}>Cesta de Compras</Text>
               <Text style={styles.subtitle}>
-                Onde a sua compra total fica mais barata
+                Roteiro e divisão prática por supermercado
               </Text>
             </View>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
@@ -91,64 +137,50 @@ export const BasketModal: React.FC<BasketModalProps> = ({ visible, onClose }) =>
             </TouchableOpacity>
           </View>
 
-          {/* Comparativo de Pódio por Mercado */}
-          <View style={styles.rankingSection}>
-            <Text style={styles.sectionHeaderLabel}>SIMULAÇÃO POR SUPERMERCADO</Text>
-            {items.length === 0 ? (
-              <Text style={styles.emptyText}>Adicione itens à cesta para comparar os mercados.</Text>
-            ) : (
+          {/* Divisão Prática por Loja (Chips Resumo) */}
+          {storeSplits.length > 0 && (
+            <View style={styles.splitsContainer}>
+              <Text style={styles.sectionHeaderLabel}>DIVISÃO DE COMPRAS POR LOJA</Text>
               <FlatList
-                data={storeRanking}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                data={storeSplits}
                 keyExtractor={(item) => item.store_name}
-                scrollEnabled={false}
-                renderItem={({ item, index }) => {
-                  const isWinner = index === 0;
-                  const diff = item.total_price - bestStorePrice;
-
-                  return (
-                    <View
-                      style={[
-                        styles.storeRankCard,
-                        isWinner && styles.storeRankCardWinner,
-                      ]}
-                    >
-                      <View style={styles.rankBadgeCol}>
-                        <View style={[styles.rankNumberCircle, isWinner && styles.rankNumberCircleWinner]}>
-                          {isWinner ? (
-                            <Feather name="award" size={13} color="#0B0F19" />
-                          ) : (
-                            <Text style={styles.rankNumberText}>{index + 1}</Text>
-                          )}
-                        </View>
-                      </View>
-
-                      <View style={styles.storeRankInfo}>
-                        <Text style={[styles.storeRankName, isWinner && styles.storeRankNameWinner]}>
-                          {item.store_name}
-                        </Text>
-                        <Text style={styles.storeRankCount}>
-                          {isWinner ? 'Melhor opção consolidada' : `+ R$ ${diff.toFixed(2).replace('.', ',')} mais caro`}
-                        </Text>
-                      </View>
-
-                      <View style={styles.storeRankPriceCol}>
-                        <Text style={[styles.storeRankPrice, isWinner && styles.storeRankPriceWinner]}>
-                          R$ {item.total_price.toFixed(2).replace('.', ',')}
-                        </Text>
-                      </View>
+                contentContainerStyle={{ gap: 8, paddingVertical: 4 }}
+                renderItem={({ item }) => (
+                  <View style={styles.splitChip}>
+                    <View style={styles.splitChipHeader}>
+                      <Feather name="map-pin" size={10} color="#10B981" />
+                      <Text style={styles.splitStoreName} numberOfLines={1}>
+                        {item.store_name}
+                      </Text>
                     </View>
-                  );
-                }}
+                    <Text style={styles.splitStoreSummary}>
+                      {item.items_count} {item.items_count === 1 ? 'item' : 'itens'} •{' '}
+                      <Text style={styles.splitStorePrice}>
+                        R$ {item.total_price.toFixed(2).replace('.', ',')}
+                      </Text>
+                    </Text>
+                  </View>
+                )}
               />
-            )}
-          </View>
+            </View>
+          )}
 
           {/* Lista de Itens na Cesta */}
           <View style={styles.itemsSection}>
             <View style={styles.itemsHeaderRow}>
-              <Text style={styles.sectionHeaderLabel}>
-                ITENS NA LISTA ({items.length})
-              </Text>
+              <View>
+                <Text style={styles.sectionHeaderLabel}>
+                  ITENS NA LISTA ({items.length})
+                </Text>
+                {items.length > 0 && (
+                  <Text style={styles.subtotalHeaderLabel}>
+                    Subtotal: <Text style={styles.subtotalValueHighlight}>R$ {totalBasketPrice.toFixed(2).replace('.', ',')}</Text>
+                  </Text>
+                )}
+              </View>
+
               {items.length > 0 && (
                 <TouchableOpacity
                   onPress={() =>
@@ -168,7 +200,7 @@ export const BasketModal: React.FC<BasketModalProps> = ({ visible, onClose }) =>
               data={items}
               keyExtractor={(item: any) => String(item.id)}
               showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ paddingBottom: 20 }}
+              contentContainerStyle={{ paddingBottom: 16 }}
               renderItem={({ item }: { item: any }) => {
                 const price = Number(item.valor ?? item.min_price) || 0;
                 const store =
@@ -178,6 +210,7 @@ export const BasketModal: React.FC<BasketModalProps> = ({ visible, onClose }) =>
                   'Mercado';
                 const name = item.descricao || item.display_name || 'Produto';
                 const qty = Number(item.quantidade) || 1;
+                const itemTotal = price * qty;
 
                 return (
                   <View style={styles.itemRow}>
@@ -188,9 +221,13 @@ export const BasketModal: React.FC<BasketModalProps> = ({ visible, onClose }) =>
                       <Text style={styles.itemSub}>
                         R$ {price.toFixed(2).replace('.', ',')} un • {store}
                       </Text>
+                      {qty > 1 && (
+                        <Text style={styles.itemSubTotal}>
+                          Total: R$ {itemTotal.toFixed(2).replace('.', ',')}
+                        </Text>
+                      )}
                     </View>
 
-                    {/* Controles de Quantidade */}
                     <View style={styles.qtyControlRow}>
                       <TouchableOpacity
                         style={styles.qtyBtn}
@@ -227,6 +264,30 @@ export const BasketModal: React.FC<BasketModalProps> = ({ visible, onClose }) =>
               }
             />
           </View>
+
+          {/* Barra de Rodapé: Total + Botão de Compartilhar/WhatsApp */}
+          {items.length > 0 && (
+            <View style={styles.footerContainer}>
+              <View style={styles.footerSummary}>
+                <View>
+                  <Text style={styles.footerLabel}>Total Geral</Text>
+                  <Text style={styles.footerSubLabel}>{storeSplits.length} {storeSplits.length === 1 ? 'loja' : 'lojas diferentes'}</Text>
+                </View>
+                <Text style={styles.footerTotal}>
+                  R$ {totalBasketPrice.toFixed(2).replace('.', ',')}
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                style={styles.shareButton}
+                onPress={handleShareList}
+                activeOpacity={0.8}
+              >
+                <Feather name="share-2" size={15} color="#0B0F19" style={{ marginRight: 6 }} />
+                <Text style={styles.shareButtonText}>Exportar Lista / WhatsApp</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </SafeAreaView>
       </View>
     </Modal>
@@ -240,7 +301,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   container: {
-    height: '90%',
+    height: '82%',
     backgroundColor: '#0B0F19',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
@@ -285,87 +346,61 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  rankingSection: {
-    marginTop: 14,
-    marginBottom: 8,
+  splitsContainer: {
+    marginTop: 12,
+    marginBottom: 4,
+  },
+  splitChip: {
+    backgroundColor: '#131927',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  splitChipHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 2,
+  },
+  splitStoreName: {
+    color: '#F8FAFC',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  splitStoreSummary: {
+    color: '#64748B',
+    fontSize: 11,
+  },
+  splitStorePrice: {
+    color: '#34D399',
+    fontWeight: '700',
   },
   sectionHeaderLabel: {
     fontSize: 10,
     fontWeight: '700',
     color: '#64748B',
     letterSpacing: 0.8,
-    marginBottom: 8,
   },
-  storeRankCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#131927',
-    borderRadius: 12,
-    padding: 10,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.04)',
-  },
-  storeRankCardWinner: {
-    backgroundColor: 'rgba(16, 185, 129, 0.08)',
-    borderColor: 'rgba(16, 185, 129, 0.4)',
-  },
-  rankBadgeCol: {
-    marginRight: 10,
-  },
-  rankNumberCircle: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: '#0B0F19',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  rankNumberCircleWinner: {
-    backgroundColor: '#10B981',
-  },
-  rankNumberText: {
-    color: '#94A3B8',
+  subtotalHeaderLabel: {
     fontSize: 11,
-    fontWeight: '700',
-  },
-  storeRankInfo: {
-    flex: 1,
-  },
-  storeRankName: {
-    color: '#F8FAFC',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  storeRankNameWinner: {
-    color: '#34D399',
-  },
-  storeRankCount: {
-    color: '#64748B',
-    fontSize: 10,
+    color: '#94A3B8',
     marginTop: 2,
   },
-  storeRankPriceCol: {
-    alignItems: 'flex-end',
-  },
-  storeRankPrice: {
-    color: '#F8FAFC',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  storeRankPriceWinner: {
+  subtotalValueHighlight: {
     color: '#34D399',
-    fontSize: 15,
+    fontWeight: '700',
   },
   itemsSection: {
     flex: 1,
-    marginTop: 8,
+    marginTop: 12,
   },
   itemsHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 6,
+    marginBottom: 8,
   },
   clearText: {
     color: '#F87171',
@@ -392,6 +427,12 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: '#64748B',
     marginTop: 2,
+  },
+  itemSubTotal: {
+    fontSize: 10,
+    color: '#10B981',
+    fontWeight: '600',
+    marginTop: 1,
   },
   qtyControlRow: {
     flexDirection: 'row',
@@ -421,11 +462,49 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     backgroundColor: 'rgba(248, 113, 113, 0.1)',
   },
-  emptyText: {
+  footerContainer: {
+    marginTop: 8,
+    marginBottom: 12,
+    gap: 8,
+  },
+  footerSummary: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#131927',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  footerLabel: {
+    color: '#F8FAFC',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  footerSubLabel: {
     color: '#64748B',
-    fontSize: 12,
-    fontStyle: 'italic',
-    paddingVertical: 6,
+    fontSize: 10,
+    marginTop: 1,
+  },
+  footerTotal: {
+    color: '#34D399',
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  shareButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#10B981',
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  shareButtonText: {
+    color: '#0B0F19',
+    fontWeight: '800',
+    fontSize: 13,
   },
   emptyListText: {
     color: '#64748B',

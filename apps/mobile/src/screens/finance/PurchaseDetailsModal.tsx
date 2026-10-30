@@ -90,7 +90,6 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
 
   const [showLifeTime, setShowLifeTime] = useState(false);
 
-  // Metas do perfil dinâmicas
   const [budgetRules, setBudgetRules] = useState<BudgetRules>({
     useFixed: false,
     needs: 50,
@@ -101,7 +100,7 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
   useEffect(() => {
     if (visible && transactionId) {
       setIsEditing(false);
-      setShowLifeTime(false);
+      setShowLifeTime(false); 
       setCurrentDesc(description);
       setCurrentAmount(amount);
       setCurrentDate(date);
@@ -148,7 +147,7 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
     try {
       const { data: txData, error: txError } = await supabase
         .from('transactions')
-        .select('*, categories(rule_group)')
+        .select('*, categories(id, name, type, rule_group)')
         .eq('id', transactionId)
         .single();
 
@@ -157,7 +156,16 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
         setCurrentAmount(txData.amount || amount);
         setCurrentDate(txData.date || date);
         setCurrentType(txData.type || 'expense');
-        setSelectedCatId(txData.category_id || null);
+        
+        // Assegura compatibilidade de tipo de categoria
+        const rawCat = txData.categories;
+        const catObj = Array.isArray(rawCat) ? rawCat[0] : rawCat;
+        if (catObj && catObj.type === txData.type) {
+          setSelectedCatId(txData.category_id || null);
+        } else {
+          setSelectedCatId(null);
+        }
+
         setRepeatsMonthly(Boolean(txData.repeats_monthly));
         setEditRepeats(Boolean(txData.repeats_monthly));
 
@@ -166,8 +174,8 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
 
         if (txData.budget_bucket) {
           setSelectedBucket(txData.budget_bucket);
-        } else if (txData.categories?.rule_group) {
-          const rule = txData.categories.rule_group;
+        } else if (catObj?.rule_group) {
+          const rule = catObj.rule_group;
           if (rule === 'needs_50') setSelectedBucket('needs');
           else if (rule === 'wants_30') setSelectedBucket('wants');
           else if (rule === 'savings_20') setSelectedBucket('savings');
@@ -305,6 +313,15 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
       return;
     }
 
+    // Validação estrita da categoria de acordo com o tipo da transação
+    let validatedCatId = selectedCatId;
+    if (selectedCatId) {
+      const matchCat = categories.find((c) => c.id === selectedCatId);
+      if (!matchCat || matchCat.type !== currentType) {
+        validatedCatId = null;
+      }
+    }
+
     setSaving(true);
     try {
       const finalSpentFor = isForSomeone ? personName.trim() : null;
@@ -319,7 +336,7 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
         .update({
           description: editDesc.trim(),
           amount: parsedAmount,
-          category_id: selectedCatId,
+          category_id: validatedCatId,
           spent_for_name: finalSpentFor,
           split_status: finalSplitStatus,
           repeats_monthly: editRepeats,
@@ -335,7 +352,7 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
           .update({
             description: editDesc.trim(),
             amount: parsedAmount,
-            category_id: selectedCatId,
+            category_id: validatedCatId,
             is_active: editRepeats,
           })
           .ilike('description', currentDesc.trim());
@@ -346,7 +363,7 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
             .update({
               description: editDesc.trim(),
               amount: parsedAmount,
-              category_id: selectedCatId,
+              category_id: validatedCatId,
               spent_for_name: finalSpentFor,
               split_status: finalSplitStatus,
               budget_bucket: currentType === 'expense' ? selectedBucket : null,
@@ -360,6 +377,7 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
 
       setCurrentDesc(editDesc.trim());
       setCurrentAmount(parsedAmount);
+      setSelectedCatId(validatedCatId);
       setRepeatsMonthly(editRepeats);
 
       setIsEditing(false);
@@ -704,49 +722,58 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
                   </Text>
                 </View>
 
-                {/* Custo em Tempo de Vida */}
-                {!isIncome && (
-                  <TouchableOpacity
-                    style={[styles.lifeTimeCard, showLifeTime && styles.lifeTimeCardActive]}
-                    onPress={() => setShowLifeTime(!showLifeTime)}
-                    activeOpacity={0.8}
-                  >
-                    <View style={styles.lifeTimeHeader}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <Feather name={showLifeTime ? 'clock' : 'lock'} size={13} color="#FBBF24" />
-                        <Text style={styles.lifeTimeTitle}>
-                          {showLifeTime ? 'Custo em Horas de Trabalho:' : 'Custo em Horas de Trabalho'}
-                        </Text>
-                      </View>
-                      <Text style={styles.lifeTimeToggleHint}>
-                        {showLifeTime ? 'Ocultar' : 'Calcular'}
+                {/* Custo / Equivalência em Tempo de Trabalho (Com salário dinâmico do utilizador) */}
+                <TouchableOpacity
+                  style={[
+                    styles.lifeTimeCard,
+                    showLifeTime && (isIncome ? styles.lifeTimeCardActiveIncome : styles.lifeTimeCardActive)
+                  ]}
+                  onPress={() => setShowLifeTime(!showLifeTime)}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.lifeTimeHeader}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Feather 
+                        name="clock" 
+                        size={13} 
+                        color={isIncome ? '#34D399' : '#FBBF24'} 
+                      />
+                      <Text style={styles.lifeTimeTitle}>
+                        {isIncome ? 'Tempo de Trabalho Gerado:' : 'Custo em Horas de Trabalho:'}
                       </Text>
                     </View>
+                    <Text style={[styles.lifeTimeToggleHint, isIncome && styles.lifeTimeToggleHintIncome]}>
+                      {showLifeTime ? 'Ocultar' : 'Calcular'}
+                    </Text>
+                  </View>
 
-                    {showLifeTime && (
-                      <View style={styles.lifeTimeContent}>
-                        {(() => {
-                          const baseSalary = userMonthlyIncome > 0 ? userMonthlyIncome : 2000;
-                          const hourlyRate = baseSalary / 160;
-                          const totalHoursDecimal = Number(currentAmount) / hourlyRate;
-                          const hours = Math.floor(totalHoursDecimal);
-                          const minutes = Math.round((totalHoursDecimal - hours) * 60);
+                  {showLifeTime && (
+                    <View style={styles.lifeTimeContent}>
+                      {(() => {
+                        const baseSalary = userMonthlyIncome > 0 ? userMonthlyIncome : 2560;
+                        const hourlyRate = baseSalary / 160;
+                        const totalHoursDecimal = Number(currentAmount) / hourlyRate;
+                        const hours = Math.floor(totalHoursDecimal);
+                        const minutes = Math.round((totalHoursDecimal - hours) * 60);
 
-                          return (
-                            <>
-                              <Text style={styles.lifeTimeText}>
-                                Equivale a <Text style={styles.lifeTimeHighlight}>{hours}h {minutes}min</Text> de esforço profissional.
+                        return (
+                          <>
+                            <Text style={styles.lifeTimeText}>
+                              {isIncome ? 'Representa ' : 'Equivale a '}
+                              <Text style={[styles.lifeTimeHighlight, isIncome && styles.lifeTimeHighlightIncome]}>
+                                {hours > 0 ? `${hours}h ` : ''}{minutes}min
                               </Text>
-                              <Text style={styles.lifeTimeSub}>
-                                Com base em R$ {baseSalary.toFixed(2).replace('.', ',')} / mês (~R$ {hourlyRate.toFixed(2).replace('.', ',')}/h).
-                              </Text>
-                            </>
-                          );
-                        })()}
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                )}
+                              {isIncome ? ' do seu esforço profissional.' : ' de esforço profissional.'}
+                            </Text>
+                            <Text style={styles.lifeTimeSub}>
+                              Com base em R$ {baseSalary.toFixed(2).replace('.', ',')} / mês (~R$ {hourlyRate.toFixed(2).replace('.', ',')}/h).
+                            </Text>
+                          </>
+                        );
+                      })()}
+                    </View>
+                  )}
+                </TouchableOpacity>
 
                 {(matchingRecurringBill || repeatsMonthly) && (
                   <TouchableOpacity
@@ -953,6 +980,10 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(245, 158, 11, 0.4)',
     backgroundColor: 'rgba(245, 158, 11, 0.05)',
   },
+  lifeTimeCardActiveIncome: {
+    borderColor: 'rgba(16, 185, 129, 0.4)',
+    backgroundColor: 'rgba(16, 185, 129, 0.05)',
+  },
   lifeTimeHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -968,6 +999,9 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
   },
+  lifeTimeToggleHintIncome: {
+    color: '#34D399',
+  },
   lifeTimeContent: {
     marginTop: 8,
   },
@@ -978,6 +1012,10 @@ const styles = StyleSheet.create({
   },
   lifeTimeHighlight: {
     color: '#FBBF24',
+    fontWeight: '700',
+  },
+  lifeTimeHighlightIncome: {
+    color: '#34D399',
     fontWeight: '700',
   },
   lifeTimeSub: {

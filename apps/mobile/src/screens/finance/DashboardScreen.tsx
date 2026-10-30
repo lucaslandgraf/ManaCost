@@ -48,6 +48,7 @@ export const DashboardScreen = ({ navigation }: any) => {
   const [scannerVisible, setScannerVisible] = useState(false);
   const [dealsModalVisible, setDealsModalVisible] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
+  const [initialTxType, setInitialTxType] = useState<'expense' | 'income'>('expense');
   const [settingsVisible, setSettingsVisible] = useState(false);
   const { user } = useAuth();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -60,6 +61,10 @@ export const DashboardScreen = ({ navigation }: any) => {
   const [estimatorVisible, setEstimatorVisible] = useState(false);
   const [reportsModalVisible, setReportsModalVisible] = useState(false);
   const [billsToPayVisible, setBillsToPayVisible] = useState(false);
+
+  // Seletor rápido de Mês e Ano
+  const [monthPickerVisible, setMonthPickerVisible] = useState(false);
+  const [pickerYear, setPickerYear] = useState(new Date().getFullYear());
 
   const { isOnline, pendingCount } = useOfflineSync(() => {
     fetchTransactions();
@@ -436,12 +441,33 @@ export const DashboardScreen = ({ navigation }: any) => {
         </View>
 
         <View style={styles.headerRight}>
+          {/* Pílula do Mês: Setas + Toque central que abre o Seletor Rápido */}
           <View style={styles.monthPill}>
-            <TouchableOpacity style={styles.monthArrow} onPress={() => changeMonth(-1)}>
+            <TouchableOpacity 
+              style={styles.monthArrow} 
+              onPress={() => changeMonth(-1)}
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+            >
               <Feather name="chevron-left" size={14} color="#94A3B8" />
             </TouchableOpacity>
-            <Text style={styles.monthPillText}>{formatMonthTitle(currentDate)}</Text>
-            <TouchableOpacity style={styles.monthArrow} onPress={() => changeMonth(1)}>
+
+            <TouchableOpacity
+              style={styles.monthPillCenter}
+              onPress={() => {
+                setPickerYear(currentDate.getFullYear());
+                setMonthPickerVisible(true);
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.monthPillText}>{formatMonthTitle(currentDate)}</Text>
+              <Feather name="chevron-down" size={11} color="#10B981" style={{ marginLeft: 3 }} />
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.monthArrow} 
+              onPress={() => changeMonth(1)}
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+            >
               <Feather name="chevron-right" size={14} color="#94A3B8" />
             </TouchableOpacity>
           </View>
@@ -498,32 +524,29 @@ export const DashboardScreen = ({ navigation }: any) => {
         {/* Ações Rápidas */}
         <View style={styles.quickActionsContainer}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickActionsScroll}>
-            <TouchableOpacity
-              style={[styles.actionPill, styles.actionPillExpense]}
-              onPress={() => setModalVisible(true)}
-              activeOpacity={0.7}
-            >
-              <Feather name="minus" size={13} color="#F87171" />
-              <Text style={styles.actionPillText}>Despesa</Text>
-            </TouchableOpacity>
+           <TouchableOpacity
+  style={[styles.actionPill, styles.actionPillExpense]}
+  onPress={() => {
+    setInitialTxType('expense');
+    setModalVisible(true);
+  }}
+  activeOpacity={0.7}
+>
+  <Feather name="minus" size={13} color="#F87171" />
+  <Text style={styles.actionPillText}>Despesa</Text>
+</TouchableOpacity>
 
-            <TouchableOpacity
-              style={[styles.actionPill, styles.actionPillIncome]}
-              onPress={() => setModalVisible(true)}
-              activeOpacity={0.7}
-            >
-              <Feather name="plus" size={13} color="#10B981" />
-              <Text style={styles.actionPillText}>Receita</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.actionPill}
-              onPress={() => setBillsToPayVisible(true)}
-              activeOpacity={0.7}
-            >
-              <Feather name="file-text" size={13} color="#38BDF8" />
-              <Text style={styles.actionPillText}>Boletos</Text>
-            </TouchableOpacity>
+<TouchableOpacity
+  style={[styles.actionPill, styles.actionPillIncome]}
+  onPress={() => {
+    setInitialTxType('income');
+    setModalVisible(true);
+  }}
+  activeOpacity={0.7}
+>
+  <Feather name="plus" size={13} color="#10B981" />
+  <Text style={styles.actionPillText}>Receita</Text>
+</TouchableOpacity>
 
             <TouchableOpacity
               style={styles.actionPill}
@@ -739,14 +762,234 @@ export const DashboardScreen = ({ navigation }: any) => {
         </TouchableOpacity>
       </View>
 
-      {/* Modais */}
+      {/* Menu Inferior Ferramentas */}
+      <Modal
+        visible={toolsModalVisible}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setToolsModalVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.toolsOverlay}
+          activeOpacity={1}
+          onPress={() => setToolsModalVisible(false)}
+        >
+          <View style={styles.toolsCard}>
+            <View style={styles.toolsHeader}>
+              <Text style={styles.toolsTitle}>Recursos & Ferramentas</Text>
+              <TouchableOpacity onPress={() => setToolsModalVisible(false)} style={styles.closeBtnIcon}>
+                <Feather name="x" size={18} color="#94A3B8" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.toolsGrid}>
+              <TouchableOpacity
+                style={styles.toolItem}
+                onPress={() => {
+                  setToolsModalVisible(false);
+                  setReportsModalVisible(true);
+                }}
+              >
+                <View style={[styles.toolIconBox, { backgroundColor: 'rgba(56, 189, 248, 0.12)' }]}>
+                  <Feather name="bar-chart-2" size={18} color="#38BDF8" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.toolLabel}>Relatórios & Auditoria</Text>
+                  <Text style={styles.toolSub}>CSV, Excel e regra 50/30/20</Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.toolItem}
+                onPress={() => {
+                  setToolsModalVisible(false);
+                  setBillsToPayVisible(true);
+                }}
+              >
+                <View style={[styles.toolIconBox, { backgroundColor: 'rgba(239, 68, 68, 0.12)' }]}>
+                  <Feather name="file-text" size={18} color="#EF4444" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.toolLabel}>Contas a Pagar</Text>
+                  <Text style={styles.toolSub}>Checklist de boletos e faturas</Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.toolItem}
+                onPress={() => {
+                  setToolsModalVisible(false);
+                  if (navigation?.navigate) navigation.navigate('Events');
+                  else setEstimatorVisible(true);
+                }}
+              >
+                <View style={[styles.toolIconBox, { backgroundColor: 'rgba(56, 189, 248, 0.12)' }]}>
+                  <Feather name="send" size={18} color="#38BDF8" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.toolLabel}>Viagens & Eventos</Text>
+                  <Text style={styles.toolSub}>Orçamento fechado e checklist</Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.toolItem}
+                onPress={() => {
+                  setToolsModalVisible(false);
+                  setRecurringModalVisible(true);
+                }}
+              >
+                <View style={[styles.toolIconBox, { backgroundColor: 'rgba(168, 85, 247, 0.12)' }]}>
+                  <Feather name="repeat" size={18} color="#A855F7" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.toolLabel}>Assinaturas & Fixas</Text>
+                  <Text style={styles.toolSub}>Lançamentos automáticos mensais</Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.toolItem}
+                onPress={() => {
+                  setToolsModalVisible(false);
+                  setPriceSearchVisible(true);
+                }}
+              >
+                <View style={[styles.toolIconBox, { backgroundColor: 'rgba(14, 165, 233, 0.12)' }]}>
+                  <Feather name="search" size={18} color="#0EA5E9" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.toolLabel}>Menor Preço SEFAZ</Text>
+                  <Text style={styles.toolSub}>Consulta direta de notas</Text>
+                </View>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Modal Seletor Rápido de Mês e Ano */}
+      <Modal
+        visible={monthPickerVisible}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setMonthPickerVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.pickerOverlay}
+          activeOpacity={1}
+          onPress={() => setMonthPickerVisible(false)}
+        >
+          <TouchableOpacity
+            style={styles.pickerCard}
+            activeOpacity={1}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View style={styles.pickerHeaderRow}>
+              <Text style={styles.pickerTitle}>Selecionar Período</Text>
+              <TouchableOpacity
+                onPress={() => setMonthPickerVisible(false)}
+                style={styles.pickerCloseBtn}
+              >
+                <Feather name="x" size={16} color="#94A3B8" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Controlo do Ano */}
+            <View style={styles.yearControlRow}>
+              <TouchableOpacity
+                onPress={() => setPickerYear((prev) => prev - 1)}
+                style={styles.yearArrowBtn}
+                activeOpacity={0.7}
+              >
+                <Feather name="chevron-left" size={16} color="#10B981" />
+              </TouchableOpacity>
+
+              <Text style={styles.yearDisplay}>{pickerYear}</Text>
+
+              <TouchableOpacity
+                onPress={() => setPickerYear((prev) => prev + 1)}
+                style={styles.yearArrowBtn}
+                activeOpacity={0.7}
+              >
+                <Feather name="chevron-right" size={16} color="#10B981" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Grade com os 12 Meses */}
+            <View style={styles.monthsGrid}>
+              {[
+                { label: 'Jan', index: 0 },
+                { label: 'Fev', index: 1 },
+                { label: 'Mar', index: 2 },
+                { label: 'Abr', index: 3 },
+                { label: 'Mai', index: 4 },
+                { label: 'Jun', index: 5 },
+                { label: 'Jul', index: 6 },
+                { label: 'Ago', index: 7 },
+                { label: 'Set', index: 8 },
+                { label: 'Out', index: 9 },
+                { label: 'Nov', index: 10 },
+                { label: 'Dez', index: 11 },
+              ].map((m) => {
+                const isSelected =
+                  currentDate.getMonth() === m.index &&
+                  currentDate.getFullYear() === pickerYear;
+
+                return (
+                  <TouchableOpacity
+                    key={m.index}
+                    style={[
+                      styles.monthGridItem,
+                      isSelected && styles.monthGridItemActive,
+                    ]}
+                    onPress={() => {
+                      const newDate = new Date(pickerYear, m.index, 1);
+                      setCurrentDate(newDate);
+                      setMonthPickerVisible(false);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text
+                      style={[
+                        styles.monthGridItemText,
+                        isSelected && styles.monthGridItemTextActive,
+                      ]}
+                    >
+                      {m.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* Atalho para o Mês Atual */}
+            <TouchableOpacity
+              style={styles.todayShortcutBtn}
+              onPress={() => {
+                const now = new Date();
+                setPickerYear(now.getFullYear());
+                setCurrentDate(new Date(now.getFullYear(), now.getMonth(), 1));
+                setMonthPickerVisible(false);
+              }}
+              activeOpacity={0.7}
+            >
+              <Feather name="calendar" size={13} color="#10B981" style={{ marginRight: 6 }} />
+              <Text style={styles.todayShortcutText}>Ir para Mês Atual</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Modais do Sistema */}
       <NewTransactionModal
-        visible={modalVisible}
-        onClose={() => setModalVisible(false)}
-        currentMonthDate={currentDate}
-        onSuccess={fetchTransactions}
-        onOpenSettings={() => setSettingsVisible(true)}
-      />
+  visible={modalVisible}
+  initialType={initialTxType}
+  onClose={() => setModalVisible(false)}
+  currentMonthDate={currentDate}
+  onSuccess={fetchTransactions}
+  onOpenSettings={() => setSettingsVisible(true)}
+/>
 
       <ReportsModal
         visible={reportsModalVisible}
@@ -774,17 +1017,17 @@ export const DashboardScreen = ({ navigation }: any) => {
       />
 
       <PurchaseDetailsModal
-  visible={!!selectedTx}
-  onClose={() => setSelectedTx(null)}
-  transactionId={selectedTx?.id ?? ''}
-  description={selectedTx?.description ?? ''}
-  date={selectedTx?.date ?? ''}
-  amount={selectedTx?.amount ?? 0}
-  userMonthlyIncome={baseSalaryIncome}
-  onUpdated={fetchTransactions}
-  onDeleted={fetchTransactions}
-  onOpenSettings={() => setSettingsVisible(true)}
-/>
+        visible={!!selectedTx}
+        onClose={() => setSelectedTx(null)}
+        transactionId={selectedTx?.id ?? ''}
+        description={selectedTx?.description ?? ''}
+        date={selectedTx?.date ?? ''}
+        amount={selectedTx?.amount ?? 0}
+        userMonthlyIncome={baseSalaryIncome}
+        onUpdated={fetchTransactions}
+        onDeleted={fetchTransactions}
+        onOpenSettings={() => setSettingsVisible(true)}
+      />
 
       <RecurringBillsModal
         visible={recurringModalVisible}
@@ -901,6 +1144,12 @@ const styles = StyleSheet.create({
   },
   monthArrow: {
     paddingHorizontal: 4,
+  },
+  monthPillCenter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+    paddingVertical: 2,
   },
   monthPillText: {
     color: '#F8FAFC',
@@ -1242,5 +1491,167 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.4,
     shadowRadius: 10,
     elevation: 10,
+  },
+  toolsOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'flex-end',
+  },
+  toolsCard: {
+    backgroundColor: '#0B0F19',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    paddingBottom: Platform.OS === 'android' ? 36 : 28,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  toolsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  toolsTitle: {
+    color: '#F8FAFC',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  closeBtnIcon: {
+    padding: 4,
+  },
+  toolsGrid: {
+    flexDirection: 'column',
+    gap: 8,
+  },
+  toolItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#131927',
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+    gap: 12,
+  },
+  toolIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  toolLabel: {
+    color: '#F8FAFC',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  toolSub: {
+    color: '#64748B',
+    fontSize: 10,
+    marginTop: 1,
+  },
+  pickerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  pickerCard: {
+    width: '100%',
+    maxWidth: 340,
+    backgroundColor: '#0B0F19',
+    borderRadius: 18,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  pickerHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  pickerTitle: {
+    color: '#F8FAFC',
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: -0.3,
+  },
+  pickerCloseBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#131927',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  yearControlRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#131927',
+    borderRadius: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.04)',
+  },
+  yearArrowBtn: {
+    padding: 6,
+    borderRadius: 6,
+    backgroundColor: '#0B0F19',
+  },
+  yearDisplay: {
+    color: '#F8FAFC',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  monthsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  monthGridItem: {
+    width: '22%',
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: '#131927',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.04)',
+  },
+  monthGridItemActive: {
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    borderColor: '#10B981',
+  },
+  monthGridItemText: {
+    color: '#94A3B8',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  monthGridItemTextActive: {
+    color: '#10B981',
+    fontWeight: '800',
+  },
+  todayShortcutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.3)',
+    borderRadius: 10,
+    paddingVertical: 10,
+  },
+  todayShortcutText: {
+    color: '#10B981',
+    fontSize: 12,
+    fontWeight: '700',
   },
 });

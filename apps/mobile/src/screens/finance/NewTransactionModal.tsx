@@ -40,6 +40,7 @@ interface Props {
   onClose: () => void;
   onSuccess: () => void;
   currentMonthDate?: Date;
+  initialType?: 'expense' | 'income';
   onOpenSettings?: () => void;
 }
 
@@ -48,12 +49,13 @@ export const NewTransactionModal: React.FC<Props> = ({
   onClose,
   onSuccess,
   currentMonthDate = new Date(),
+  initialType = 'expense',
   onOpenSettings,
 }) => {
   const { user } = useAuth();
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
-  const [type, setType] = useState<'expense' | 'income'>('expense');
+  const [type, setType] = useState<'expense' | 'income'>(initialType);
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -77,11 +79,15 @@ export const NewTransactionModal: React.FC<Props> = ({
   const [splitStatus, setSplitStatus] = useState<'gift' | 'pending' | 'settled'>('pending');
 
   useEffect(() => {
-    if (visible && user) {
-      loadFormData();
-      loadProfileRules();
+    if (visible) {
+      setType(initialType);
+      resetForm(initialType);
+      if (user) {
+        loadFormData();
+        loadProfileRules();
+      }
     }
-  }, [visible, user]);
+  }, [visible, initialType, user]);
 
   const loadProfileRules = async () => {
     if (!user?.id) return;
@@ -123,9 +129,10 @@ export const NewTransactionModal: React.FC<Props> = ({
     }
   };
 
-  const resetForm = () => {
+  const resetForm = (defaultType: 'expense' | 'income' = initialType) => {
     setDescription('');
     setAmount('');
+    setType(defaultType);
     setSelectedCategory(null);
     setSelectedBucket('needs');
     setIsForSomeone(false);
@@ -187,7 +194,7 @@ export const NewTransactionModal: React.FC<Props> = ({
     if (!isOnline) {
       await enqueueOfflineAction('transactions', payload);
       setLoading(false);
-      resetForm();
+      resetForm(type);
       Alert.alert(
         'Lançamento Offline',
         'Sem ligação à rede no momento. O registo foi guardado localmente e será enviado quando a ligação regressar.'
@@ -238,13 +245,13 @@ export const NewTransactionModal: React.FC<Props> = ({
       }
 
       setLoading(false);
-      resetForm();
+      resetForm(type);
       onSuccess();
       onClose();
     } catch (err: any) {
       await enqueueOfflineAction('transactions', payload);
       setLoading(false);
-      resetForm();
+      resetForm(type);
       Alert.alert(
         'Lançamento Offline',
         'A ligação oscilou, mas o registo foi preservado no dispositivo com segurança.'

@@ -41,14 +41,74 @@ def fetch_all_deals() -> list[dict]:
     return all_deals
 
 
-def split_outliers_by_ratio(group: list[dict], max_ratio: float = 3.0) -> list[list[dict]]:
-    """Separa embalagens industriais/fardos de unidades avulsas pelo rácio de preço."""
+def extract_unit_metric(text: str) -> tuple[str, str]:
+    """
+    Extrai peso/volume normalizado para a mesma unidade base.
+    Converte KG para G e L para ML para comparação direta.
+    """
+    t = text.upper()
+    
+    t = re.sub(r'\bT([1-9]\d?)\b', r'\1UN', t)
+
+    match_units = re.search(r'\b(\d+)\s*(?:UNIDADES?|UN|UND)\b', t)
+    units = f"{match_units.group(1)}UN" if match_units else ""
+
+    # Unifica para G (1KG -> 1000G)
+    match_kg = re.search(r'\b(\d+(?:\.\d+)?)\s*KG\b', t)
+    match_g = re.search(r'\b(\d+)\s*G\b', t)
+    weight = ""
+    if match_kg:
+        weight = f"{int(float(match_kg.group(1)) * 1000)}G"
+    elif match_g:
+        weight = f"{match_g.group(1)}G"
+    elif re.search(r'\bKG\b', t):
+        weight = "1000G"
+
+    # Unifica para ML (1L -> 1000ML)
+    match_l = re.search(r'\b(\d+(?:\.\d+)?)\s*L\b', t)
+    match_ml = re.search(r'\b(\d+)\s*ML\b', t)
+    volume = ""
+    if match_l:
+        volume = f"{int(float(match_l.group(1)) * 1000)}ML"
+    elif match_ml:
+        volume = f"{match_ml.group(1)}ML"
+
+    combined_metric = weight or volume
+    return units, combined_metric
+
+
+def have_compatible_specs(name_a: str, name_b: str) -> bool:
+    """Impede cruzamento se gramaturas ou contagens forem diferentes."""
+    units_a, metric_a = extract_unit_metric(name_a)
+    units_b, metric_b = extract_unit_metric(name_b)
+
+    # 1. Bloqueia contagens divergentes (ex: 3UN vs 8UN)
+    if units_a and units_b and units_a != units_b:
+        return False
+
+    # 2. Bloqueia pesos/volumes divergentes (ex: 500G vs 1000G/1KG)
+    if metric_a and metric_b and metric_a != metric_b:
+        return False
+
+    # Se um deles declara peso/unidade e o outro não tem absolutamente nada, rejeita
+    if bool(metric_a) != bool(metric_b):
+        return False
+
+    return True
+
+
+def split_outliers_by_ratio(group: list[dict], max_ratio: float = 1.8) -> list[list[dict]]:
+    """
+    Separa embalagens industriais/fardos de unidades avulsas pelo rácio de preço.
+    Reduzido para 1.8 (um mercado raramente é mais de 80% mais caro no mesmo produto idêntico).
+    """
     sorted_items = sorted(group, key=lambda x: x["deal_price"])
     subgroups = []
     current_sub = [sorted_items[0]]
 
     for item in sorted_items[1:]:
         base_price = current_sub[0]["deal_price"]
+        # Se ultrapassar 1.8x o valor base, pertence a outra especificação/embalagem
         if base_price > 0 and (item["deal_price"] / base_price) > max_ratio:
             subgroups.append(current_sub)
             current_sub = [item]
@@ -62,38 +122,36 @@ def split_outliers_by_ratio(group: list[dict], max_ratio: float = 3.0) -> list[l
 
 
 def clean_search_tokens(text: str) -> str:
-    """Remove palavras de ruído que impedem a correspondência exata entre lojas."""
+    """Remove palavras de ruído sem apagar as unidades de peso/medida."""
     t = text.lower()
-    t = re.sub(r"\b(pct|pacote|un|unidade|tp1|tipo 1|tipo1|vacuo|vácuo|refil|tradicional|especial)\b", "", t)
+    t = re.sub(r"\b(pct|pacote|tp1|tipo 1|tipo1|vacuo|vácuo|refil|tradicional|especial)\b", "", t)
     t = re.sub(r"\s+", " ", t).strip()
     return t
 
 
 def extract_core_keywords(name: str) -> str:
-    """Extrai a palavra-chave central (ex: arroz, feijao, cafe, cerveja) para agrupar em baldes."""
+    """Extrai a palavra-chave central para agrupar em baldes de busca."""
     t = clean_search_tokens(name)
     words = t.split()
     if not words:
         return "geral"
-    
-    # Palavras-chave prioritárias para distribuição em baldes sem gargalo
+
     priority_roots = [
-        "arroz", "feijao", "oleo", "azeite", "cafe", "acucar", "macarrao", 
-        "espaguete", "farinha", "leite", "margarina", "manteiga", "requeijao", 
-        "iogurte", "queijo", "mussarela", "presunto", "achocolatado", "nescau", 
-        "toddy", "frango", "carne", "alcatra", "cerveja", "refrigerante", 
-        "coca", "pepsi", "guarana", "detergente", "sabao", "amaciante", "chocolate"
+        "ferrero", "bombom", "atum", "sardinha", "arroz", "feijao", "oleo", "azeite", 
+        "cafe", "acucar", "macarrao", "espaguete", "farinha", "leite", "margarina", 
+        "manteiga", "requeijao", "iogurte", "queijo", "mussarela", "presunto", 
+        "achocolatado", "nescau", "toddy", "frango", "carne", "alcatra", "cerveja", 
+        "refrigerante", "coca", "pepsi", "guarana", "detergente", "sabao", "amaciante", "chocolate"
     ]
     for root in priority_roots:
         if root in t:
             return root
-            
+
     return words[0]
 
 
 def build_clusters(deals: list[dict]) -> list[list[dict]]:
-    """Gera grupos canónicos agrupando pela palavra-chave central e aplicando similaridade."""
-    # 1. Agrupa primeiro por raiz semântica (arroz com arroz, leite com leite, etc.)
+    """Gera grupos canónicos agrupando pela raiz, compatibilidade de métricas e similaridade."""
     buckets = defaultdict(list)
     for deal in deals:
         root_key = extract_core_keywords(deal["product_name"])
@@ -101,7 +159,6 @@ def build_clusters(deals: list[dict]) -> list[list[dict]]:
 
     merged_clusters = []
 
-    # 2. Compara produtos dentro do mesmo departamento/raiz
     for root, items in buckets.items():
         visited = set()
         for i, deal_a in enumerate(items):
@@ -118,17 +175,20 @@ def build_clusters(deals: list[dict]) -> list[list[dict]]:
                 if deal_b_id in visited:
                     continue
 
-                # Se for da mesma rede, não junta no mesmo grupo comparativo
                 if deal_a["store_name"] == deal_b["store_name"]:
                     continue
 
-                # Compara similaridade de nome entre supermercados concorrentes com tolerância calibrada
-                if is_match(deal_a["product_name"], deal_b["product_name"], threshold=73.0):
+                # 1. Trava estrita de contagem e peso (ex: impede 3UN com 8UN ou 12UN)
+                if not have_compatible_specs(deal_a["product_name"], deal_b["product_name"]):
+                    continue
+
+                # 2. Similaridade de texto com limiar calibrado
+                if is_match(deal_a["product_name"], deal_b["product_name"], threshold=78.0):
                     current_group.append(deal_b)
                     visited.add(deal_b_id)
 
-            # Separa fardos/outliers de preço
-            refined_subgroups = split_outliers_by_ratio(current_group, max_ratio=3.0)
+            # Separa outliers com rácio estrito de 1.8x
+            refined_subgroups = split_outliers_by_ratio(current_group, max_ratio=1.8)
             for sub in refined_subgroups:
                 best_by_store = {}
                 for item in sorted(sub, key=lambda x: x["deal_price"]):
@@ -136,7 +196,6 @@ def build_clusters(deals: list[dict]) -> list[list[dict]]:
                     if store not in best_by_store:
                         best_by_store[store] = item
 
-                # Apenas regista agrupamentos presentes em 2 ou mais supermercados concorrentes
                 if len(best_by_store) > 1:
                     merged_clusters.append(list(best_by_store.values()))
 
@@ -167,13 +226,11 @@ def persist_matches_to_supabase(clusters: list[list[dict]]):
         canonical_key = generate_canonical_key(cheapest["product_name"]) or f"cluster-{idx}"
         unique_canonical = f"{canonical_key}-{idx}"
 
-        # 1. Herança inteligente de imagem
         best_image = next(
             (d["image_url"] for d in sorted_group if d.get("image_url") and str(d["image_url"]).strip()),
             None
         )
 
-        # 2. Herança inteligente de categoria
         best_category = next(
             (d["category"] for d in sorted_group if d.get("category") and str(d["category"]).strip()),
             None
@@ -201,7 +258,6 @@ def persist_matches_to_supabase(clusters: list[list[dict]]):
             "best_image": best_image,
         }
 
-    # 1. Batch upsert em product_matches
     print(f"[Persistência] Enviando registros para 'product_matches'...")
     batch_size = 50
     inserted_matches = []
@@ -217,7 +273,6 @@ def persist_matches_to_supabase(clusters: list[list[dict]]):
 
     print(f"✓ {len(inserted_matches)} cabeçalhos de matches gravados/atualizados.")
 
-    # 2. Gravar os itens vinculados em product_match_items
     items_payload = []
     for match_row in inserted_matches:
         match_id = match_row["id"]
@@ -252,7 +307,7 @@ def persist_matches_to_supabase(clusters: list[list[dict]]):
 def main():
     deals = fetch_all_deals()
     clusters = build_clusters(deals)
-    print(f"\n✓ {len(clusters)} clusters concorrentes identificados.")
+    print(f"\n✓ {len(clusters)} clusters concorrentes identificados com especificações estritas.")
     persist_matches_to_supabase(clusters)
 
 
