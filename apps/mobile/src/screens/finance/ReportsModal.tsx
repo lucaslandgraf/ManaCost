@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Modal,
   View,
@@ -35,6 +35,13 @@ type PeriodFilter =
 
 type TypeFilter = 'all' | 'expense' | 'income';
 type PersonFilter = 'all' | 'mine' | 'third_party';
+type PersonStatusFilter = 'pending' | 'settled' | 'all';
+
+interface PersonMeta {
+  name: string;
+  hasPending: boolean;
+  hasSettled: boolean;
+}
 
 interface ReportMetrics {
   totalIncome: number;
@@ -57,8 +64,9 @@ export const ReportsModal: React.FC<Props> = ({
   const [period, setPeriod] = useState<PeriodFilter>('current_month');
   const [type, setType] = useState<TypeFilter>('all');
   const [personFilter, setPersonFilter] = useState<PersonFilter>('all');
+  const [personStatusFilter, setPersonStatusFilter] = useState<PersonStatusFilter>('pending');
   const [selectedPerson, setSelectedPerson] = useState<string | null>(null);
-  const [peopleList, setPeopleList] = useState<string[]>([]);
+  const [rawPeopleList, setRawPeopleList] = useState<PersonMeta[]>([]);
 
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
@@ -188,6 +196,17 @@ export const ReportsModal: React.FC<Props> = ({
     return 'Não informado';
   };
 
+  // Filtra as pessoas de acordo com a aba selecionada (Pendentes, Quitados ou Todos)
+  const visiblePeople = useMemo(() => {
+    return rawPeopleList
+      .filter((p) => {
+        if (personStatusFilter === 'pending') return p.hasPending;
+        if (personStatusFilter === 'settled') return p.hasSettled;
+        return true;
+      })
+      .map((p) => p.name);
+  }, [rawPeopleList, personStatusFilter]);
+
   const generateReport = async () => {
     const { startDate, endDate } = getDateRange();
 
@@ -247,17 +266,37 @@ export const ReportsModal: React.FC<Props> = ({
       const { data, error } = await query;
       if (error) throw error;
 
+      // Consulta abrangente para mapear quem tem status pendente ou quitado
       const { data: allWithPeople } = await supabase
         .from('transactions')
-        .select('spent_for_name')
+        .select('spent_for_name, split_status')
         .eq('user_id', user.id)
         .eq('type', 'expense')
         .not('spent_for_name', 'is', null);
 
-      const uniquePeople = Array.from(
-        new Set((allWithPeople || []).map((t) => t.spent_for_name).filter(Boolean))
-      ) as string[];
-      setPeopleList(uniquePeople);
+      const personMap = new Map<string, { hasPending: boolean; hasSettled: boolean }>();
+      (allWithPeople || []).forEach((t: any) => {
+        const name = t.spent_for_name?.trim();
+        if (!name) return;
+        const current = personMap.get(name) || { hasPending: false, hasSettled: false };
+        if (t.split_status === 'pending') {
+          current.hasPending = true;
+        } else if (t.split_status === 'settled') {
+          current.hasSettled = true;
+        } else {
+          current.hasPending = true; // Por defeito considera aberto se não estiver explicitamente acertado
+        }
+        personMap.set(name, current);
+      });
+
+      const structuredPeople: PersonMeta[] = Array.from(personMap.entries()).map(
+        ([name, stat]) => ({
+          name,
+          hasPending: stat.hasPending,
+          hasSettled: stat.hasSettled,
+        })
+      );
+      setRawPeopleList(structuredPeople);
 
       let totalIncome = 0;
       let totalExpense = 0;
@@ -684,34 +723,108 @@ export const ReportsModal: React.FC<Props> = ({
               })}
             </View>
 
+            {/* Seletor Segmentado de Pessoas (Em Aberto / Quitados / Todos) */}
             {personFilter === 'third_party' && (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.peopleScroll}>
-                <TouchableOpacity
-                  style={[styles.personChip, selectedPerson === null && styles.personChipActive]}
-                  onPress={() => setSelectedPerson(null)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[styles.personChipText, selectedPerson === null && styles.personChipTextActive]}>
-                    Todas as Pessoas
-                  </Text>
-                </TouchableOpacity>
-                {peopleList.map((p) => {
-                  const isSelected = selectedPerson === p;
-                  return (
-                    <TouchableOpacity
-                      key={p}
-                      style={[styles.personChip, isSelected && styles.personChipActive]}
-                      onPress={() => setSelectedPerson(p)}
-                      activeOpacity={0.7}
+              <View style={styles.personContainer}>
+                <View style={styles.statusToggleBar}>
+                  <TouchableOpacity
+                    style={[
+                      styles.statusToggleBtn,
+                      personStatusFilter === 'pending' && styles.statusToggleBtnActive,
+                    ]}
+                    onPress={() => {
+                      setPersonStatusFilter('pending');
+                      setSelectedPerson(null);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text
+                      style={[
+                        styles.statusToggleText,
+                        personStatusFilter === 'pending' && styles.statusToggleTextActive,
+                      ]}
                     >
-                      <Feather name="user" size={11} color={isSelected ? '#38BDF8' : '#94A3B8'} style={{ marginRight: 4 }} />
-                      <Text style={[styles.personChipText, isSelected && styles.personChipTextActive]}>
-                        {p}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
+                      Em Aberto (Devem)
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.statusToggleBtn,
+                      personStatusFilter === 'settled' && styles.statusToggleBtnActive,
+                    ]}
+                    onPress={() => {
+                      setPersonStatusFilter('settled');
+                      setSelectedPerson(null);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text
+                      style={[
+                        styles.statusToggleText,
+                        personStatusFilter === 'settled' && styles.statusToggleTextActive,
+                      ]}
+                    >
+                      Quitados
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.statusToggleBtn,
+                      personStatusFilter === 'all' && styles.statusToggleBtnActive,
+                    ]}
+                    onPress={() => {
+                      setPersonStatusFilter('all');
+                      setSelectedPerson(null);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text
+                      style={[
+                        styles.statusToggleText,
+                        personStatusFilter === 'all' && styles.statusToggleTextActive,
+                      ]}
+                    >
+                      Todos
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Chips com a lista filtrada de pessoas */}
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.peopleScroll}>
+                  <TouchableOpacity
+                    style={[styles.personChip, selectedPerson === null && styles.personChipActive]}
+                    onPress={() => setSelectedPerson(null)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.personChipText, selectedPerson === null && styles.personChipTextActive]}>
+                      Todas as Pessoas
+                    </Text>
+                  </TouchableOpacity>
+                  {visiblePeople.map((p) => {
+                    const isSelected = selectedPerson === p;
+                    return (
+                      <TouchableOpacity
+                        key={p}
+                        style={[styles.personChip, isSelected && styles.personChipActive]}
+                        onPress={() => setSelectedPerson(p)}
+                        activeOpacity={0.7}
+                      >
+                        <Feather
+                          name="user"
+                          size={11}
+                          color={isSelected ? '#38BDF8' : '#94A3B8'}
+                          style={{ marginRight: 4 }}
+                        />
+                        <Text style={[styles.personChipText, isSelected && styles.personChipTextActive]}>
+                          {p}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
             )}
 
             {/* Painel de Resultados */}
@@ -1002,8 +1115,38 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     fontSize: 12,
   },
-  peopleScroll: {
+  personContainer: {
     marginBottom: 10,
+    gap: 8,
+  },
+  statusToggleBar: {
+    flexDirection: 'row',
+    backgroundColor: '#0B0F19',
+    borderRadius: 8,
+    padding: 2,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  statusToggleBtn: {
+    flex: 1,
+    paddingVertical: 6,
+    alignItems: 'center',
+    borderRadius: 6,
+  },
+  statusToggleBtnActive: {
+    backgroundColor: '#131927',
+  },
+  statusToggleText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  statusToggleTextActive: {
+    color: '#38BDF8',
+    fontWeight: '700',
+  },
+  peopleScroll: {
+    paddingVertical: 2,
   },
   personChip: {
     flexDirection: 'row',

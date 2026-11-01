@@ -65,11 +65,6 @@ interface ProductImageWithFallbackProps {
   name?: string;
 }
 
-interface PriceSearchScreenProps {
-  onBack: () => void;
-  embedded?: boolean;
-}
-
 const CATALOG_PAGE_SIZE = 100;
 
 const STORES_LIST = [
@@ -100,6 +95,51 @@ const FALLBACK_FLYER_URLS: Record<string, string> = {
   'Carrefour': 'https://www.tiendeo.com.br/Encartes-Catalogos/carrefour',
 };
 
+// Dicionário de sinónimos, marcas e erros comuns de digitação
+const SEARCH_SYNONYMS: Record<string, string[]> = {
+  'galo': ['gallo'],
+  'helmans': ['hellmanns'],
+  'helmann': ['hellmanns'],
+  'hellmans': ['hellmanns'],
+  'nescal': ['nescau'],
+  'toddy': ['toddy'],
+  'nestle': ['nestle'],
+  'heineken': ['heineken'],
+  'haineken': ['heineken'],
+  'coca': ['coca'],
+  'refri': ['refrigerante'],
+  'mussarela': ['mussarela', 'mucarela', 'queijo'],
+  'muçarela': ['mussarela', 'mucarela', 'queijo'],
+  'sabao': ['sabao', 'lava roupas'],
+  'amaciante': ['amaciante'],
+  'detergente': ['detergente'],
+};
+
+// Remove acentos e normaliza para minúsculas
+const cleanSearchText = (text: string): string => {
+  return text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+};
+
+// Processa a pesquisa do utilizador transformando-a em termos prontos para o motor
+const parseSearchTokens = (searchText: string): string[][] => {
+  const clean = cleanSearchText(searchText);
+  if (!clean) return [];
+
+  const rawTokens = clean.split(/\s+/).filter(Boolean);
+
+  return rawTokens.map((token) => {
+    const synonyms = SEARCH_SYNONYMS[token];
+    if (synonyms && synonyms.length > 0) {
+      return Array.from(new Set([token, ...synonyms]));
+    }
+    return [token];
+  });
+};
+
 export const ProductImageWithFallback: React.FC<ProductImageWithFallbackProps> = ({
   uri,
   category,
@@ -108,8 +148,8 @@ export const ProductImageWithFallback: React.FC<ProductImageWithFallbackProps> =
   const [hasError, setHasError] = useState(false);
 
   const getFallbackIcon = () => {
-    const text = `${category || ''} ${name || ''}`.toLowerCase();
-    if (text.includes('agua') || text.includes('água') || text.includes('mineral')) {
+    const text = cleanSearchText(`${category || ''} ${name || ''}`);
+    if (text.includes('agua') || text.includes('mineral')) {
       return <MaterialCommunityIcons name="water" size={24} color="#38BDF8" />;
     }
     if (text.includes('bisteca') || text.includes('carne') || text.includes('suin') || text.includes('bovin') || text.includes('frango')) {
@@ -133,7 +173,7 @@ export const ProductImageWithFallback: React.FC<ProductImageWithFallbackProps> =
     if (text.includes('dente') || text.includes('escova') || text.includes('sabonete') || text.includes('shampoo')) {
       return <MaterialCommunityIcons name="toothbrush-paste" size={24} color="#A78BFA" />;
     }
-    if (text.includes('maca') || text.includes('maçã') || text.includes('laranja') || text.includes('banana') || text.includes('tomate')) {
+    if (text.includes('maca') || text.includes('laranja') || text.includes('banana') || text.includes('tomate')) {
       return <MaterialCommunityIcons name="food-apple" size={24} color="#F87171" />;
     }
     if (text.includes('pao') || text.includes('biscoito') || text.includes('bolacha')) {
@@ -284,8 +324,20 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
         .order('id', { ascending: true })
         .range(offset, offset + CATALOG_PAGE_SIZE - 1);
 
-      if (search.trim()) {
-        query = query.ilike('product_name', `%${search.trim()}%`);
+      // BUSCA RESILIENTE COM TOKENS, SINÓNIMOS E SEM ACENTOS
+      const tokenGroups = parseSearchTokens(search);
+      if (tokenGroups.length > 0) {
+        tokenGroups.forEach((options) => {
+          if (options.length === 1) {
+            query = query.ilike('product_name', `%${options[0]}%`);
+          } else {
+            // Se houver sinónimos (ex: sabao -> sabao OU lava roupas)
+            const orConditions = options
+              .map((term) => `product_name.ilike.%${term}%`)
+              .join(',');
+            query = query.or(orConditions);
+          }
+        });
       }
 
       if (selectedCategory !== 'Todos') {
@@ -402,7 +454,6 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
 
     if (!targetUrl) return;
 
-    // Se for ficheiro PDF e não estiver envelopado pelo visualizador do Google Docs, envolve-o para leitura transparente no WebView
     if (targetUrl.toLowerCase().endsWith('.pdf') && !targetUrl.includes('docs.google.com/gview')) {
       targetUrl = `https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(targetUrl)}`;
     }
@@ -434,16 +485,22 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
     return ['Todos', ...Array.from(set)];
   }, [matches]);
 
- const filteredMatches = useMemo(() => {
+  const filteredMatches = useMemo(() => {
+    const tokenGroups = parseSearchTokens(search);
+
     return matches.filter((item) => {
       // 1. Filtro de Categoria
       const matchesCategory =
         selectedCategory === 'Todos' || item.category === selectedCategory;
 
-      // 2. Filtro de Busca por Texto
-      const matchesSearch =
-        !search.trim() ||
-        item.display_name.toLowerCase().includes(search.toLowerCase());
+      // 2. Filtro de Busca com Tolerância a Sinónimos e Acentos
+      let matchesSearch = true;
+      if (tokenGroups.length > 0) {
+        const cleanName = cleanSearchText(item.display_name);
+        matchesSearch = tokenGroups.every((options) =>
+          options.some((term) => cleanName.includes(term))
+        );
+      }
 
       // 3. Filtro por Loja Vencedora
       if (selectedStore === 'Todas') {
@@ -613,7 +670,7 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
       </View>
 
       {/* Barra de Pesquisa e Filtros (apenas para Comparativo e Catálogo) */}
-{(activeTab === 'matches' || activeTab === 'catalog') && (
+      {(activeTab === 'matches' || activeTab === 'catalog') && (
         <>
           <View style={styles.searchContainer}>
             <View style={styles.searchBox}>
@@ -668,36 +725,36 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
           </View>
 
           {/* Filtro de Lojas */}
-{(activeTab === 'catalog' || activeTab === 'matches') && (
-  <View style={styles.storesFilterContainer}>
-    <FlatList
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      data={STORES_LIST}
-      keyExtractor={(item) => item}
-      contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}
-      renderItem={({ item }) => (
-        <TouchableOpacity
-          style={[
-            styles.storeChip,
-            selectedStore === item && styles.storeChipActive,
-          ]}
-          onPress={() => setSelectedStore(item)}
-          activeOpacity={0.7}
-        >
-          <Text
-            style={[
-              styles.storeChipText,
-              selectedStore === item && styles.storeChipTextActive,
-            ]}
-          >
-            {item === 'Todas' ? 'Todas as Lojas' : item}
-          </Text>
-        </TouchableOpacity>
-      )}
-    />
-  </View>
-)}
+          {(activeTab === 'catalog' || activeTab === 'matches') && (
+            <View style={styles.storesFilterContainer}>
+              <FlatList
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                data={STORES_LIST}
+                keyExtractor={(item) => item}
+                contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={[
+                      styles.storeChip,
+                      selectedStore === item && styles.storeChipActive,
+                    ]}
+                    onPress={() => setSelectedStore(item)}
+                    activeOpacity={0.7}
+                  >
+                    <Text
+                      style={[
+                        styles.storeChipText,
+                        selectedStore === item && styles.storeChipTextActive,
+                      ]}
+                    >
+                      {item === 'Todas' ? 'Todas as Lojas' : item}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              />
+            </View>
+          )}
         </>
       )}
 
@@ -711,27 +768,25 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
             </View>
           ) : (
             <FlatList
-  data={filteredMatches}
-  keyExtractor={(item) => item.id}
-  // --- Adicione estas props de otimização ---
-  initialNumToRender={8}
-  maxToRenderPerBatch={8}
-  windowSize={5}
-  removeClippedSubviews={Platform.OS === 'android'}
-  updateCellsBatchingPeriod={50}
-  // ------------------------------------------
-  refreshControl={
-    <RefreshControl
-      refreshing={refreshing}
-      onRefresh={onRefresh}
-      tintColor="#10B981"
-    />
-  }
-  contentContainerStyle={[
-    styles.listContent,
-    items.length > 0 && { paddingBottom: 110 },
-  ]}
-  showsVerticalScrollIndicator={false}
+              data={filteredMatches}
+              keyExtractor={(item) => item.id}
+              initialNumToRender={8}
+              maxToRenderPerBatch={8}
+              windowSize={5}
+              removeClippedSubviews={Platform.OS === 'android'}
+              updateCellsBatchingPeriod={50}
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={onRefresh}
+                  tintColor="#10B981"
+                />
+              }
+              contentContainerStyle={[
+                styles.listContent,
+                items.length > 0 && { paddingBottom: 110 },
+              ]}
+              showsVerticalScrollIndicator={false}
               renderItem={({ item }) => {
                 const isExpanded = expandedId === item.id;
                 const inBasket = items.some((basketItem) => basketItem.id === item.id);

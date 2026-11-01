@@ -13,13 +13,17 @@
     },
     "android": {
       "package": "com.manacost.app",
+      "versionCode": 1,
       "backgroundColor": "#0F172A",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#0F172A",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
+      "permissions": [
+        "CAMERA"
+      ],
       "predictiveBackGestureEnabled": false
     },
     "web": {
@@ -28,7 +32,20 @@
     "plugins": [
       "expo-web-browser",
       "expo-status-bar",
-      "expo-sharing"
-    ]
+      "expo-sharing",
+      "expo-font",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "O ManaCost precisa de acesso à câmera para ler QR Codes de notas fiscais (NFC-e)."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "b1078482-6cfe-454c-8256-de8e9a1e29a7"
+      }
+    },
+    "owner": "lucaslandgraf"
   }
 }

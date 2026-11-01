@@ -51,6 +51,46 @@ interface Props {
   onOpenSettings?: () => void;
 }
 
+// Utilitários de Data e Validação
+const applyDateMask = (text: string): string => {
+  const digits = text.replace(/\D/g, '').slice(0, 8);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+};
+
+const parseAndValidateDate = (dateBr: string): { isoDate: string | null; error: string | null } => {
+  const parts = dateBr.trim().split('/');
+  if (parts.length !== 3) {
+    return { isoDate: null, error: 'A data deve estar no formato DD/MM/AAAA.' };
+  }
+
+  const day = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10);
+  const year = parseInt(parts[2], 10);
+
+  // Impede digitações incorretas de ano (ex: 0226, 1920, 2260)
+  if (isNaN(year) || year < 2020 || year > 2035) {
+    return { isoDate: null, error: 'O ano digitado é inválido. Insira um ano entre 2020 e 2035.' };
+  }
+
+  if (isNaN(month) || month < 1 || month > 12) {
+    return { isoDate: null, error: 'O mês digitado é inválido.' };
+  }
+
+  const dateObj = new Date(year, month - 1, day);
+  if (
+    dateObj.getFullYear() !== year ||
+    dateObj.getMonth() !== month - 1 ||
+    dateObj.getDate() !== day
+  ) {
+    return { isoDate: null, error: 'Dia inexistente para este mês/ano.' };
+  }
+
+  const iso = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  return { isoDate: iso, error: null };
+};
+
 export const PurchaseDetailsModal: React.FC<Props> = ({
   visible,
   onClose,
@@ -81,6 +121,7 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
 
   const [editDesc, setEditDesc] = useState(description);
   const [editAmount, setEditAmount] = useState(amount.toString());
+  const [editDate, setEditDate] = useState('');
   const [editRepeats, setEditRepeats] = useState(false);
   const [selectedBucket, setSelectedBucket] = useState<'needs' | 'wants' | 'savings'>('needs');
   
@@ -106,6 +147,7 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
       setCurrentDate(date);
       setEditDesc(description);
       setEditAmount(amount.toString());
+      setEditDate(date ? date.split('-').reverse().join('/') : '');
       fetchTransactionDetails();
       fetchCategories();
       fetchProfileRules();
@@ -157,7 +199,6 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
         setCurrentDate(txData.date || date);
         setCurrentType(txData.type || 'expense');
         
-        // Assegura compatibilidade de tipo de categoria
         const rawCat = txData.categories;
         const catObj = Array.isArray(rawCat) ? rawCat[0] : rawCat;
         if (catObj && catObj.type === txData.type) {
@@ -171,6 +212,7 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
 
         setEditDesc(txData.description || description);
         setEditAmount(String(txData.amount || amount));
+        setEditDate(txData.date ? txData.date.split('-').reverse().join('/') : '');
 
         if (txData.budget_bucket) {
           setSelectedBucket(txData.budget_bucket);
@@ -306,22 +348,7 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
     );
   };
 
-  const handleSaveEdit = async () => {
-    const parsedAmount = parseFloat(editAmount.replace(',', '.'));
-    if (!editDesc.trim() || isNaN(parsedAmount) || parsedAmount <= 0) {
-      Alert.alert('Atenção', 'Informe descrição e valor válidos.');
-      return;
-    }
-
-    // Validação estrita da categoria de acordo com o tipo da transação
-    let validatedCatId = selectedCatId;
-    if (selectedCatId) {
-      const matchCat = categories.find((c) => c.id === selectedCatId);
-      if (!matchCat || matchCat.type !== currentType) {
-        validatedCatId = null;
-      }
-    }
-
+  const executeUpdate = async (finalIsoDate: string, parsedAmount: number, validatedCatId: string | null) => {
     setSaving(true);
     try {
       const finalSpentFor = isForSomeone ? personName.trim() : null;
@@ -336,6 +363,7 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
         .update({
           description: editDesc.trim(),
           amount: parsedAmount,
+          date: finalIsoDate,
           category_id: validatedCatId,
           spent_for_name: finalSpentFor,
           split_status: finalSplitStatus,
@@ -370,13 +398,14 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
             })
             .eq('user_id', user.id)
             .ilike('description', currentDesc.trim())
-            .gt('date', currentDate)
+            .gt('date', finalIsoDate)
             .eq('is_settled', false);
         }
       }
 
       setCurrentDesc(editDesc.trim());
       setCurrentAmount(parsedAmount);
+      setCurrentDate(finalIsoDate);
       setSelectedCatId(validatedCatId);
       setRepeatsMonthly(editRepeats);
 
@@ -386,6 +415,53 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
       Alert.alert('Erro ao atualizar', err.message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSaveEdit = async () => {
+    const parsedAmount = parseFloat(editAmount.replace(',', '.'));
+    if (!editDesc.trim() || isNaN(parsedAmount) || parsedAmount <= 0) {
+      Alert.alert('Atenção', 'Informe descrição e valor válidos.');
+      return;
+    }
+
+    const { isoDate, error: dateError } = parseAndValidateDate(editDate);
+    if (dateError || !isoDate) {
+      Alert.alert('Data Inválida', dateError || 'Verifique a data introduzida.');
+      return;
+    }
+
+    let validatedCatId = selectedCatId;
+    if (selectedCatId) {
+      const matchCat = categories.find((c) => c.id === selectedCatId);
+      if (!matchCat || matchCat.type !== currentType) {
+        validatedCatId = null;
+      }
+    }
+
+    // Trava de coerência: mudança de ano ou diferença maior que 45 dias
+    const originalYear = currentDate.split('-')[0];
+    const newYear = isoDate.split('-')[0];
+    const diffDays = Math.abs(
+      (new Date(isoDate).getTime() - new Date(currentDate).getTime()) / (1000 * 60 * 60 * 24)
+    );
+
+    const requiresConfirmation = newYear !== originalYear || diffDays > 45;
+
+    if (requiresConfirmation) {
+      Alert.alert(
+        'Confirmar Nova Data',
+        `Pretende alterar a data de ${currentDate.split('-').reverse().join('/')} para ${editDate}?\n\nConfirme se o ano (${newYear}) e o mês estão corretos.`,
+        [
+          { text: 'Revisar', style: 'cancel' },
+          {
+            text: 'Confirmar e Gravar',
+            onPress: () => executeUpdate(isoDate, parsedAmount, validatedCatId),
+          },
+        ]
+      );
+    } else {
+      executeUpdate(isoDate, parsedAmount, validatedCatId);
     }
   };
 
@@ -513,6 +589,21 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
                   placeholder="0,00"
                   placeholderTextColor="#64748B"
                 />
+
+                {/* Campo de Data com Máscara e Validação */}
+                <Text style={styles.fieldLabel}>DATA DO LANÇAMENTO</Text>
+                <View style={styles.dateInputContainer}>
+                  <Feather name="calendar" size={14} color="#64748B" style={{ marginRight: 8 }} />
+                  <TextInput
+                    style={styles.dateInput}
+                    value={editDate}
+                    onChangeText={(val) => setEditDate(applyDateMask(val))}
+                    placeholder="DD/MM/AAAA"
+                    placeholderTextColor="#64748B"
+                    keyboardType="numeric"
+                    maxLength={10}
+                  />
+                </View>
 
                 {!isIncome && (
                   <View style={styles.bucketSection}>
@@ -722,7 +813,7 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
                   </Text>
                 </View>
 
-                {/* Custo / Equivalência em Tempo de Trabalho (Com salário dinâmico do utilizador) */}
+                {/* Custo / Equivalência em Tempo de Trabalho */}
                 <TouchableOpacity
                   style={[
                     styles.lifeTimeCard,
@@ -1224,6 +1315,23 @@ const styles = StyleSheet.create({
   inputAmount: {
     fontSize: 18,
     fontWeight: '700',
+  },
+  dateInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#131927',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+    marginBottom: 14,
+  },
+  dateInput: {
+    flex: 1,
+    color: '#F8FAFC',
+    fontSize: 14,
+    fontWeight: '600',
   },
   bucketSection: {
     marginBottom: 8,

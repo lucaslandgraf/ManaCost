@@ -108,43 +108,46 @@ def scrape_amigao_deals() -> list[dict]:
                             if sub_list and isinstance(sub_list, list):
                                 price = float(sub_list[0].get("price", 0.0) or 0.0)
 
-                   # 1. Multiplicador direto da API
-                    try:
-                        multiplier = float(node.get("unitMultiplier") or 1.0)
-                    except (ValueError, TypeError):
-                        multiplier = 1.0
-
-                    # 2. Se a API não mandou multiplicador ou mandou 1.0, 
-                    # inspeciona gramaturas declaradas no produto (ex: 200g, 500g, 1.5kg)
-                    if multiplier == 1.0:
-                        # Detecta frações em gramas (ex: 200g com título 'kg' -> multiplier = 0.2)
-                        gram_match = re.search(r'\b(\d{2,4})\s*g\b', raw_name.lower())
-                        kg_match = re.search(r'(\d+(?:\.\d+)?)\s*kg\b', raw_name.lower())
-
-                        if gram_match and re.search(r'\bkg\b', raw_name.lower()):
-                            grams = float(gram_match.group(1))
-                            if grams > 0 and grams != 1000:
-                                multiplier = grams / 1000.0  # 200g vira 0.2
-                        elif kg_match:
-                            val = float(kg_match.group(1))
-                            if val > 1.05 or val < 0.95:
-                                multiplier = val
-
-                    # 3. Normaliza para o preço de 1KG
-                    # Se multiplier < 1.0 (ex: 200g = 0.2), divide por 0.2 (multiplica por 5)
-                    # Se multiplier > 1.0 (ex: 1.5kg = 1.5), divide por 1.5
-                    if multiplier > 0 and multiplier != 1.0 and price > 0:
-                        price = price / multiplier
+                    # Bloqueia mercearia, bebidas e produtos de higiene/limpeza embalados de fábrica
+                    is_packaged_product = bool(re.search(
+                        r'\b(arroz|feijao|feijão|cafe|café|oleo|óleo|acucar|açucar|açúcar|farinha|leite|cerveja|refrigerante|sabao|sabão|lava roupas|amaciante|detergente|desinfetante|tixan|omo|brilhante|ypê|ype)\b',
+                        raw_name.lower()
+                    ))
 
                     clean_name = raw_name
-                    # Se vende ao quilo ou foi convertido de fração, unifica para 1KG
-                    if re.search(r'\bkg\b', clean_name, re.I):
-                        # Remove menções de frações de grama (ex: '200g') se tiver 'kg'
-                        clean_name = re.sub(r'\b\d{2,4}\s*g\b', '', clean_name, flags=re.I)
-                        clean_name = re.sub(r'\d+(?:[.,]\d+)?\s*kg\b', '1KG', clean_name, flags=re.I)
-                        if not re.search(r'\b1KG\b', clean_name, re.I):
-                            clean_name = f"{clean_name} 1KG"
-                        clean_name = re.sub(r'\s+', ' ', clean_name).strip()
+
+                    # 1. Embalagens industriais fechadas: NUNCA divide o preço!
+                    if is_packaged_product:
+                        clean_name = raw_name
+                    else:
+                        # 2. Açougue e Hortifrúti pesáveis: aplica a normalização por quilo
+                        try:
+                            multiplier = float(node.get("unitMultiplier") or 1.0)
+                        except (ValueError, TypeError):
+                            multiplier = 1.0
+
+                        if multiplier == 1.0:
+                            gram_match = re.search(r'\b(\d{2,4})\s*g\b', raw_name.lower())
+                            kg_match = re.search(r'(\d+(?:\.\d+)?)\s*kg\b', raw_name.lower())
+
+                            if gram_match and re.search(r'\bkg\b', raw_name.lower()):
+                                grams = float(gram_match.group(1))
+                                if grams > 0 and grams != 1000:
+                                    multiplier = grams / 1000.0  # 200g vira 0.2
+                            elif kg_match:
+                                val = float(kg_match.group(1))
+                                if val > 1.05 or val < 0.95:
+                                    multiplier = val
+
+                        if multiplier > 0 and multiplier != 1.0 and price > 0:
+                            price = price / multiplier
+
+                        if re.search(r'\bkg\b', clean_name, re.I):
+                            clean_name = re.sub(r'\b\d{2,4}\s*g\b', '', clean_name, flags=re.I)
+                            clean_name = re.sub(r'\d+(?:[.,]\d+)?\s*kg\b', '1KG', clean_name, flags=re.I)
+                            if not re.search(r'\b1KG\b', clean_name, re.I):
+                                clean_name = f"{clean_name} 1KG"
+                            clean_name = re.sub(r'\s+', ' ', clean_name).strip()
 
                     img_url = None
                     images = node.get("image") or []

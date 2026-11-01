@@ -15,17 +15,19 @@ yarn-error.*
 pnpm-debug.log*
 
 # ==========================================
-# EXPO & REACT NATIVE
+# EXPO, EAS & REACT NATIVE
 # ==========================================
 .expo/
 dist/
 web-build/
 expo-env.d.ts
 .metro-health-check*
+*.apk
+*.aab
 
-# Pastas nativas geradas (prebuild)
-/ios
-/android
+# Pastas nativas geradas (prebuild dentro de apps/mobile ou raiz)
+**/ios/
+**/android/
 
 # Chaves e certificados nativos
 .kotlin/
@@ -65,10 +67,18 @@ wheels/
 *.egg
 
 # ==========================================
-# DENO / SUPABASE LOCAL
+# SUPABASE CLI (Local & Monorepo)
 # ==========================================
-.supabase/.temp/
-.supabase/branches/
+**/supabase/.temp/
+**/supabase/branches/
+**/.temp/
+
+# ==========================================
+# EXPORTAÇÕES LOCAIS E TEMPORÁRIOS
+# ==========================================
+*.xlsx
+*.csv
+*.log
 
 # ==========================================
 # SISTEMA OPERACIONAL & EDITORES
@@ -78,8 +88,11 @@ Thumbs.db
 ehthumbs.db
 [Dd]esktop.ini
 
-# VS Code (ignora cache pessoal, mas mantém settings se quiser)
+# VS Code
 .vscode/*
 !.vscode/settings.json
 *.code-workspace
 *.tsbuildinfo
+
+# Configuração local de build EAS com variáveis
+eas.json
