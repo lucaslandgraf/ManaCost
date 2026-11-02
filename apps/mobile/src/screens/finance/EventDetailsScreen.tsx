@@ -23,6 +23,7 @@ import * as XLSX from 'xlsx';
 import { supabase } from '../../config/supabase';
 import { ScannerScreen } from './ScannerScreen';
 import { checkIsOnline, enqueueOfflineAction } from '../../services/offlineSync';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface Expense {
   id: string;
@@ -42,6 +43,7 @@ interface PurchaseItem {
 }
 
 export function EventDetailsScreen({ route, navigation }: any) {
+  const insets = useSafeAreaInsets();
   const { eventId, title: initialTitle, currency = 'BRL', targetBudget: initialBudget = 0 } = route.params;
 
   const [currentEventTitle, setCurrentEventTitle] = useState(initialTitle);
@@ -724,7 +726,7 @@ export function EventDetailsScreen({ route, navigation }: any) {
             />
           }
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: Platform.OS === 'android' ? 100 : 80 }}
+          contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 24) + 60 }}
           renderItem={({ item }: { item: Expense }) => (
             <TouchableOpacity
               style={[styles.expenseItem, item.is_offline_pending && styles.expenseItemOffline]}
@@ -764,7 +766,7 @@ export function EventDetailsScreen({ route, navigation }: any) {
       {/* Modal de Relatório da Viagem */}
       <Modal visible={reportModalVisible} transparent animationType="slide" onRequestClose={() => setReportModalVisible(false)}>
         <View style={styles.bottomModalOverlay}>
-          <View style={styles.bottomModalCard}>
+          <View style={[styles.bottomModalCard, { paddingBottom: Math.max(insets.bottom + 12, 24) }]}>
             <View style={styles.dragHandleBox}>
               <View style={styles.dragHandle} />
             </View>
@@ -855,7 +857,7 @@ export function EventDetailsScreen({ route, navigation }: any) {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={styles.bottomModalOverlay}
         >
-          <View style={styles.bottomModalCard}>
+          <View style={[styles.bottomModalCard, { paddingBottom: Math.max(insets.bottom + 12, 24) }]}>
             <View style={styles.dragHandleBox}>
               <View style={styles.dragHandle} />
             </View>
@@ -942,7 +944,7 @@ export function EventDetailsScreen({ route, navigation }: any) {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={styles.bottomModalOverlay}
         >
-          <View style={styles.bottomModalCard}>
+          <View style={[styles.bottomModalCard, { paddingBottom: Math.max(insets.bottom + 12, 24) }]}>
             <View style={styles.dragHandleBox}>
               <View style={styles.dragHandle} />
             </View>
@@ -1009,7 +1011,7 @@ export function EventDetailsScreen({ route, navigation }: any) {
         onRequestClose={() => setDetailModalVisible(false)}
       >
         <View style={styles.bottomModalOverlay}>
-          <View style={styles.bottomModalCard}>
+          <View style={[styles.bottomModalCard, { paddingBottom: Math.max(insets.bottom + 12, 24) }]}>
             <View style={styles.dragHandleBox}>
               <View style={styles.dragHandle} />
             </View>
@@ -1459,7 +1461,6 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingHorizontal: 20,
-    paddingBottom: Platform.OS === 'android' ? 24 : 36,
     maxHeight: '90%',
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.08)',

@@ -14,7 +14,7 @@ import {
   RefreshControl,
   KeyboardAvoidingView,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { supabase } from '../../config/supabase';
 
@@ -29,6 +29,7 @@ interface BudgetEvent {
 }
 
 export function EventsScreen({ navigation }: any) {
+  const insets = useSafeAreaInsets();
   const [events, setEvents] = useState<BudgetEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -260,7 +261,10 @@ export function EventsScreen({ navigation }: any) {
             />
           }
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={[
+            styles.listContent,
+            { paddingBottom: Math.max(insets.bottom, 24) + 60 },
+          ]}
           renderItem={({ item }) => {
             const spent = item.total_spent || 0;
             const target = item.target_budget || 0;
@@ -385,7 +389,12 @@ export function EventsScreen({ navigation }: any) {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={styles.modalOverlay}
         >
-          <View style={styles.modalCard}>
+          <View
+            style={[
+              styles.modalCard,
+              { paddingBottom: Math.max(insets.bottom + 12, 24) },
+            ]}
+          >
             <View style={styles.dragHandleBox}>
               <View style={styles.dragHandle} />
             </View>
@@ -674,7 +683,6 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingHorizontal: 20,
-    paddingBottom: Platform.OS === 'android' ? 24 : 36,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.08)',
   },

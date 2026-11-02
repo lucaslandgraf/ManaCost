@@ -6,6 +6,11 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0B0F19"
+    },
     "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true,
@@ -14,12 +19,23 @@
     "android": {
       "package": "com.manacost.app",
       "versionCode": 1,
-      "backgroundColor": "#0F172A",
+      "backgroundColor": "#0B0F19",
+      "navigationBar": {
+        "backgroundColor": "#0B0F19",
+        "barStyle": "light-content"
+      },
+      "splash": {
+        "backgroundColor": "#0B0F19",
+        "resizeMode": "contain",
+        "mdpi": "./assets/splash-icon.png",
+        "hdpi": "./assets/splash-icon.png",
+        "xhdpi": "./assets/splash-icon.png",
+        "xxhdpi": "./assets/splash-icon.png",
+        "xxxhdpi": "./assets/splash-icon.png"
+      },
       "adaptiveIcon": {
-        "backgroundColor": "#0F172A",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "backgroundColor": "#0B0F19",
+        "foregroundImage": "./assets/icon.png"
       },
       "permissions": [
         "CAMERA"
@@ -30,6 +46,18 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0B0F19",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "dark": {
+            "backgroundColor": "#0B0F19",
+            "image": "./assets/splash-icon.png"
+          }
+        }
+      ],
       "expo-web-browser",
       "expo-status-bar",
       "expo-sharing",
@@ -38,6 +66,14 @@
         "expo-camera",
         {
           "cameraPermission": "O ManaCost precisa de acesso à câmera para ler QR Codes de notas fiscais (NFC-e)."
+        }
+      ],
+      "expo-image",
+      [
+        "expo-navigation-bar",
+        {
+          "style": "light",
+          "enforceContrast": false
         }
       ]
     ],

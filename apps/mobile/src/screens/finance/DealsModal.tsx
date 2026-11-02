@@ -15,6 +15,7 @@ import {
 import { Feather } from '@expo/vector-icons';
 import { WebView } from 'react-native-webview';
 import { supabase } from '../../config/supabase';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface Deal {
   id: string;
@@ -50,6 +51,7 @@ const FALLBACK_FLYER_URLS: Record<string, string> = {
 };
 
 export const DealsModal: React.FC<DealsModalProps> = ({ visible, onClose }) => {
+  const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState<'flyers' | 'products'>('flyers');
 
   const [previewFlyer, setPreviewFlyer] = useState<{ name: string; url: string } | null>(null);
@@ -274,7 +276,10 @@ export const DealsModal: React.FC<DealsModalProps> = ({ visible, onClose }) => {
                     <FlatList
                       data={flyers}
                       keyExtractor={(item) => String(item.id || item.store_name)}
-                      contentContainerStyle={styles.flyersList}
+                      contentContainerStyle={[
+                        styles.flyersList,
+                        { paddingBottom: insets.bottom + 40 },
+                      ]}
                       showsVerticalScrollIndicator={false}
                       renderItem={({ item }) => (
                         <TouchableOpacity
@@ -381,7 +386,10 @@ export const DealsModal: React.FC<DealsModalProps> = ({ visible, onClose }) => {
                     <FlatList
                       data={filteredDeals}
                       keyExtractor={(item) => item.id}
-                      contentContainerStyle={styles.listContent}
+                      contentContainerStyle={[
+                        styles.listContent,
+                        { paddingBottom: insets.bottom + 40 },
+                      ]}
                       showsVerticalScrollIndicator={false}
                       renderItem={({ item }) => {
                         const safePrice = Number(item.deal_price || 0);
@@ -417,7 +425,12 @@ export const DealsModal: React.FC<DealsModalProps> = ({ visible, onClose }) => {
               )}
 
               {/* Rodapé */}
-              <View style={styles.footer}>
+              <View
+                style={[
+                  styles.footer,
+                  { paddingBottom: Math.max(insets.bottom + 12, 24) },
+                ]}
+              >
                 <TouchableOpacity style={styles.actionBtn} onPress={onClose} activeOpacity={0.8}>
                   <Text style={styles.actionBtnText}>Concluído</Text>
                 </TouchableOpacity>
@@ -648,7 +661,7 @@ const styles = StyleSheet.create({
   centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 40 },
   loadingText: { color: '#64748B', marginTop: 8, fontSize: 12 },
   emptyText: { color: '#64748B', fontSize: 13 },
-  footer: { paddingHorizontal: 16, paddingBottom: Platform.OS === 'android' ? 24 : 32, paddingTop: 6 },
+  footer: { paddingHorizontal: 16, paddingTop: 6 },
   actionBtn: {
     backgroundColor: '#131927',
     paddingVertical: 12,

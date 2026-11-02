@@ -17,6 +17,7 @@ import { Feather } from '@expo/vector-icons';
 import { supabase } from '../../config/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { exportFullDataBackup } from '../../services/backupService';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface SettingsModalProps {
   visible: boolean;
@@ -25,6 +26,7 @@ interface SettingsModalProps {
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ visible, onClose, onSaved }) => {
+  const insets = useSafeAreaInsets();
   const { user, signOut } = useAuth();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -177,7 +179,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ visible, onClose, 
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.overlay}
       >
-        <View style={styles.modalContent}>
+        <View
+          style={[
+            styles.modalContent,
+            { paddingBottom: Math.max(insets.bottom + 12, 24) },
+          ]}
+        >
           <View style={styles.dragHandleBox}>
             <View style={styles.dragHandle} />
           </View>
@@ -400,7 +407,6 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingHorizontal: 20,
-    paddingBottom: Platform.OS === 'android' ? 24 : 36,
     maxHeight: '90%',
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.08)',

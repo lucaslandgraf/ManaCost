@@ -19,6 +19,7 @@ import * as XLSX from 'xlsx';
 import { supabase } from '../../config/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { syncAllPendingBillsReminders } from '../../services/notificationService';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export interface BillToPay {
   id: string;
@@ -42,6 +43,7 @@ export const BillsToPayModal: React.FC<Props> = ({
   currentMonthDate = new Date(),
   onBillSettled,
 }) => {
+  const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const [bills, setBills] = useState<BillToPay[]>([]);
   const [loading, setLoading] = useState(false);
@@ -391,7 +393,7 @@ export const BillsToPayModal: React.FC<Props> = ({
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.overlay}>
-        <View style={styles.card}>
+        <View style={[styles.card, { paddingBottom: Math.max(insets.bottom + 12, 24) }]}>
           <View style={styles.dragHandleBox}>
             <View style={styles.dragHandle} />
           </View>
@@ -586,7 +588,7 @@ export const BillsToPayModal: React.FC<Props> = ({
       {/* Modal Adicionar / Editar Conta */}
       <Modal visible={formModalVisible} transparent animationType="slide" onRequestClose={() => setFormModalVisible(false)}>
         <View style={styles.innerModalOverlay}>
-          <View style={styles.innerCard}>
+          <View style={[styles.innerCard, { paddingBottom: Math.max(insets.bottom + 12, 24) }]}>
             <View style={styles.dragHandleBox}>
               <View style={styles.dragHandle} />
             </View>
@@ -672,7 +674,6 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingHorizontal: 20,
-    paddingBottom: Platform.OS === 'android' ? 24 : 36,
     maxHeight: '92%',
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.08)',
@@ -891,7 +892,6 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingHorizontal: 20,
-    paddingBottom: Platform.OS === 'android' ? 24 : 36,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.08)',
   },

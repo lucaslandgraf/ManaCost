@@ -4,7 +4,6 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  SafeAreaView,
   FlatList,
   RefreshControl,
   Alert,
@@ -12,6 +11,7 @@ import {
   Platform,
   StatusBar,
   ScrollView,
+  Image,
 } from 'react-native';
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { supabase } from '../../config/supabase';
@@ -28,6 +28,7 @@ import { RecurringBillsModal } from './RecurringBillsModal';
 import { TravelEstimatorModal } from './TravelEstimatorModal';
 import { ReportsModal } from './ReportsModal';
 import { BillsToPayModal } from './BillsToPayModal';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface Transaction {
   id: string;
@@ -44,6 +45,7 @@ interface Transaction {
 }
 
 export const DashboardScreen = ({ navigation }: any) => {
+  const insets = useSafeAreaInsets();
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
   const [scannerVisible, setScannerVisible] = useState(false);
   const [dealsModalVisible, setDealsModalVisible] = useState(false);
@@ -409,10 +411,8 @@ export const DashboardScreen = ({ navigation }: any) => {
     return <Feather name="credit-card" size={16} color="#94A3B8" />;
   };
 
-  const userInitial = user?.email ? user.email.slice(0, 2).toUpperCase() : 'MC';
-
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <StatusBar barStyle="light-content" />
 
       {!isOnline && (
@@ -428,16 +428,17 @@ export const DashboardScreen = ({ navigation }: any) => {
       <View style={styles.header}>
         <View style={styles.userInfoRow}>
           <TouchableOpacity
-            style={styles.avatarCircle}
+            style={styles.logoButton}
             onPress={() => setSettingsVisible(true)}
             activeOpacity={0.7}
           >
-            <Text style={styles.avatarText}>{userInitial}</Text>
+            <Image
+              source={require('../../../assets/icone.png')}
+              style={styles.logoImage}
+              resizeMode="cover"
+            />
           </TouchableOpacity>
-          <View>
-            <Text style={styles.welcomeText}>ManaCost</Text>
-            <Text style={styles.userEmailText} numberOfLines={1}>{user?.email}</Text>
-          </View>
+          <Text style={styles.welcomeText}>ManaCost</Text>
         </View>
 
         <View style={styles.headerRight}>
@@ -650,7 +651,10 @@ export const DashboardScreen = ({ navigation }: any) => {
           <RefreshControl refreshing={loading} onRefresh={fetchTransactions} tintColor="#10B981" />
         }
         style={styles.txFlatList}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[
+          styles.listContent,
+          { paddingBottom: insets.bottom + 120 },
+        ]}
         showsVerticalScrollIndicator={false}
         renderItem={({ item }) => {
           const rawCat = item.categories;
@@ -717,7 +721,15 @@ export const DashboardScreen = ({ navigation }: any) => {
       />
 
       {/* Bottom Bar */}
-      <View style={styles.bottomBarContainer}>
+      <View
+        style={[
+          styles.bottomBarContainer,
+          {
+            height: 60 + insets.bottom,
+            paddingBottom: insets.bottom,
+          },
+        ]}
+      >
         <TouchableOpacity style={styles.navTab} activeOpacity={0.7}>
           <Feather name="grid" size={20} color="#10B981" />
           <Text style={[styles.navLabel, styles.navLabelActive]}>Início</Text>
@@ -774,7 +786,12 @@ export const DashboardScreen = ({ navigation }: any) => {
           activeOpacity={1}
           onPress={() => setToolsModalVisible(false)}
         >
-          <View style={styles.toolsCard}>
+          <View
+            style={[
+              styles.toolsCard,
+              { paddingBottom: Math.max(insets.bottom + 12, 24) },
+            ]}
+          >
             <View style={styles.toolsHeader}>
               <Text style={styles.toolsTitle}>Recursos & Ferramentas</Text>
               <TouchableOpacity onPress={() => setToolsModalVisible(false)} style={styles.closeBtnIcon}>
@@ -1097,11 +1114,24 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
     backgroundColor: '#0B0F19',
   },
-  userInfoRow: {
+ userInfoRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'center', // Garante que o texto ManaCost fique perfeitamente centralizado na altura do logo
     gap: 10,
     flex: 1,
+  },
+  logoButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 10, // Cantos suaves modernos (ou use 18 se preferir 100% redondo)
+    overflow: 'hidden',
+    backgroundColor: '#131927',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  logoImage: {
+    width: '100%',
+    height: '100%',
   },
   avatarCircle: {
     width: 36,
@@ -1117,10 +1147,10 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   welcomeText: {
-    fontSize: 15,
+    fontSize: 17,
     fontWeight: '800',
     color: '#F8FAFC',
-    lineHeight: 18,
+    letterSpacing: -0.3,
   },
   userEmailText: {
     fontSize: 11,
@@ -1337,7 +1367,6 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingHorizontal: 16,
-    paddingBottom: Platform.OS === 'android' ? 140 : 110,
   },
   txCard: {
     flexDirection: 'row',
@@ -1439,7 +1468,6 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    height: Platform.OS === 'android' ? 104 : 88,
     backgroundColor: '#0B0F19',
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.06)',
@@ -1447,7 +1475,6 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     justifyContent: 'space-around',
     paddingTop: 10,
-    paddingBottom: Platform.OS === 'android' ? 44 : 28,
     paddingHorizontal: 12,
   },
   navTab: {
@@ -1502,7 +1529,6 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     padding: 20,
-    paddingBottom: Platform.OS === 'android' ? 36 : 28,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.08)',
   },

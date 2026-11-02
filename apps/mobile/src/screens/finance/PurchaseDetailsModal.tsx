@@ -15,6 +15,7 @@ import {
 import { Feather } from '@expo/vector-icons';
 import { supabase } from '../../config/supabase';
 import { useAuth } from '../../context/AuthContext';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface Item {
   id: string;
@@ -103,6 +104,7 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
   onDeleted,
   onOpenSettings,
 }) => {
+  const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const [items, setItems] = useState<Item[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -554,7 +556,12 @@ export const PurchaseDetailsModal: React.FC<Props> = ({
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.overlay}
       >
-        <View style={styles.card}>
+        <View
+          style={[
+            styles.card,
+            { paddingBottom: Math.max(insets.bottom + 12, 24) },
+          ]}
+        >
           <View style={styles.dragHandleBox}>
             <View style={styles.dragHandle} />
           </View>
@@ -973,7 +980,6 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingHorizontal: 20,
-    paddingBottom: Platform.OS === 'android' ? 24 : 36,
     maxHeight: '92%',
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.08)',

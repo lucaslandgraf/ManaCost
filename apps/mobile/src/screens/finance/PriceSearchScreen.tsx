@@ -15,6 +15,7 @@ import { Feather, Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { useBasket } from '../../context/BasketContext';
 import { BasketModal } from './BasketModal';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface ProdutoPreco {
   id: string;
@@ -121,11 +122,14 @@ function decodeGeohash(geohash: string): { latitude: number; longitude: number }
 }
 
 export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack, embedded = false }) => {
+  const insets = useSafeAreaInsets();
+  const bottomSafeOffset = Math.max(insets.bottom, 48) + 90;
   const [searchTerm, setSearchTerm] = useState('');
   const [radius, setRadius] = useState<number>(10);
   const [results, setResults] = useState<ProdutoPreco[]>([]);
   const [loading, setLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+  const [networkError, setNetworkError] = useState(false);
 
   const { addItem, totalItems } = useBasket();
   const [basketVisible, setBasketVisible] = useState(false);
@@ -156,6 +160,7 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack, em
   }, []);
 
   const handleSearch = async (termToSearch?: string) => {
+    setNetworkError(false);
     const term = (termToSearch || searchTerm).trim();
     if (!term) return;
 
@@ -255,8 +260,10 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack, em
       setResults(mapped);
     } catch (err: any) {
       console.warn('Erro ao consultar Menor Preço diretamente no dispositivo:', err);
-      alert('Não foi possível obter os preços. Verifique a ligação e tente novamente.');
-      setResults([]);
+      setNetworkError(true);
+      if (results.length === 0) {
+        setResults([]);
+      }
     } finally {
       setLoading(false);
     }
@@ -430,19 +437,44 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack, em
       )}
 
       {/* Lista de Resultados */}
-      {loading ? (
+      {loading && results.length === 0 ? (
         <View style={styles.centerContainer}>
           <ActivityIndicator size="large" color="#10B981" />
           <Text style={styles.loadingText}>A consultar notas fiscais recentes na SEFAZ-PR...</Text>
         </View>
       ) : (
-        <FlatList
-          data={sortedResults}
-          keyExtractor={(item, index) => item.id || String(index)}
-          contentContainerStyle={styles.listContent}
-          showsVerticalScrollIndicator={false}
-          renderItem={({ item }) => (
-            <View style={styles.card}>
+        <>
+          {networkError && results.length > 0 && (
+            <View style={styles.networkErrorBanner}>
+              <Feather name="wifi-off" size={16} color="#F87171" />
+              <Text style={styles.networkErrorText}>
+                Sem conexão com a SEFAZ. Exibindo os últimos preços consultados.
+              </Text>
+              <TouchableOpacity
+                style={styles.retryButtonCompact}
+                onPress={() => handleSearch()}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.retryButtonCompactText}>Tentar novamente</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+          {loading && results.length > 0 && (
+            <View style={styles.refreshingIndicator}>
+              <ActivityIndicator size="small" color="#10B981" />
+              <Text style={styles.loadingText}>Atualizando preços...</Text>
+            </View>
+          )}
+          <FlatList
+            data={sortedResults}
+            keyExtractor={(item, index) => item.id || String(index)}
+            contentContainerStyle={[
+              styles.listContent,
+              { paddingBottom: bottomSafeOffset },
+            ]}
+            showsVerticalScrollIndicator={false}
+            renderItem={({ item }) => (
+              <View style={styles.card}>
               <View style={styles.cardHeader}>
                 <View style={{ flex: 1, paddingRight: 8 }}>
                   <Text style={styles.cardDesc} numberOfLines={2}>
@@ -513,22 +545,38 @@ export const PriceSearchScreen: React.FC<PriceSearchScreenProps> = ({ onBack, em
                   </TouchableOpacity>
                 </View>
               </View>
-            </View>
-          )}
-          ListEmptyComponent={
-            hasSearched ? (
-              <View style={styles.centerContainer}>
-                <Text style={styles.emptyText}>Nenhum preço registado no raio de {radius} km.</Text>
-                <Text style={styles.emptySubText}>Tente ampliar o raio ou simplificar o termo pesquisado.</Text>
               </View>
-            ) : (
-              <View style={styles.centerContainer}>
-                <Text style={styles.emptyText}>Indique um item ou selecione um atalho acima.</Text>
-                <Text style={styles.emptySubText}>Pesquisa em tempo real com base nas notas fiscais (NFC-e) do Paraná.</Text>
-              </View>
-            )
-          }
-        />
+            )}
+            ListEmptyComponent={
+              networkError ? (
+                <View style={[styles.centerContainer, styles.networkErrorEmpty]}>
+                  <Feather name="wifi-off" size={36} color="#F87171" />
+                  <Text style={styles.networkErrorTitle}>Falha na conexão de dados</Text>
+                  <Text style={styles.emptySubText}>
+                    Não foi possível carregar os preços da SEFAZ-PR. O sinal no supermercado pode estar instável.
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.retryButton}
+                    onPress={() => handleSearch()}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.retryButtonText}>Tentar novamente</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : hasSearched ? (
+                <View style={styles.centerContainer}>
+                  <Text style={styles.emptyText}>Nenhum preço registado no raio de {radius} km.</Text>
+                  <Text style={styles.emptySubText}>Tente ampliar o raio ou simplificar o termo pesquisado.</Text>
+                </View>
+              ) : (
+                <View style={styles.centerContainer}>
+                  <Text style={styles.emptyText}>Indique um item ou selecione um atalho acima.</Text>
+                  <Text style={styles.emptySubText}>Pesquisa em tempo real com base nas notas fiscais (NFC-e) do Paraná.</Text>
+                </View>
+              )
+            }
+          />
+        </>
       )}
 
       <BasketModal
@@ -741,6 +789,60 @@ const styles = StyleSheet.create({
   },
   routeBtnText: { color: '#94A3B8', fontSize: 10, fontWeight: '600' },
   centerContainer: { alignItems: 'center', marginTop: 40, paddingHorizontal: 20 },
+  refreshingIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 8,
+  },
+  networkErrorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    padding: 10,
+    borderRadius: 8,
+    backgroundColor: '#1E293B',
+  },
+  networkErrorText: {
+    flex: 1,
+    color: '#F87171',
+    fontSize: 11,
+  },
+  retryButtonCompact: {
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    backgroundColor: 'rgba(248, 113, 113, 0.12)',
+  },
+  retryButtonCompactText: {
+    color: '#F87171',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  networkErrorEmpty: {
+    gap: 8,
+  },
+  networkErrorTitle: {
+    color: '#F8FAFC',
+    fontSize: 15,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  retryButton: {
+    marginTop: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    backgroundColor: '#10B981',
+  },
+  retryButtonText: {
+    color: '#0B0F19',
+    fontSize: 12,
+    fontWeight: '800',
+  },
   loadingText: { color: '#64748B', marginTop: 10, fontSize: 12, textAlign: 'center' },
   emptyText: { color: '#94A3B8', fontSize: 14, fontWeight: '700', textAlign: 'center' },
   emptySubText: { color: '#64748B', fontSize: 11, textAlign: 'center', marginTop: 4 },

@@ -12,6 +12,7 @@ import {
   Platform,
 } from 'react-native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface InstitutionPreset {
   id: string;
@@ -58,6 +59,7 @@ export const YieldCalculatorModal: React.FC<YieldCalculatorModalProps> = ({
   onClose,
   initialAmount = 1000,
 }) => {
+  const insets = useSafeAreaInsets();
   const [selectedInstId, setSelectedInstId] = useState<string>('nubank');
   const [amountStr, setAmountStr] = useState(String(initialAmount || 1000));
   const [cdiPctStr, setCdiPctStr] = useState('100');
@@ -143,7 +145,12 @@ export const YieldCalculatorModal: React.FC<YieldCalculatorModalProps> = ({
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.overlay}
       >
-        <View style={styles.modalContent}>
+        <View
+          style={[
+            styles.modalContent,
+            { paddingBottom: Math.max(insets.bottom + 12, 24) },
+          ]}
+        >
           <View style={styles.dragHandleBox}>
             <View style={styles.dragHandle} />
           </View>
@@ -414,7 +421,6 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingHorizontal: 20,
-    paddingBottom: Platform.OS === 'android' ? 24 : 36,
     maxHeight: '92%',
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.08)',

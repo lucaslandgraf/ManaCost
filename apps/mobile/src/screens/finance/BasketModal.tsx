@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useBasket } from '../../context/BasketContext';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface StoreSplit {
   store_name: string;
@@ -25,6 +26,7 @@ interface BasketModalProps {
 }
 
 export const BasketModal: React.FC<BasketModalProps> = ({ visible, onClose }) => {
+  const insets = useSafeAreaInsets();
   const { items, removeItem, updateQuantity, clearBasket } = useBasket();
 
   // 1. Soma global
@@ -267,7 +269,12 @@ export const BasketModal: React.FC<BasketModalProps> = ({ visible, onClose }) =>
 
           {/* Barra de Rodapé: Total + Botão de Compartilhar/WhatsApp */}
           {items.length > 0 && (
-            <View style={styles.footerContainer}>
+            <View
+              style={[
+                styles.footerContainer,
+                { paddingBottom: Math.max(insets.bottom, 12), marginBottom: 0 },
+              ]}
+            >
               <View style={styles.footerSummary}>
                 <View>
                   <Text style={styles.footerLabel}>Total Geral</Text>

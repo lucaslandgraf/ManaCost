@@ -16,6 +16,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as XLSX from 'xlsx';
 import { supabase } from '../../config/supabase';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface EventItem {
   id: string;
@@ -42,6 +43,7 @@ interface EventExpense {
 }
 
 export const EventReportsModal: React.FC<Props> = ({ visible, onClose, event }) => {
+  const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(false);
   const [expenses, setExpenses] = useState<EventExpense[]>([]);
   const [totalSpent, setTotalSpent] = useState(0);
@@ -217,7 +219,12 @@ export const EventReportsModal: React.FC<Props> = ({ visible, onClose, event }) 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.overlay}>
-        <View style={styles.card}>
+        <View
+          style={[
+            styles.card,
+            { paddingBottom: Math.max(insets.bottom + 12, 24) },
+          ]}
+        >
           <View style={styles.dragHandleBox}>
             <View style={styles.dragHandle} />
           </View>
@@ -353,7 +360,6 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingHorizontal: 20,
-    paddingBottom: Platform.OS === 'android' ? 24 : 36,
     maxHeight: '92%',
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.08)',

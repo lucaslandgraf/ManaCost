@@ -15,6 +15,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { supabase } from '../../config/supabase';
 import { useAuth } from '../../context/AuthContext';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface Props {
   visible: boolean;
@@ -24,6 +25,7 @@ interface Props {
 }
 
 export const ScannerScreen: React.FC<Props> = ({ visible, onClose, onSuccess, eventId }) => {
+  const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
   const [manualKeyModal, setManualKeyModal] = useState(false);
@@ -180,7 +182,7 @@ export const ScannerScreen: React.FC<Props> = ({ visible, onClose, onSuccess, ev
               onBarcodeScanned={scanned ? undefined : handleBarcodeScanned}
             />
 
-            <View style={styles.overlay}>
+            <View style={[styles.overlay, { paddingBottom: Math.max(insets.bottom + 16, 32) }]}>
               {/* Top Bar com Botão Fechar */}
               <View style={styles.header}>
                 <TouchableOpacity style={styles.closeBtn} onPress={onClose} activeOpacity={0.8}>
@@ -285,7 +287,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 28) + 12 : 50,
-    paddingBottom: Platform.OS === 'android' ? 36 : 48,
     backgroundColor: 'rgba(0, 0, 0, 0.45)',
   },
   header: {

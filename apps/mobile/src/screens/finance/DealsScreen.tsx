@@ -5,7 +5,6 @@ import {
   FlatList,
   StyleSheet,
   ActivityIndicator,
-  Image,
   RefreshControl,
   TouchableOpacity,
   TextInput,
@@ -13,12 +12,14 @@ import {
   Platform,
   StatusBar,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { WebView } from 'react-native-webview';
 import { supabase } from '../../config/supabase';
 import { useBasket } from '../../context/BasketContext';
 import { BasketModal } from './BasketModal';
 import { PriceSearchScreen } from './PriceSearchScreen';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface MatchItem {
   id: string;
@@ -194,13 +195,16 @@ export const ProductImageWithFallback: React.FC<ProductImageWithFallbackProps> =
     <Image
       source={{ uri }}
       style={styles.cardImage}
-      resizeMode="contain"
+      contentFit="contain"
+      cachePolicy="disk"
+      transition={200}
       onError={() => setHasError(true)}
     />
   );
 };
 
 export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
+  const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState<'matches' | 'catalog' | 'sefaz' | 'flyers'>('matches');
 
   const [matches, setMatches] = useState<ProductMatch[]>([]);
@@ -227,6 +231,7 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
 
   const { items, addItem, removeItem } = useBasket();
   const [basketVisible, setBasketVisible] = useState(false);
+  const bottomSafeOffset = Math.max(insets.bottom, 48) + 90;
 
   const formatUpdateDate = (dateString?: string) => {
     if (!dateString) return '';
@@ -599,7 +604,7 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingBottom: Math.max(insets.bottom, 48) }]}>
       <StatusBar barStyle="light-content" />
 
       {/* Top Bar / Header */}
@@ -784,7 +789,7 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
               }
               contentContainerStyle={[
                 styles.listContent,
-                items.length > 0 && { paddingBottom: 110 },
+                { paddingBottom: bottomSafeOffset + (items.length > 0 ? 50 : 0) },
               ]}
               showsVerticalScrollIndicator={false}
               renderItem={({ item }) => {
@@ -966,7 +971,7 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
               }
               contentContainerStyle={[
                 styles.listContent,
-                items.length > 0 && { paddingBottom: 110 },
+                { paddingBottom: bottomSafeOffset + (items.length > 0 ? 50 : 0) },
               ]}
               showsVerticalScrollIndicator={false}
               renderItem={({ item }) => {
@@ -1080,7 +1085,10 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
             <FlatList
               data={flyers}
               keyExtractor={(item) => String(item.id || item.store_name)}
-              contentContainerStyle={styles.flyersList}
+              contentContainerStyle={[
+                styles.flyersList,
+                { paddingBottom: bottomSafeOffset },
+              ]}
               showsVerticalScrollIndicator={false}
               renderItem={({ item }) => (
                 <TouchableOpacity
@@ -1133,7 +1141,10 @@ export const DealsScreen = ({ onBack }: { onBack: () => void }) => {
       {/* Barra Flutuante da Cesta Inteligente */}
       {items.length > 0 && activeTab !== 'flyers' && (
         <TouchableOpacity
-          style={styles.floatingBar}
+          style={[
+            styles.floatingBar,
+            { bottom: 16 },
+          ]}
           activeOpacity={0.9}
           onPress={() => setBasketVisible(true)}
         >

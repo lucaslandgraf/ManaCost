@@ -20,6 +20,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as XLSX from 'xlsx';
 import { supabase } from '../../config/supabase';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface ChecklistItem {
   id: string;
@@ -40,6 +41,7 @@ const DEFAULT_ITEMS: { title: string; description?: string }[] = [
 ];
 
 export function EventChecklistScreen({ route, navigation }: any) {
+  const insets = useSafeAreaInsets();
   const { eventId, title } = route.params;
 
   const [items, setItems] = useState<ChecklistItem[]>([]);
@@ -357,7 +359,7 @@ export function EventChecklistScreen({ route, navigation }: any) {
           data={items}
           keyExtractor={(item) => item.id}
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: Platform.OS === 'android' ? 100 : 80 }}
+          contentContainerStyle={[{ paddingBottom: insets.bottom + 40 }]}
           renderItem={({ item }) => (
             <View style={[styles.itemCard, item.is_completed && styles.itemCardCompleted]}>
               <TouchableOpacity
@@ -433,7 +435,12 @@ export function EventChecklistScreen({ route, navigation }: any) {
         onRequestClose={() => setReportModalVisible(false)}
       >
         <View style={styles.bottomModalOverlay}>
-          <View style={styles.bottomModalCard}>
+          <View
+            style={[
+              styles.bottomModalCard,
+              { paddingBottom: Math.max(insets.bottom + 12, 24) },
+            ]}
+          >
             <View style={styles.dragHandleBox}>
               <View style={styles.dragHandle} />
             </View>
@@ -531,7 +538,12 @@ export function EventChecklistScreen({ route, navigation }: any) {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={styles.bottomModalOverlay}
         >
-          <View style={styles.bottomModalCard}>
+          <View
+            style={[
+              styles.bottomModalCard,
+              { paddingBottom: Math.max(insets.bottom + 12, 24) },
+            ]}
+          >
             <View style={styles.dragHandleBox}>
               <View style={styles.dragHandle} />
             </View>
@@ -780,7 +792,6 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingHorizontal: 20,
-    paddingBottom: Platform.OS === 'android' ? 24 : 36,
     maxHeight: '90%',
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.08)',
