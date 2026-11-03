@@ -10,6 +10,7 @@ import { DashboardScreen } from './src/screens/finance/DashboardScreen';
 import { EventsScreen } from './src/screens/finance/EventsScreen';
 import { EventDetailsScreen } from './src/screens/finance/EventDetailsScreen';
 import { EventChecklistScreen } from './src/screens/finance/EventChecklistScreen';
+import { GoalsScreen } from './src/screens/finance/GoalsScreen';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 const Stack = createNativeStackNavigator();
@@ -57,6 +58,7 @@ const NavigationRoutes = () => {
             <Stack.Screen name="Events" component={EventsScreen} />
             <Stack.Screen name="EventDetails" component={EventDetailsScreen} />
             <Stack.Screen name="EventChecklist" component={EventChecklistScreen} />
+            <Stack.Screen name="Goals" component={GoalsScreen} />
           </>
         ) : (
           <Stack.Screen name="Auth" component={AuthScreen} />

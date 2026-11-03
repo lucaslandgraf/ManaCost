@@ -44,6 +44,8 @@ interface Transaction {
   categories?: { name: string; rule_group: string } | { name: string; rule_group: string }[] | null;
 }
 
+const PAGE_SIZE = 15;
+
 export const DashboardScreen = ({ navigation }: any) => {
   const insets = useSafeAreaInsets();
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
@@ -63,6 +65,9 @@ export const DashboardScreen = ({ navigation }: any) => {
   const [estimatorVisible, setEstimatorVisible] = useState(false);
   const [reportsModalVisible, setReportsModalVisible] = useState(false);
   const [billsToPayVisible, setBillsToPayVisible] = useState(false);
+
+  // Paginação progressiva na lista
+  const [displayLimit, setDisplayLimit] = useState(PAGE_SIZE);
 
   // Seletor rápido de Mês e Ano
   const [monthPickerVisible, setMonthPickerVisible] = useState(false);
@@ -154,9 +159,10 @@ export const DashboardScreen = ({ navigation }: any) => {
 
       let currentItems: Transaction[] = (existingData as unknown as Transaction[]) || [];
 
+      // Seleciona também goal_id das contas fixas
       const { data: activeBills } = await supabase
         .from('recurring_bills')
-        .select('id, description, amount, due_day, category_id, type, spent_for_name')
+        .select('id, description, amount, due_day, category_id, type, spent_for_name, goal_id')
         .eq('user_id', user.id)
         .eq('is_active', true);
 
@@ -168,6 +174,7 @@ export const DashboardScreen = ({ navigation }: any) => {
         const year = currentDate.getFullYear();
         const month = currentDate.getMonth();
         const toAutoInsert = [];
+        const goalsToUpdate: { goal_id: string; amount: number }[] = [];
 
         for (const bill of activeBills) {
           if (!existingDescriptions.has(bill.description.trim().toLowerCase())) {
@@ -187,6 +194,10 @@ export const DashboardScreen = ({ navigation }: any) => {
               split_status: 'none',
               repeats_monthly: true,
             });
+
+            if (bill.goal_id) {
+              goalsToUpdate.push({ goal_id: bill.goal_id, amount: Number(bill.amount) });
+            }
           }
         }
 
@@ -198,6 +209,22 @@ export const DashboardScreen = ({ navigation }: any) => {
 
           if (insertedData) {
             currentItems = [...(insertedData as unknown as Transaction[]), ...currentItems];
+
+            // Atualiza progresso da meta no banco caso tenha sido inserida neste mês
+            for (const item of goalsToUpdate) {
+              const { data: gData } = await supabase
+                .from('financial_goals')
+                .select('current_amount')
+                .eq('id', item.goal_id)
+                .single();
+
+              if (gData) {
+                await supabase
+                  .from('financial_goals')
+                  .update({ current_amount: Number(gData.current_amount || 0) + item.amount })
+                  .eq('id', item.goal_id);
+              }
+            }
           }
         }
       }
@@ -359,8 +386,17 @@ export const DashboardScreen = ({ navigation }: any) => {
   }, [user]);
 
   useEffect(() => {
+    setDisplayLimit(PAGE_SIZE);
     fetchTransactions();
   }, [currentDate]);
+
+  const handleLoadMore = () => {
+    if (displayLimit < transactions.length) {
+      setDisplayLimit((prev) => prev + PAGE_SIZE);
+    }
+  };
+
+  const visibleTransactions = transactions.slice(0, displayLimit);
 
   const budgetNeeds = budgetRules.useFixed
     ? budgetRules.fixedNeeds
@@ -387,6 +423,9 @@ export const DashboardScreen = ({ navigation }: any) => {
 
   const getTransactionIcon = (desc: string, catName: string) => {
     const text = `${desc} ${catName}`.toLowerCase();
+    if (text.includes('aporte') || text.includes('meta') || catName.includes('invest')) {
+      return <Feather name="target" size={16} color="#10B981" />;
+    }
     if (text.includes('mercado') || text.includes('supermercado') || text.includes('alimento') || text.includes('muffato') || text.includes('condor') || text.includes('atacadao')) {
       return <Feather name="shopping-cart" size={16} color="#38BDF8" />;
     }
@@ -442,7 +481,6 @@ export const DashboardScreen = ({ navigation }: any) => {
         </View>
 
         <View style={styles.headerRight}>
-          {/* Pílula do Mês: Setas + Toque central que abre o Seletor Rápido */}
           <View style={styles.monthPill}>
             <TouchableOpacity 
               style={styles.monthArrow} 
@@ -525,29 +563,29 @@ export const DashboardScreen = ({ navigation }: any) => {
         {/* Ações Rápidas */}
         <View style={styles.quickActionsContainer}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickActionsScroll}>
-           <TouchableOpacity
-  style={[styles.actionPill, styles.actionPillExpense]}
-  onPress={() => {
-    setInitialTxType('expense');
-    setModalVisible(true);
-  }}
-  activeOpacity={0.7}
->
-  <Feather name="minus" size={13} color="#F87171" />
-  <Text style={styles.actionPillText}>Despesa</Text>
-</TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionPill, styles.actionPillExpense]}
+              onPress={() => {
+                setInitialTxType('expense');
+                setModalVisible(true);
+              }}
+              activeOpacity={0.7}
+            >
+              <Feather name="minus" size={13} color="#F87171" />
+              <Text style={styles.actionPillText}>Despesa</Text>
+            </TouchableOpacity>
 
-<TouchableOpacity
-  style={[styles.actionPill, styles.actionPillIncome]}
-  onPress={() => {
-    setInitialTxType('income');
-    setModalVisible(true);
-  }}
-  activeOpacity={0.7}
->
-  <Feather name="plus" size={13} color="#10B981" />
-  <Text style={styles.actionPillText}>Receita</Text>
-</TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionPill, styles.actionPillIncome]}
+              onPress={() => {
+                setInitialTxType('income');
+                setModalVisible(true);
+              }}
+              activeOpacity={0.7}
+            >
+              <Feather name="plus" size={13} color="#10B981" />
+              <Text style={styles.actionPillText}>Receita</Text>
+            </TouchableOpacity>
 
             <TouchableOpacity
               style={styles.actionPill}
@@ -569,6 +607,15 @@ export const DashboardScreen = ({ navigation }: any) => {
 
             <TouchableOpacity
               style={styles.actionPill}
+              onPress={() => navigation.navigate('Goals')}
+              activeOpacity={0.7}
+            >
+              <Feather name="target" size={13} color="#10B981" />
+              <Text style={styles.actionPillText}>Metas</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.actionPill}
               onPress={() => setToolsModalVisible(true)}
               activeOpacity={0.7}
             >
@@ -578,7 +625,7 @@ export const DashboardScreen = ({ navigation }: any) => {
           </ScrollView>
         </View>
 
-        {/* Régua de Orçamento Clicável com Redirecionamento Direto para Ajustes */}
+        {/* Régua de Orçamento */}
         <TouchableOpacity
           style={styles.budgetCard}
           onPress={() => setSettingsVisible(true)}
@@ -636,16 +683,20 @@ export const DashboardScreen = ({ navigation }: any) => {
           </View>
         </TouchableOpacity>
 
-        {/* Título do Extrato */}
+        {/* Título do Extrato com Contador Dinâmico */}
         <View style={styles.sectionHeaderRow}>
           <Text style={styles.sectionTitle}>Extrato Recente</Text>
-          <Text style={styles.sectionCounter}>{transactions.length} lançamentos</Text>
+          <Text style={styles.sectionCounter}>
+            {transactions.length > PAGE_SIZE
+              ? `${visibleTransactions.length} de ${transactions.length} lançamentos`
+              : `${transactions.length} lançamentos`}
+          </Text>
         </View>
       </View>
 
-      {/* LISTA ROLÁVEL */}
+      {/* LISTA ROLÁVEL COM PAGINAÇÃO */}
       <FlatList
-        data={transactions}
+        data={visibleTransactions}
         keyExtractor={(item) => item.id}
         refreshControl={
           <RefreshControl refreshing={loading} onRefresh={fetchTransactions} tintColor="#10B981" />
@@ -656,6 +707,11 @@ export const DashboardScreen = ({ navigation }: any) => {
           { paddingBottom: insets.bottom + 120 },
         ]}
         showsVerticalScrollIndicator={false}
+        onEndReached={handleLoadMore}
+        onEndReachedThreshold={0.3}
+        initialNumToRender={10}
+        maxToRenderPerBatch={10}
+        windowSize={5}
         renderItem={({ item }) => {
           const rawCat = item.categories;
           const catObj = Array.isArray(rawCat) ? rawCat[0] : rawCat;
@@ -800,6 +856,22 @@ export const DashboardScreen = ({ navigation }: any) => {
             </View>
 
             <View style={styles.toolsGrid}>
+              <TouchableOpacity
+                style={styles.toolItem}
+                onPress={() => {
+                  setToolsModalVisible(false);
+                  navigation.navigate('Goals');
+                }}
+              >
+                <View style={[styles.toolIconBox, { backgroundColor: 'rgba(16, 185, 129, 0.12)' }]}>
+                  <Feather name="target" size={18} color="#10B981" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.toolLabel}>Metas & Simulador</Text>
+                  <Text style={styles.toolSub}>Projeção de sonhos e aportes</Text>
+                </View>
+              </TouchableOpacity>
+
               <TouchableOpacity
                 style={styles.toolItem}
                 onPress={() => {
@@ -1000,13 +1072,13 @@ export const DashboardScreen = ({ navigation }: any) => {
 
       {/* Modais do Sistema */}
       <NewTransactionModal
-  visible={modalVisible}
-  initialType={initialTxType}
-  onClose={() => setModalVisible(false)}
-  currentMonthDate={currentDate}
-  onSuccess={fetchTransactions}
-  onOpenSettings={() => setSettingsVisible(true)}
-/>
+        visible={modalVisible}
+        initialType={initialTxType}
+        onClose={() => setModalVisible(false)}
+        currentMonthDate={currentDate}
+        onSuccess={fetchTransactions}
+        onOpenSettings={() => setSettingsVisible(true)}
+      />
 
       <ReportsModal
         visible={reportsModalVisible}
@@ -1110,20 +1182,20 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 28) + 8 : 10,
-    paddingBottom: 8,
+    paddingTop: 8,
+    paddingBottom: 6,
     backgroundColor: '#0B0F19',
   },
- userInfoRow: {
+  userInfoRow: {
     flexDirection: 'row',
-    alignItems: 'center', // Garante que o texto ManaCost fique perfeitamente centralizado na altura do logo
+    alignItems: 'center',
     gap: 10,
     flex: 1,
   },
   logoButton: {
     width: 36,
     height: 36,
-    borderRadius: 10, // Cantos suaves modernos (ou use 18 se preferir 100% redondo)
+    borderRadius: 10,
     overflow: 'hidden',
     backgroundColor: '#131927',
     borderWidth: 1,
@@ -1203,7 +1275,7 @@ const styles = StyleSheet.create({
   heroBalanceCard: {
     backgroundColor: '#131927',
     borderRadius: 16,
-    padding: 16,
+    padding: 14,
     marginTop: 4,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.05)',
@@ -1225,9 +1297,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     backgroundColor: '#0B0F19',
     borderRadius: 10,
-    paddingVertical: 8,
+    paddingVertical: 7,
     paddingHorizontal: 10,
-    marginTop: 10,
+    marginTop: 8,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.03)',
   },
@@ -1261,7 +1333,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   quickActionsContainer: {
-    marginVertical: 10,
+    marginVertical: 8,
   },
   quickActionsScroll: {
     gap: 6,
@@ -1270,12 +1342,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#131927',
-    borderRadius: 16,
-    paddingVertical: 7,
-    paddingHorizontal: 12,
+    borderRadius: 14,
+    paddingVertical: 6,
+    paddingHorizontal: 11,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.06)',
-    gap: 6,
+    gap: 5,
   },
   actionPillExpense: {
     borderColor: 'rgba(248, 113, 113, 0.25)',
@@ -1294,7 +1366,7 @@ const styles = StyleSheet.create({
     padding: 12,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.05)',
-    marginBottom: 10,
+    marginBottom: 8,
   },
   budgetHeaderRow: {
     flexDirection: 'row',
@@ -1372,7 +1444,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#131927',
-    padding: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     borderRadius: 12,
     marginBottom: 6,
     borderWidth: 1,

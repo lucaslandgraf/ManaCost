@@ -20,7 +20,7 @@ export const AuthScreen = () => {
   const handleLogin = async () => {
     const cleanEmail = email.trim();
     if (!cleanEmail || !password) {
-      Alert.alert('Atenção', 'Por favor, preenche o e-mail e a palavra-passe.');
+      Alert.alert('Atenção', 'Por favor, preencha o e-mail e a senha.');
       return;
     }
 
@@ -34,7 +34,7 @@ export const AuthScreen = () => {
 
       if (error) {
         if (error.message.includes('Invalid login credentials')) {
-          Alert.alert('Erro ao entrar', 'E-mail ou palavra-passe incorretos.');
+          Alert.alert('Erro ao entrar', 'E-mail ou senha incorretos.');
         } else if (error.message.includes('Email not confirmed')) {
           Alert.alert('Acesso pendente', 'Este utilizador ainda não tem o e-mail confirmado.');
         } else {
@@ -52,7 +52,7 @@ export const AuthScreen = () => {
     const cleanEmail = email.trim();
     if (!cleanEmail) {
       Alert.alert(
-        'Redefinir Palavra-passe',
+        'Redefinir Senha',
         'Introduza o seu e-mail no campo acima e toque novamente nesta opção.'
       );
       return;
@@ -79,7 +79,7 @@ export const AuthScreen = () => {
 
       Alert.alert(
         'E-mail Enviado',
-        'Se o e-mail estiver registado, receberá as instruções para redefinir a palavra-passe.'
+        'Se o e-mail estiver registado, receberá as instruções para redefinir a senha.'
       );
     } catch (err: any) {
       Alert.alert('Erro', err.message || 'Falha ao solicitar redefinição.');
@@ -95,7 +95,7 @@ export const AuthScreen = () => {
     >
       <View style={styles.card}>
         <Text style={styles.title}>ManaCost</Text>
-        <Text style={styles.subtitle}>Gestão e Controlo Financeiro</Text>
+        <Text style={styles.subtitle}>Gestão e Controle Financeiro</Text>
 
         <TextInput
           placeholder="E-mail"
@@ -108,7 +108,7 @@ export const AuthScreen = () => {
         />
 
         <TextInput
-          placeholder="Palavra-passe"
+          placeholder="Senha"
           value={password}
           onChangeText={setPassword}
           secureTextEntry
@@ -135,7 +135,7 @@ export const AuthScreen = () => {
           disabled={loading}
           activeOpacity={0.7}
         >
-          <Text style={styles.forgotText}>Esqueceu da palavra-passe?</Text>
+          <Text style={styles.forgotText}>Esqueceu sua Senha?</Text>
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>

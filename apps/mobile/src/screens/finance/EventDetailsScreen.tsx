@@ -156,9 +156,42 @@ export function EventDetailsScreen({ route, navigation }: any) {
     }
   };
 
-  useEffect(() => {
-    fetchExpenses();
-  }, []);
+useEffect(() => {
+  fetchExpenses();
+
+  // Escuta alterações em tempo real feitas pela Web ou outro aparelho
+  const channel = supabase
+    .channel(`event-realtime-${eventId}`)
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'event_expenses',
+        filter: `event_id=eq.${eventId}`,
+      },
+      () => {
+        fetchExpenses(); // Recarrega os gastos automaticamente
+      }
+    )
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'budget_events',
+        filter: `id=eq.${eventId}`,
+      },
+      () => {
+        fetchExpenses(); // Recarrega título e meta caso mudem na Web
+      }
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}, [eventId]);
 
   const totalSpent = expenses.reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
   const remainingBudget = currentTargetBudget - totalSpent;
