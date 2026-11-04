@@ -66,6 +66,9 @@ export const DashboardScreen = ({ navigation }: any) => {
   const [reportsModalVisible, setReportsModalVisible] = useState(false);
   const [billsToPayVisible, setBillsToPayVisible] = useState(false);
 
+  // Ocultar valores sensíveis (saldo, entradas, saídas, etc.)
+  const [hideValues, setHideValues] = useState(false);
+
   // Paginação progressiva na lista
   const [displayLimit, setDisplayLimit] = useState(PAGE_SIZE);
 
@@ -531,12 +534,25 @@ export const DashboardScreen = ({ navigation }: any) => {
 
       {/* BLOCO FIXO SUPERIOR */}
       <View style={styles.fixedTopSection}>
-        {/* Card Saldo Consolidado */}
+        {/* Card Saldo Consolidado com Botão Olho */}
         <View style={styles.heroBalanceCard}>
-          <Text style={styles.heroLabel}>SALDO CONSOLIDADO DO MÊS</Text>
+          <View style={styles.heroLabelRow}>
+            <Text style={styles.heroLabel}>SALDO CONSOLIDADO DO MÊS</Text>
+            <TouchableOpacity
+              onPress={() => setHideValues((prev) => !prev)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              activeOpacity={0.7}
+            >
+              <Feather
+                name={hideValues ? 'eye-off' : 'eye'}
+                size={14}
+                color="#64748B"
+              />
+            </TouchableOpacity>
+          </View>
 
           <Text style={[styles.heroBalanceVal, { color: currentBalance >= 0 ? '#F8FAFC' : '#F87171' }]}>
-            R$ {currentBalance.toFixed(2)}
+            {hideValues ? '••••••' : `R$ ${currentBalance.toFixed(2)}`}
           </Text>
 
           <View style={styles.inOutRow}>
@@ -545,7 +561,9 @@ export const DashboardScreen = ({ navigation }: any) => {
                 <Feather name="arrow-up-right" size={12} color="#10B981" />
                 <Text style={styles.inOutLabel}>Entradas</Text>
               </View>
-              <Text style={styles.inVal}>+R$ {totalIncome.toFixed(2)}</Text>
+              <Text style={styles.inVal}>
+                {hideValues ? '••••' : `+R$ ${totalIncome.toFixed(2)}`}
+              </Text>
             </View>
 
             <View style={styles.inOutDivider} />
@@ -555,7 +573,9 @@ export const DashboardScreen = ({ navigation }: any) => {
                 <Feather name="arrow-down-right" size={12} color="#F87171" />
                 <Text style={styles.inOutLabel}>Saídas</Text>
               </View>
-              <Text style={styles.outVal}>-R$ {totalExpense.toFixed(2)}</Text>
+              <Text style={styles.outVal}>
+                {hideValues ? '••••' : `-R$ ${totalExpense.toFixed(2)}`}
+              </Text>
             </View>
           </View>
         </View>
@@ -641,7 +661,9 @@ export const DashboardScreen = ({ navigation }: any) => {
               <Feather name="edit-2" size={11} color="#10B981" />
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <Text style={styles.budgetBaseVal}>Base R$ {totalIncome.toFixed(2)}</Text>
+              <Text style={styles.budgetBaseVal}>
+                {hideValues ? 'Base ••••' : `Base R$ ${totalIncome.toFixed(2)}`}
+              </Text>
               <Feather name="chevron-right" size={12} color="#64748B" />
             </View>
           </View>
@@ -652,7 +674,10 @@ export const DashboardScreen = ({ navigation }: any) => {
                 Necessidades <Text style={styles.budgetPct}>• {budgetRules.useFixed ? 'Fixo' : `${budgetRules.needsPct}%`}</Text>
               </Text>
               <Text style={styles.budgetValue}>
-                R$ {spentNeeds.toFixed(2)} <Text style={styles.budgetValueMax}>/ R$ {budgetNeeds.toFixed(2)}</Text>
+                {hideValues ? '••••' : `R$ ${spentNeeds.toFixed(2)}`} 
+                <Text style={styles.budgetValueMax}>
+                  {hideValues ? '' : ` / R$ ${budgetNeeds.toFixed(2)}`}
+                </Text>
               </Text>
             </View>
             {renderProgressBar(spentNeeds, budgetNeeds, '#38BDF8')}
@@ -664,7 +689,10 @@ export const DashboardScreen = ({ navigation }: any) => {
                 Desejos <Text style={styles.budgetPct}>• {budgetRules.useFixed ? 'Fixo' : `${budgetRules.wantsPct}%`}</Text>
               </Text>
               <Text style={styles.budgetValue}>
-                R$ {spentWants.toFixed(2)} <Text style={styles.budgetValueMax}>/ R$ {budgetWants.toFixed(2)}</Text>
+                {hideValues ? '••••' : `R$ ${spentWants.toFixed(2)}`} 
+                <Text style={styles.budgetValueMax}>
+                  {hideValues ? '' : ` / R$ ${budgetWants.toFixed(2)}`}
+                </Text>
               </Text>
             </View>
             {renderProgressBar(spentWants, budgetWants, '#F59E0B')}
@@ -676,7 +704,10 @@ export const DashboardScreen = ({ navigation }: any) => {
                 Reserva / Invest <Text style={styles.budgetPct}>• {budgetRules.useFixed ? 'Fixo' : `${budgetRules.savingsPct}%`}</Text>
               </Text>
               <Text style={styles.budgetValue}>
-                R$ {spentSavings.toFixed(2)} <Text style={styles.budgetValueMax}>/ R$ {budgetSavings.toFixed(2)}</Text>
+                {hideValues ? '••••' : `R$ ${spentSavings.toFixed(2)}`} 
+                <Text style={styles.budgetValueMax}>
+                  {hideValues ? '' : ` / R$ ${budgetSavings.toFixed(2)}`}
+                </Text>
               </Text>
             </View>
             {renderProgressBar(spentSavings, budgetSavings, '#10B981')}
@@ -748,7 +779,7 @@ export const DashboardScreen = ({ navigation }: any) => {
 
               <View style={styles.txRightCol}>
                 <Text style={[styles.txAmount, { color: isIncome ? '#34D399' : '#F8FAFC' }]}>
-                  {isIncome ? '+' : '-'}R$ {Number(item.amount).toFixed(2)}
+                  {hideValues ? '••••' : `${isIncome ? '+' : '-'}R$ ${Number(item.amount).toFixed(2)}`}
                 </Text>
 
                 <TouchableOpacity
@@ -1280,12 +1311,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.05)',
   },
+  heroLabelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
   heroLabel: {
     color: '#64748B',
     fontSize: 9,
     fontWeight: '800',
     letterSpacing: 0.8,
-    marginBottom: 4,
   },
   heroBalanceVal: {
     fontSize: 28,
