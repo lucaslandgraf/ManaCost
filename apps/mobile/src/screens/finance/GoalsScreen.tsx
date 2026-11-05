@@ -67,8 +67,8 @@ export function GoalsScreen({ navigation }: any) {
   const [targetAmount, setTargetAmount] = useState('');
   const [currentAmount, setCurrentAmount] = useState('');
   const [monthlyContribution, setMonthlyContribution] = useState('');
-  const [useCDI, setUseCDI] = useState(false); // Desmarcado por defeito
-  const [linkToRecurring, setLinkToRecurring] = useState(true); // Vincula a Contas Fixas por defeito
+  const [useCDI, setUseCDI] = useState(false);
+  const [linkToRecurring, setLinkToRecurring] = useState(true);
   const [saving, setSaving] = useState(false);
 
   const categories = ['Carro', 'Casa/Ap', 'Viagem', 'Eletrónico', 'Reserva', 'Geral'];
@@ -135,7 +135,6 @@ export function GoalsScreen({ navigation }: any) {
 
       const rate = useCDI ? 10.75 : 0;
 
-      // 1. Cria a meta principal
       const { data: newGoal, error: goalErr } = await supabase
         .from('financial_goals')
         .insert([{
@@ -152,7 +151,6 @@ export function GoalsScreen({ navigation }: any) {
 
       if (goalErr) throw goalErr;
 
-      // 2. Se selecionado, cadastra automaticamente em recurring_bills
       if (linkToRecurring && newGoal) {
         const { data: catReserva } = await supabase
           .from('categories')
@@ -173,7 +171,6 @@ export function GoalsScreen({ navigation }: any) {
         }]);
       }
 
-      // 3. Checklists padrão conforme a categoria
       if (category === 'Carro') {
         await supabase.from('goal_checklists').insert([
           { goal_id: newGoal.id, title: 'Simular seguro e IPVA' },
@@ -239,7 +236,6 @@ export function GoalsScreen({ navigation }: any) {
     }
 
     try {
-      // 1. Atualiza na tabela da meta
       const { error: goalErr } = await supabase
         .from('financial_goals')
         .update({ monthly_contribution: newContrib })
@@ -247,7 +243,6 @@ export function GoalsScreen({ navigation }: any) {
 
       if (goalErr) throw goalErr;
 
-      // 2. Sincroniza a conta fixa vinculada (se existir)
       await supabase
         .from('recurring_bills')
         .update({ amount: newContrib })
@@ -261,6 +256,40 @@ export function GoalsScreen({ navigation }: any) {
     } catch (err: any) {
       Alert.alert('Erro', err.message);
     }
+  };
+
+  const handleDeleteGoal = (goal: FinancialGoal) => {
+    Alert.alert(
+      'Excluir Meta',
+      `Tem a certeza de que deseja excluir "${goal.title}"? Isso também removerá as contas fixas vinculadas e os itens do checklist.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Excluir',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // 1. Remove itens do checklist associados
+              await supabase.from('goal_checklists').delete().eq('goal_id', goal.id);
+
+              // 2. Remove contas fixas vinculadas
+              await supabase.from('recurring_bills').delete().eq('goal_id', goal.id);
+
+              // 3. Remove a meta em si
+              const { error } = await supabase.from('financial_goals').delete().eq('id', goal.id);
+              if (error) throw error;
+
+              setDetailModalVisible(false);
+              setSelectedGoal(null);
+              fetchGoals();
+              Alert.alert('Sucesso', 'Meta excluída com sucesso.');
+            } catch (err: any) {
+              Alert.alert('Erro', err.message || 'Falha ao excluir meta.');
+            }
+          },
+        },
+      ]
+    );
   };
 
   const handleAddChecklistItem = async () => {
@@ -618,6 +647,18 @@ export function GoalsScreen({ navigation }: any) {
                   <Text style={styles.actionBtnShareText}>Compartilhar</Text>
                 </TouchableOpacity>
               </View>
+
+              {/* Botão de Excluir Meta */}
+              {selectedGoal && (
+                <TouchableOpacity
+                  style={styles.deleteGoalBtn}
+                  onPress={() => handleDeleteGoal(selectedGoal)}
+                  activeOpacity={0.7}
+                >
+                  <Feather name="trash-2" size={14} color="#F87171" style={{ marginRight: 6 }} />
+                  <Text style={styles.deleteGoalBtnText}>Excluir Esta Meta</Text>
+                </TouchableOpacity>
+              )}
 
               {/* Seção Checklist */}
               <Text style={[styles.label, { marginTop: 14 }]}>CHECKLIST DE PROVIDÊNCIAS</Text>
@@ -1074,6 +1115,22 @@ const styles = StyleSheet.create({
     color: '#38BDF8',
     fontWeight: '700',
     fontSize: 12,
+  },
+  deleteGoalBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(248, 113, 113, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(248, 113, 113, 0.3)',
+    paddingVertical: 10,
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  deleteGoalBtnText: {
+    color: '#F87171',
+    fontSize: 12,
+    fontWeight: '700',
   },
   addChecklistRow: {
     flexDirection: 'row',

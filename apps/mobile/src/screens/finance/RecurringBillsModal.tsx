@@ -220,7 +220,7 @@ export const RecurringBillsModal: React.FC<Props> = ({
   const deleteBill = (id: string, name: string) => {
     Alert.alert(
       'Remover Assinatura',
-      `Deseja remover permanentemente "${name}" e limpar as cobranças pendentes futuras?`,
+      `Deseja remover permanentemente "${name}" e limpar as cobranças pendentes do extrato?`,
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -228,20 +228,25 @@ export const RecurringBillsModal: React.FC<Props> = ({
           style: 'destructive',
           onPress: async () => {
             try {
-              await supabase.from('recurring_bills').delete().eq('id', id);
+              // 1. Remove da tabela de regras recorrentes
+              const { error: deleteRecError } = await supabase
+                .from('recurring_bills')
+                .delete()
+                .eq('id', id);
 
+              if (deleteRecError) throw deleteRecError;
+
+              // 2. Remove transações pendentes vinculadas (exato ou com prefixo Aporte:)
               if (user) {
-                const year = currentMonthDate.getFullYear();
-                const month = currentMonthDate.getMonth();
-                const lastDayOfViewedMonth = new Date(year, month + 1, 0).toISOString().split('T')[0];
+                const cleanName = name.trim();
+                const cleanNormalized = cleanName.replace(/^aporte:\s*/i, '').trim();
 
                 await supabase
                   .from('transactions')
                   .delete()
                   .eq('user_id', user.id)
-                  .ilike('description', name.trim())
-                  .gt('date', lastDayOfViewedMonth)
-                  .eq('is_settled', false);
+                  .eq('is_settled', false)
+                  .or(`description.ilike.${cleanName},description.ilike.Aporte: ${cleanNormalized},description.ilike.${cleanNormalized}`);
               }
 
               setBills((prev) => prev.filter((b) => b.id !== id));
@@ -253,6 +258,77 @@ export const RecurringBillsModal: React.FC<Props> = ({
         },
       ]
     );
+  };
+
+  const handleSyncMonth = async () => {
+    if (!user) return;
+    setLoading(true);
+
+    try {
+      const year = currentMonthDate.getFullYear();
+      const month = currentMonthDate.getMonth();
+      const startDate = new Date(year, month, 1).toISOString().split('T')[0];
+      const endDate = new Date(year, month + 1, 0).toISOString().split('T')[0];
+
+      // 1. Busca transações que já existem neste mês
+      const { data: monthTxs } = await supabase
+        .from('transactions')
+        .select('description')
+        .eq('user_id', user.id)
+        .gte('date', startDate)
+        .lte('date', endDate);
+
+      const existingNormalized = new Set(
+        (monthTxs || []).map((t) =>
+          t.description.trim().toLowerCase().replace(/^aporte:\s*/i, '').trim()
+        )
+      );
+
+      // 2. Busca contas ativas
+      const { data: activeBills } = await supabase
+        .from('recurring_bills')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('is_active', true);
+
+      const toInsert = [];
+      const enqueued = new Set<string>();
+
+      for (const bill of activeBills || []) {
+        const billNormalized = bill.description.trim().toLowerCase().replace(/^aporte:\s*/i, '').trim();
+
+        if (!existingNormalized.has(billNormalized) && !enqueued.has(billNormalized)) {
+          enqueued.add(billNormalized);
+          const lastDayOfMonth = new Date(year, month + 1, 0).getDate();
+          const validDay = Math.min(bill.due_day || 1, lastDayOfMonth);
+          const targetDate = new Date(year, month, validDay).toISOString().split('T')[0];
+
+          toInsert.push({
+            user_id: user.id,
+            description: bill.description.trim(),
+            amount: bill.amount,
+            type: bill.type || 'expense',
+            category_id: bill.category_id || null,
+            date: targetDate,
+            is_settled: false,
+            spent_for_name: bill.spent_for_name || null,
+            split_status: 'none',
+            repeats_monthly: true,
+          });
+        }
+      }
+
+      if (toInsert.length > 0) {
+        await supabase.from('transactions').insert(toInsert);
+      }
+
+      onSyncMonth();
+      onClose();
+    } catch (err: any) {
+      Alert.alert('Erro ao sincronizar', err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const uniqueCategories = categories
@@ -475,10 +551,7 @@ export const RecurringBillsModal: React.FC<Props> = ({
 
                 <TouchableOpacity
                   style={styles.syncBtn}
-                  onPress={() => {
-                    onSyncMonth();
-                    onClose();
-                  }}
+                  onPress={handleSyncMonth}
                   activeOpacity={0.7}
                 >
                   <Feather name="zap" size={13} color="#38BDF8" style={{ marginRight: 4 }} />

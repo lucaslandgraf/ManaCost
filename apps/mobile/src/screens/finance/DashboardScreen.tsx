@@ -170,17 +170,27 @@ export const DashboardScreen = ({ navigation }: any) => {
         .eq('is_active', true);
 
       if (activeBills && activeBills.length > 0) {
+        // Normaliza as descrições já existentes no mês (removendo prefixo "Aporte:" e espaços)
         const existingDescriptions = new Set(
-          currentItems.map((tx) => tx.description.trim().toLowerCase())
+          currentItems.map((tx) =>
+            tx.description.trim().toLowerCase().replace(/^aporte:\s*/i, '').trim()
+          )
         );
 
         const year = currentDate.getFullYear();
         const month = currentDate.getMonth();
         const toAutoInsert = [];
         const goalsToUpdate: { goal_id: string; amount: number }[] = [];
+        const insertedKeysInThisRun = new Set<string>();
 
         for (const bill of activeBills) {
-          if (!existingDescriptions.has(bill.description.trim().toLowerCase())) {
+          const rawBillDesc = bill.description.trim().toLowerCase();
+          const billNormalized = rawBillDesc.replace(/^aporte:\s*/i, '').trim();
+
+          // Ignora se já existe no banco ou se já foi enfileirado nesta mesma execução
+          if (!existingDescriptions.has(billNormalized) && !insertedKeysInThisRun.has(billNormalized)) {
+            insertedKeysInThisRun.add(billNormalized);
+
             const lastDayOfMonth = new Date(year, month + 1, 0).getDate();
             const validDay = Math.min(bill.due_day || 1, lastDayOfMonth);
             const targetDate = new Date(year, month, validDay).toISOString().split('T')[0];
@@ -213,7 +223,6 @@ export const DashboardScreen = ({ navigation }: any) => {
           if (insertedData) {
             currentItems = [...(insertedData as unknown as Transaction[]), ...currentItems];
 
-            // Atualiza progresso da meta no banco caso tenha sido inserida neste mês
             for (const item of goalsToUpdate) {
               const { data: gData } = await supabase
                 .from('financial_goals')
