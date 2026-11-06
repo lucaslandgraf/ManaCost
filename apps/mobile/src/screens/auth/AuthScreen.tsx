@@ -60,7 +60,9 @@ export const AuthScreen = () => {
 
     setLoading(true);
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail);
+      const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
+        redirectTo: 'https://manacost.vercel.app/reset-password',
+      });
       if (error) {
         // Interceta o bloqueio de segurança por tempo do Supabase
         if (error.message.includes('For security purposes') || error.message.includes('after')) {
